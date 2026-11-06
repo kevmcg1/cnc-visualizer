@@ -17992,10 +17992,8 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
   </div>
 </div>
 
-<div id="site-header">
-  <a href="https:/kevmcg1.github.io" target="_blank">
-    <span class="brk">⌐</span>KEVMCG1.GITHUB.IO<span class="brk">¬</span>
-  </a>
+<div id="site-header" class="title-strip">
+  <a href="https://kevmcg1.github.io" target="_blank" rel="noopener" aria-label="kevmcg1.github.io"><span>KEVMCG1.GITHUB.IO</span></a>
 </div>
 <div id="app">
 
@@ -19737,14 +19735,14 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
   </div>
 </div>
 
-<footer id="site-footer">
+<div class="foot-strip"><footer id="site-footer" class="foot">
   <div class="footer-mark">&copy; 2026 <span class="footer-owner">kevmcg1</span> &mdash; GCode Toolpath Visualizer&trade;</div>
   <div class="footer-license">
     Released under the <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank" rel="noopener">GNU General Public License v2.0 (GPL-2.0)</a>.
     Source code and full license text on GitHub under
     <a href="https://github.com/kevmcg1" target="_blank" rel="noopener">github.com/kevmcg1</a>.
   </div>
-</footer>
+</footer></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -63155,11 +63153,29 @@ html body #sidebar code,html body #sidebar kbd{color:var(--text)!important;backg
   html body #editor-panel{max-height:20dvh!important;height:20dvh!important;min-height:0!important}
   html body #editor-hint,html body #editor-resize-handle{display:none!important}
   html body #sidebar{flex-basis:30dvh!important;max-height:30dvh!important}
-  html body #site-footer{display:none!important}
+  html body .foot-strip{display:none!important}
   html body #tp-bottom-row{display:none!important}
   html body #stop-hud,html body #mouse-hints{display:none!important}
   html body #viewport-toolbar{max-width:calc(100% - 16px)}
 }
+
+/* ---- header and footer: the shop tool sim's slanted plates on a hairline rule ---- */
+html body #site-header.title-strip{position:relative;flex:none;display:flex;justify-content:center;align-items:flex-start;width:100%;padding:12px 0 0!important;background:#08090a!important;border:0!important;min-height:0}
+html body #site-header.title-strip::before{content:"";position:absolute;left:0;right:0;top:0;height:24px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 0H34V12H24L16 22H0Z' fill='%2308090a'/%3E%3Cpath d='M34 12.5H24L16 22.5H0' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") left top/34px 24px no-repeat,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 0H34V22H18L10 12H0Z' fill='%2308090a'/%3E%3Cpath d='M0 12.5H10L18 22.5H34' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") right top/34px 24px no-repeat,linear-gradient(#3c3f46,#3c3f46) left 34px top 12px/calc(100% - 68px) 1px no-repeat}
+html body #site-header a{position:relative;z-index:1;display:block;--cut:14px;padding:5px 30px 6px;background:#3c3f46;clip-path:polygon(0 0,100% 0,calc(100% - var(--cut)) 100%,var(--cut) 100%);
+  font:600 11px/1 'Inter',system-ui,sans-serif!important;letter-spacing:.16em;color:#ececee!important;text-decoration:none;transition:color .22s ease}
+html body #site-header a::before{content:"";position:absolute;inset:0 1px 1px;z-index:-1;background:#08090a;clip-path:polygon(0 0,100% 0,calc(100% - var(--cut) + .5px) 100%,calc(var(--cut) - .5px) 100%)}
+html body #site-header a:hover,html body #site-header a:focus-visible{color:var(--accent)!important;outline:none}
+html body #site-header a .brk{display:none}
+html body .foot-strip{position:relative;flex:none;display:flex;justify-content:center;padding-bottom:12px;background:#08090a}
+html body .foot-strip::before{content:"";position:absolute;left:0;right:0;bottom:0;height:24px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V12H24L16 2H0Z' fill='%2308090a'/%3E%3Cpath d='M34 11.5H24L16 1.5H0' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") left bottom/34px 24px no-repeat,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V2H18L10 12H0Z' fill='%2308090a'/%3E%3Cpath d='M0 11.5H10L18 1.5H34' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") right bottom/34px 24px no-repeat,linear-gradient(#3c3f46,#3c3f46) left 34px bottom 12px/calc(100% - 68px) 1px no-repeat}
+html body .foot-strip .foot,html body #site-footer.foot{--cut:16px;position:relative;z-index:1;flex:0 1 auto;max-width:100%;padding:10px 28px 4px!important;border:0!important;background:#3c3f46!important;
+  clip-path:polygon(var(--cut) 0,calc(100% - var(--cut)) 0,100% 100%,0 100%);border-radius:0!important;box-shadow:none!important;text-align:center;color:var(--text-dim)!important}
+html body #site-footer.foot::before{content:"";position:absolute;inset:1px 1px 0;z-index:-1;background:#08090a;clip-path:polygon(calc(var(--cut) - .5px) 0,calc(100% - var(--cut) + .5px) 0,100% 100%,0 100%)}
+html body #site-footer.foot *{font-family:'Inter',system-ui,sans-serif!important;font-size:11.5px!important;line-height:1.45!important;color:var(--text-dim)!important}
+html body #site-footer.foot .footer-owner,html body #site-footer.foot a{color:var(--text)!important;text-decoration:none;border-bottom:1px solid transparent;transition:color .22s ease,border-color .22s ease}
+html body #site-footer.foot a:hover,html body #site-footer.foot a:focus-visible{color:var(--accent)!important;border-bottom-color:currentColor;outline:none}
+@media (max-width:640px){html body #site-header a{padding:5px 22px 6px}html body .foot-strip .foot{--cut:12px;padding:9px 18px 3px!important}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}}
 
 </style>
