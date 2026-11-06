@@ -18775,6 +18775,18 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </div>
     </div>
 
+    <div class="section" id="dev-section">
+      <div class="sec-head" data-sec="dev">
+        <span class="sec-name">Dev tools</span>
+        <span class="sec-chev">&#9654;</span>
+      </div>
+      <div class="sec-body">
+        <button class="btn" id="btn-dev-stress" type="button" data-tip="G-code stress test&#10;Builds random G00, G01, G02, G03, G12, G13 and canned-cycle programs ten times a second and checks every toolpath the parser draws. Ctrl Shift D opens it from anywhere.">
+          <i class="fa-solid fa-vial"></i> Stress test
+        </button>
+      </div>
+    </div>
+
     <div class="section" id="subs-section">
       <div class="sec-head" data-sec="subs">
         <span class="sec-name">Subprograms</span>
@@ -19659,6 +19671,9 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             <button class="tp-btn" id="btn-sim-next" title="Next block">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M1 2.5l5.5 4.5L1 11.5V2.5z"/><path d="M6.5 2.5 12 7l-5.5 4.5V2.5z"/></svg>
             </button>
+            <button class="tp-btn tp-op" id="btn-sim-nextop" data-tip="Next op&#10;Jumps to the next rapid up or tool change, whichever the program reaches first. A rapid up and the tool change that follows it count as one stop.">
+              <i class="fa-solid fa-angles-up"></i><span>Next op</span>
+            </button>
             <button class="tp-btn" id="btn-sim-end" title="Skip to end">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M1.5 2.5 8.5 7l-7 4.5V2.5z"/><rect x="10" y="2" width="2.5" height="10" rx="0.5"/></svg>
             </button>
@@ -20070,6 +20085,7 @@ const Parser = (function () {
     const f = num(/F([+-]?\d*\.?\d+)/, code);
     const d = num(/D(\d+)/, code);
     const l = num(/L(\d+)/, code);
+    const t = num(/\bT0*(\d+)/, code);
 
     let comp = null;
     if (gcodes.has(41)) comp = 'on41';
@@ -20088,7 +20104,7 @@ const Parser = (function () {
 
     return {
       lineIndex, raw: rawLine, blank: false,
-      gcodes, x, y, z, i, j, k, q, r, f, d, l, comp, motionMode, pocket,
+      gcodes, x, y, z, i, j, k, q, r, f, d, l, t, comp, motionMode, pocket,
       hasXY: (x !== undefined) || (y !== undefined),
     };
   }
@@ -20143,13 +20159,18 @@ const Pocket = (function () {
   }
 
   function expand(cx, cy, curZ, pocketDir, ins, toolR, warn) {
-    const fmt = v => v.toFixed(4);
+    const fmt = v => v.toFixed(5);
     const lines = [];
 
     const I = ins.i, K = ins.k, Q = ins.q, Z = ins.z;
     const F = ins.f;
-    const L = (ins.l !== undefined && ins.l > 0) ? Math.floor(ins.l) : 1;
-    const feedTok = (F !== undefined) ? `F${F.toFixed(1)}` : '';
+    const L = (ins.l !== undefined && ins.l > 0) ? Math.min(999, Math.floor(ins.l)) : 1;
+    const incr = !!ins.incr;
+    /* F keeps what it was given, to four places, and always ends up with a
+       decimal point so it reads as inches (mm) per minute */
+    const feedTok = (F !== undefined)
+      ? (() => { let s = String(+F.toFixed(4)); if (s.indexOf('.') < 0) s += '.'; return 'F' + s; })()
+      : '';
 
     const { ok, errors } = validate(I, K, Q, toolR, ins.lineIndex);
     if (!ok) {
@@ -20184,8 +20205,9 @@ const Pocket = (function () {
 
     if (L > 1) {
       warn.info(
-        `G12/G13: L=${L} loop count — repeating the cycle ${L} times at the `
-        + `same Z (G91 incremental Z stepping not modeled)`,
+        incr
+          ? `G12/G13: L=${L} loops under G91 — each loop goes another Z deeper`
+          : `G12/G13: L=${L} loop count — repeating the cycle ${L} times at the same Z`,
         ins.lineIndex
       );
     }
@@ -20194,9 +20216,10 @@ const Pocket = (function () {
     for (let loop = 0; loop < L; loop++) {
 
       if (Z !== undefined) {
-        if (Z !== lastZ) {
-          lines.push(`G01 Z${fmt(Z)} ${feedTok}`.trim());
-          lastZ = Z;
+        const target = incr ? lastZ + Z : Z;
+        if (Math.abs(target - lastZ) > 1e-9) {
+          lines.push(`G01 Z${fmt(target)} ${feedTok}`.trim());
+          lastZ = target;
         }
       }
 
@@ -20627,17 +20650,36 @@ const Comp = (function () {
   function collectPockets(instrs, defaultToolRadius, resolveRadius, warn) {
     const pockets = [];
     let cx = 0, cy = 0, cz = 0;
+    let incr = false;
+    let tool = null;
+    let motion = 0;
+    let plane = 17;
 
     for (let idx = 0; idx < instrs.length; idx++) {
       const ins = instrs[idx];
       if (ins.blank) continue;
 
+      if (ins.gcodes) {
+        if (ins.gcodes.has(90)) incr = false;
+        if (ins.gcodes.has(91)) incr = true;
+      }
+      if (ins.motionMode !== null && ins.motionMode !== undefined) motion = ins.motionMode;
+      if (ins.gcodes) { if (ins.gcodes.has(17)) plane = 17; if (ins.gcodes.has(18)) plane = 18; if (ins.gcodes.has(19)) plane = 19; }
+      if (ins.t !== undefined) tool = ins.t;
+
       if (ins.pocket) {
         const pocketDir = (ins.pocket === 'cw') ? 1 : -1;
 
+        /* The tool in the spindle at this line, not the first one in the
+           program: a multi-tool job pockets with its own cutter. */
+        let fallbackR = defaultToolRadius;
+        if (tool != null && typeof toolTable !== 'undefined' && toolTable.has(tool)) {
+          const dia = toolTable.get(tool);
+          if (dia > 0 && isFinite(dia)) fallbackR = dia / 2;
+        }
         const resolved = resolveRadius
-          ? resolveRadius(ins)
-          : { radius: defaultToolRadius, source: 'default-no-d', dNumber: null };
+          ? resolveRadius(ins, fallbackR)
+          : { radius: fallbackR, source: 'default-no-d', dNumber: null };
         const pocketRadius = resolved.radius;
 
         if (resolved.source === 'd-table') {
@@ -20655,20 +20697,38 @@ const Comp = (function () {
           );
         }
 
-        const result = Pocket.expand(cx, cy, cz, pocketDir, ins, pocketRadius, warn);
+        /* X Y on the block move the pocket's centre, as they do on the machine */
+        let px = cx, py = cy;
+        if (ins.x !== undefined) px = incr ? cx + ins.x : ins.x;
+        if (ins.y !== undefined) py = incr ? cy + ins.y : ins.y;
+
+        const result = Pocket.expand(px, py, cz, pocketDir, Object.assign({}, ins, { incr }), pocketRadius, warn);
+        /* The replacement is written in absolute coordinates: a program in G91
+           has it bracketed so the control reads it as such and the mode is put
+           back after. A pocket's own G01/G02 must not leave the program's
+           modal motion changed either, so the one in force goes back on. */
+        let body = result.lines.slice();
+        if (body.length) {
+          if (px !== cx || py !== cy) body.unshift(`G00 X${px.toFixed(5)} Y${py.toFixed(5)}`);
+          if (incr) { body.unshift('G90'); body.push('G91'); }
+          /* a pocket is always cut in XY, whatever plane the program is in */
+          if (plane !== 17) { body.unshift('G17'); body.push('G' + plane); }
+          body.push('G0' + motion);
+        }
         pockets.push({
           startIndex: ins.lineIndex,
           endIndex:   ins.lineIndex,
-          lines:      result.lines,
+          lines:      body,
         });
 
+        cx = px; cy = py;
         cz = result.endZ;
         continue;
       }
 
-      if (ins.x !== undefined) cx = ins.x;
-      if (ins.y !== undefined) cy = ins.y;
-      if (ins.z !== undefined) cz = ins.z;
+      if (ins.x !== undefined) cx = incr ? cx + ins.x : ins.x;
+      if (ins.y !== undefined) cy = incr ? cy + ins.y : ins.y;
+      if (ins.z !== undefined) cz = incr ? cz + ins.z : ins.z;
     }
 
     return pockets;
@@ -20712,7 +20772,8 @@ const Comp = (function () {
   function applyToolCompensation(gcode, toolRadius, dRadiusLookup) {
     const warn = makeWarn();
 
-    function resolveRadius(ins) {
+    function resolveRadius(ins, fallbackR) {
+      const base = (fallbackR != null && isFinite(fallbackR) && fallbackR > 0) ? fallbackR : toolRadius;
       if (ins && ins.d !== undefined) {
         if (typeof dRadiusLookup === 'function') {
           const r = dRadiusLookup(ins.d);
@@ -20720,9 +20781,9 @@ const Comp = (function () {
             return { radius: r, source: 'd-table', dNumber: ins.d };
           }
         }
-        return { radius: toolRadius, source: 'default-fallback', dNumber: ins.d };
+        return { radius: base, source: 'default-fallback', dNumber: ins.d };
       }
-      return { radius: toolRadius, source: 'default-no-d', dNumber: null };
+      return { radius: base, source: 'default-no-d', dNumber: null };
     }
 
     if (typeof gcode !== 'string' || gcode.length === 0) {
@@ -20838,7 +20899,7 @@ const Comp = (function () {
   return { applyToolCompensation };
 })();
 
-return { applyToolCompensation: Comp.applyToolCompensation };
+return { applyToolCompensation: Comp.applyToolCompensation, Pocket };
 })();
 
 const mainCanvas     = document.getElementById('main-canvas');
@@ -21356,68 +21417,85 @@ rebuildGrid(20, 20, 1);
 
 </script>
 <script>
+/* One arc, any plane, drawn as a run of short chords.
+ *
+ * Every plane is reduced to the same picture: the two axes that span it
+ * become (u, v) so that a counter-clockwise turn is a growing angle, and the
+ * axis left over is the one a helix climbs. G17 is (X, Y) climbing Z, G18 is
+ * (Z, X) climbing Y and G19 is (Y, Z) climbing X — the right-handed orderings,
+ * which is what makes G02 clockwise when seen from the positive end of the
+ * third axis in all three. The arc is therefore worked out once, in (u, v),
+ * and only mapped back to X/Y/Z when the points are written.
+ *
+ * Three things a control tolerates and a drawing must too:
+ *   - the end point is a hair off the circle (rounded I and J), so the radius
+ *     is walked from what the start sits at to what the end sits at and the
+ *     last chord lands on the end point exactly, leaving no gap before the
+ *     next block;
+ *   - the end point is the start point, which is a full circle, not nothing;
+ *   - a helix, whose third axis climbs in step with the angle.
+ */
+const ARC_AXES = {
+  17: ['x', 'y', 'z'],
+  18: ['z', 'x', 'y'],
+  19: ['y', 'z', 'x'],
+};
+
 function generateArcSegments(start, end, center, radius, clockwise, zEnd, feed, type, lineIdx, plane) {
-  plane = plane || 17;
+  plane = (plane === 18 || plane === 19) ? plane : 17;
+  const [U, V, W] = ARC_AXES[plane];
   const segments = [];
 
-  const effectiveCW = (plane === 18) ? !clockwise : clockwise;
+  const su = start[U] - center[U], sv = start[V] - center[V];
+  const eu = end[U]   - center[U], ev = end[V]   - center[V];
+  const r0 = Math.hypot(su, sv);
+  const r1 = Math.hypot(eu, ev);
+  const wStart = start[W];
+  /* the helical axis target: callers hand it in as `zEnd` for G17 (the only
+     plane that ever used it); for the other two it is the end point's own */
+  const wEnd = (plane === 17 && typeof zEnd === 'number') ? zEnd : end[W];
 
-  let startAngle, endAngle;
-  if (plane === 17) {
-    startAngle = Math.atan2(start.y - center.y, start.x - center.x);
-    endAngle   = Math.atan2(end.y   - center.y, end.x   - center.x);
-  } else if (plane === 18) {
-    startAngle = Math.atan2(start.z - center.z, start.x - center.x);
-    endAngle   = Math.atan2(end.z   - center.z, end.x   - center.x);
-  } else {
-    startAngle = Math.atan2(start.z - center.z, start.y - center.y);
-    endAngle   = Math.atan2(end.z   - center.z, end.y   - center.y);
+  const startAngle = Math.atan2(sv, su);
+  const endAngle   = Math.atan2(ev, eu);
+  const closed = Math.hypot(end[U] - start[U], end[V] - start[V]) < 1e-7 * Math.max(1, r0);
+
+  let delta = endAngle - startAngle;
+  if (clockwise) {                       // G02: the angle shrinks
+    if (closed) delta = -2 * Math.PI;
+    else { while (delta >= 0) delta -= 2 * Math.PI; }
+  } else {                               // G03: the angle grows
+    if (closed) delta = 2 * Math.PI;
+    else { while (delta <= 0) delta += 2 * Math.PI; }
   }
 
-  let deltaAngle = endAngle - startAngle;
-  if (effectiveCW) {
-    if (deltaAngle > 0) deltaAngle -= 2 * Math.PI;
-    if (Math.abs(deltaAngle) < 1e-10) deltaAngle = -2 * Math.PI;
-  } else {
-    if (deltaAngle < 0) deltaAngle += 2 * Math.PI;
-    if (Math.abs(deltaAngle) < 1e-10) deltaAngle = 2 * Math.PI;
-  }
+  const total = Math.abs(delta);
+  const rMax = Math.max(r0, r1);
+  /* chords no longer than 0.1 rad, and fine enough that the sag stays under a
+     thou on big radii; never fewer than 20 so a short arc still looks round */
+  const stepA = Math.min(0.1, total / 20);
+  const sagA  = rMax > 0 ? 2 * Math.acos(Math.max(0, 1 - 0.0005 / rMax)) : 0.1;
+  const step  = Math.max(1e-3, Math.min(stepA, sagA || stepA));
+  const numSteps = Math.max(1, Math.ceil(total / step));
+  const speed = Math.max(feed.unitsPerSec, 1e-9);
 
-  const totalAngle = Math.abs(deltaAngle);
-  const arcLength = radius * totalAngle;
-  const duration = arcLength / feed.unitsPerSec;
-  const step = Math.min(0.1, totalAngle / 20);
-  const numSteps = Math.max(1, Math.ceil(totalAngle / step));
-  const angleStep = deltaAngle / numSteps;
-  let prevPoint = start.clone();
-
+  let prev = start.clone();
   for (let i = 1; i <= numSteps; i++) {
     const t = i / numSteps;
-    const angle = startAngle + angleStep * i;
     let pt;
-    if (plane === 17) {
-      pt = new THREE.Vector3(
-        center.x + radius * Math.cos(angle),
-        center.y + radius * Math.sin(angle),
-        start.z + (zEnd - start.z) * t
-      );
-    } else if (plane === 18) {
-      pt = new THREE.Vector3(
-        center.x + radius * Math.cos(angle),
-        start.y + (end.y - start.y) * t,
-        center.z + radius * Math.sin(angle)
-      );
+    if (i === numSteps) {
+      pt = end.clone();
+      pt[W] = wEnd;
     } else {
-      pt = new THREE.Vector3(
-        start.x + (end.x - start.x) * t,
-        center.y + radius * Math.cos(angle),
-        center.z + radius * Math.sin(angle)
-      );
+      const a = startAngle + delta * t;
+      const r = r0 + (r1 - r0) * t;
+      pt = new THREE.Vector3();
+      pt[U] = center[U] + r * Math.cos(a);
+      pt[V] = center[V] + r * Math.sin(a);
+      pt[W] = wStart + (wEnd - wStart) * t;
     }
-    const segLength = prevPoint.distanceTo(pt);
-    const segDuration = duration / numSteps;
+    const segLength = prev.distanceTo(pt);
     segments.push({
-      start: prevPoint.clone(),
+      start: prev.clone(),
       end: pt.clone(),
       type,
       lineIdx,
@@ -21425,10 +21503,11 @@ function generateArcSegments(start, end, center, radius, clockwise, zEnd, feed, 
       feedIsIPM: feed.isIPM,
       feedLabel: feed.val + (feed.isIPM ? ' IPM' : ' mm/min'),
       length: segLength,
-      duration: segDuration,
+      duration: segLength / speed,
       center: center.clone(),
+      arc: { plane, cw: !!clockwise },
     });
-    prevPoint.copy(pt);
+    prev.copy(pt);
   }
   return segments;
 }
@@ -21940,6 +22019,7 @@ function parseGCode(text) {
   let cannedInitialZ = null;
   let cannedDwell = 0;
   let cannedPeckQ = 0;
+  let cannedI = null, cannedJ = null, cannedK = null;
   const drillHoles = [];
   allDrillHoles = [];
 
@@ -21971,6 +22051,236 @@ function parseGCode(text) {
     b !== undefined ? b : bDeg,
     c !== undefined ? c : cDeg
   );
+
+  /* ---- Canned cycles --------------------------------------------------------
+   *
+   * Every G7x / G8x a Haas mill has, drawn the way the control runs it:
+   *
+   *   G73  high-speed peck   Q feed, small chip-break retract, repeat
+   *   G74  reverse tap       a left-hand helix, out the way it went in
+   *   G76  fine bore         feed in, dwell, shift Q off the wall, rapid out
+   *   G77  back bore         shift, rapid through, shift back, feed up, shift, out
+   *   G81  drill             feed in, rapid out
+   *   G82  spot / counter    G81 with a dwell (P) at the bottom
+   *   G83  peck drill        Q, or I / J / K for a shrinking peck, full retract
+   *   G84  tap               a right-hand helix in, out again
+   *   G85  bore in, bore out feed both ways
+   *   G86  bore, stop        feed in, rapid out
+   *   G87  bore, manual out  feed in, rapid out
+   *   G88  bore, dwell       feed in, dwell, rapid out
+   *   G89  bore, dwell, bore feed in, dwell, feed out
+   *
+   * Z and R are absolute under G90. Under G91 R is measured from the initial
+   * level (the Z the cycle was called from) and Z from the R plane. G98 comes
+   * back to the initial level, G99 to R; an initial level below R comes back
+   * to R, never under it. A hole is cut at every X or Y word while the cycle
+   * is live, at the current spot when the cycle is first called, L times
+   * (stepping by X/Y under G91) when L is given, and not at all for L0. Any
+   * G00-G03 puts the cycle away, as G80 does. P is seconds with a decimal
+   * point and milliseconds without one.
+   */
+  const CYCLE_CODES = [73, 74, 76, 77, 81, 82, 83, 84, 85, 86, 87, 88, 89];
+  const RAPID_FEED = { val: 300, isIPM: true, unitsPerSec: 5 };
+  const RAPID_LABEL = '300 IPM (rapid)';
+  const cycleClear = () => (localUnitMode === 'mm' ? 0.5 : 0.02);
+  const dwellSeconds = (tok) => {
+    if (!tok) return 0;
+    const raw = tok.slice(1);
+    const v = parseFloat(raw);
+    if (!isFinite(v) || v <= 0) return 0;
+    return raw.indexOf('.') >= 0 ? v : v / 1000;
+  };
+  const dwellText = (s) => (s >= 1 ? (+s.toFixed(3)) + 's' : Math.round(s * 1000) + 'ms');
+
+  const pushMove = (type, a, b, feed, label, li, extra) => {
+    const wa = toWorld(a[0], a[1], a[2]);
+    const wb = toWorld(b[0], b[1], b[2]);
+    const length = wa.distanceTo(wb);
+    if (length < 1e-9) return null;
+    const seg = { start: wa, end: wb, type, lineIdx: li,
+      feedRate: feed.val, feedIsIPM: feed.isIPM, feedLabel: label,
+      length, duration: length / feed.unitsPerSec };
+    if (extra) Object.assign(seg, extra);
+    segs.push(seg);
+    dist += length;
+    return seg;
+  };
+
+  /* One hole. Reads and moves x / y / z. */
+  const runCannedHole = (li, hx, hy, c) => {
+    const type = c.type;
+    const R = c.R, Zb = c.Z;
+    const retZ = c.mode === 98 ? Math.max(c.initialZ, R) : R;
+    const holeNo = drillHoles.length;
+    const tag = (more) => Object.assign({ cyc: type, cycHole: holeNo }, more || null);
+    const feed = c.feed;
+    const feedText = feed.val + (feed.isIPM ? ' IPM' : ' mm/min');
+    const rapid = (a, b, kind, more) => pushMove(kind, a, b, RAPID_FEED, RAPID_LABEL, li, tag(more));
+    const feedIn = (a, b, label, more) =>
+      pushMove('cut', a, b, feed, feedText + (label ? ' ' + label : ''), li, tag(more));
+    const dwell = (at, secs, label) => {
+      if (!(secs > 0)) return;
+      segs.push({ start: toWorld(at[0], at[1], at[2]), end: toWorld(at[0], at[1], at[2]),
+        type: 'cut', lineIdx: li, feedRate: 0, feedIsIPM: feed.isIPM,
+        feedLabel: (label || 'Dwell') + ' ' + dwellText(secs),
+        length: 0, duration: secs, cyc: type, cycHole: holeNo, dwell: true });
+    };
+
+    /* Get to the R plane over the hole: up to R first if the tool is below it,
+       across, then down. */
+    let zApproach = z;
+    if (z < R - 1e-9) {
+      rapid([x, y, z], [x, y, R], 'retract');
+      zApproach = R;
+    }
+    if (Math.abs(hx - x) > 1e-9 || Math.abs(hy - y) > 1e-9) {
+      rapid([x, y, zApproach], [hx, hy, zApproach], 'rapid');
+    }
+    if (zApproach > R + 1e-9) rapid([hx, hy, zApproach], [hx, hy, R], 'rapid');
+
+    const depth = R - Zb;
+    let zNow = R;               // where the tool is once the body is done
+    let finished = false;       // the body already brought it back to retZ
+    const peckDepths = [];
+
+    if (depth > 1e-9) {
+      if (type === 81 || type === 82 || type === 88) {
+        feedIn([hx, hy, R], [hx, hy, Zb]);
+        zNow = Zb;
+        if (type !== 81) dwell([hx, hy, Zb], c.dwell, 'Dwell');
+      } else if (type === 85 || type === 89) {
+        feedIn([hx, hy, R], [hx, hy, Zb]);
+        if (type === 89) dwell([hx, hy, Zb], c.dwell, 'Dwell');
+        feedIn([hx, hy, Zb], [hx, hy, R], '(bore out)');
+        zNow = R;
+      } else if (type === 86 || type === 87) {
+        feedIn([hx, hy, R], [hx, hy, Zb]);
+        zNow = Zb;
+      } else if (type === 83 || type === 73) {
+        /* Pecks. Q alone is a constant peck; I is the first peck, J the amount
+           each one is cut down by, K the least a peck may shrink to. */
+        const clr = cycleClear();
+        let q = c.I > 0 ? c.I : (c.Q > 0 ? c.Q : depth / 3);
+        const floor = c.K > 0 ? c.K : (c.I > 0 && c.J > 0 ? Math.max(1e-3, c.I * 0.1) : q);
+        let bottom = R, n = 0;
+        while (bottom > Zb + 1e-9 && n < 5000) {
+          n++;
+          const nb = Math.max(Zb, bottom - q);
+          const last = nb <= Zb + 1e-9;
+          const label = '(peck ' + n + ')';
+          if (n === 1) {
+            feedIn([hx, hy, R], [hx, hy, nb], label);
+          } else {
+            /* back down to just above the last bottom, then feed on */
+            const from = Math.min(bottom + clr, R);
+            if (type === 83) {
+              /* G83 came all the way out to R and rapids back */
+              if (Math.abs(from - R) > 1e-9) rapid([hx, hy, R], [hx, hy, from], 'rapid', { cycPeck: true });
+            }
+            feedIn([hx, hy, from], [hx, hy, nb], label);
+          }
+          if (!last) {
+            peckDepths.push(nb);
+            if (type === 83) {
+              rapid([hx, hy, nb], [hx, hy, R], 'retract', { cycPeck: true });
+            } else {
+              const up = Math.min(nb + clr, R);
+              rapid([hx, hy, nb], [hx, hy, up], 'retract', { cycPeck: true });
+            }
+          }
+          bottom = nb;
+          if (c.J > 0) q = Math.max(floor, q - c.J);
+        }
+        zNow = Zb;
+      } else if (type === 84 || type === 74) {
+        /* A tap does not plunge, it screws in: the feed is spindle speed times
+           pitch, so the tip follows a helix of that pitch. It is drawn as a
+           helix, timed by its axial travel, and the blank is cut with a real
+           thread groove along it (see StockSim). G74 is the left-hand twin. */
+        const hand = type === 74 ? -1 : 1;
+        const toolDia = currentTool ? (toolTable.get(currentTool) || 0.5) : 0.5;
+        const rpmNow = currentSpindleRPM || 0;
+        let pitch = (rpmNow > 0 && feed.val > 0) ? feed.val / rpmNow : toolDia / 5;
+        if (!(pitch > toolDia / 40 && pitch < toolDia / 2)) pitch = Math.min(toolDia / 2, Math.max(toolDia / 40, pitch || toolDia / 5));
+        const rtT = 0.35 * pitch;
+        const RhT = Math.max(toolDia / 2 - rtT, rtT * 1.2);
+        const nT = Math.max(8, Math.min(600, Math.ceil(depth / pitch * 14)));
+        const wR = toWorld(hx, hy, R), wDepth = toWorld(hx, hy, Zb);
+        const tapInfo = { id: (window.__tapId = (window.__tapId || 0) + 1), top: wR.clone(), bottom: wDepth.clone(),
+                          pitch, Rh: RhT, rt: rtT, dir: 'in', hand };
+        const helixPt = (zz, ang) => toWorld(hx + RhT * Math.cos(ang), hy + RhT * Math.sin(ang), zz);
+        const angAt = (zz) => hand * -2 * Math.PI * (R - zz) / pitch;
+        const axialSpeed = Math.max(feed.unitsPerSec, 1e-9);
+        const helixRun = (zFrom, zTo, label, info) => {
+          let prev = helixPt(zFrom, angAt(zFrom));
+          let zPrev = zFrom;
+          for (let i = 1; i <= nT; i++) {
+            const zz = i === nT ? zTo : zFrom + (zTo - zFrom) * i / nT;
+            const pt = helixPt(zz, angAt(zz));
+            const len = prev.distanceTo(pt);
+            segs.push({ start: prev, end: pt, axisStart: toWorld(hx, hy, zPrev), axisEnd: toWorld(hx, hy, zz),
+              type: 'tap', lineIdx: li, feedRate: feed.val, feedIsIPM: feed.isIPM,
+              feedLabel: feed.val + (feed.isIPM ? ' IPM' : ' mm/min') + label,
+              length: len, duration: Math.abs(zTo - zFrom) / nT / axialSpeed, tap: info,
+              cyc: type, cycHole: holeNo });
+            dist += len;
+            zPrev = zz;
+            prev = pt;
+          }
+        };
+        { /* from the hole's axis out to the groove radius */
+          const wG = helixPt(R, 0), gl = wR.distanceTo(wG);
+          if (gl > 1e-9) {
+            segs.push({ start: wR.clone(), end: wG, type: 'rapid', lineIdx: li,
+              feedRate: 300, feedIsIPM: true, feedLabel: RAPID_LABEL, length: gl, duration: Math.max(gl / 5, 1e-4),
+              cyc: type, cycHole: holeNo });
+            dist += gl;
+          }
+        }
+        helixRun(R, Zb, hand < 0 ? ' (reverse tap in)' : ' (tap in)', tapInfo);
+        helixRun(Zb, R, hand < 0 ? ' (reverse tap out)' : ' (tap out)', Object.assign({}, tapInfo, { dir: 'out' }));
+        /* back from the groove radius to the axis */
+        {
+          const wEnd = helixPt(R, 0), wAx = toWorld(hx, hy, R), bl = wEnd.distanceTo(wAx);
+          if (bl > 1e-9) {
+            segs.push({ start: wEnd, end: wAx, type: 'rapid', lineIdx: li,
+              feedRate: 300, feedIsIPM: true, feedLabel: RAPID_LABEL, length: bl, duration: Math.max(bl / 5, 1e-4),
+              cyc: type, cycHole: holeNo });
+            dist += bl;
+          }
+        }
+        zNow = R;
+      } else if (type === 76) {
+        const q = c.Q || 0;
+        feedIn([hx, hy, R], [hx, hy, Zb]);
+        dwell([hx, hy, Zb], c.dwell, 'Dwell');
+        rapid([hx, hy, Zb], [hx + q, hy, Zb], 'rapid', { cycShift: true });
+        rapid([hx + q, hy, Zb], [hx + q, hy, retZ], 'retract');
+        rapid([hx + q, hy, retZ], [hx, hy, retZ], 'rapid', { cycShift: true });
+        zNow = retZ; finished = true;
+      } else if (type === 77) {
+        const q = c.Q || 0;
+        rapid([hx, hy, R], [hx + q, hy, R], 'rapid', { cycShift: true });
+        rapid([hx + q, hy, R], [hx + q, hy, Zb], 'rapid');
+        rapid([hx + q, hy, Zb], [hx, hy, Zb], 'rapid', { cycShift: true });
+        feedIn([hx, hy, Zb], [hx, hy, R], '(back bore)');
+        rapid([hx, hy, R], [hx + q, hy, R], 'rapid', { cycShift: true });
+        if (retZ > R + 1e-9) rapid([hx + q, hy, R], [hx + q, hy, retZ], 'retract');
+        rapid([hx + q, hy, retZ], [hx, hy, retZ], 'rapid', { cycShift: true });
+        zNow = retZ; finished = true;
+      }
+    }
+
+    if (!finished && zNow < retZ - 1e-9) rapid([hx, hy, zNow], [hx, hy, retZ], 'retract');
+
+    drillHoles.push({ x: hx, y: hy, zTop: retZ, zDepth: Zb, zReturn: retZ,
+      returnMode: c.mode, toolDia: currentTool ? (toolTable.get(currentTool) || 0.5) : 0.5,
+      lineIdx: li, aDeg, cycleType: type,
+      wTop: toWorld(hx, hy, retZ), wDepth: toWorld(hx, hy, Zb), wReturn: toWorld(hx, hy, retZ),
+      peckDepths: peckDepths.map(d => toWorld(hx, hy, d)) });
+
+    x = hx; y = hy; z = retZ;
+  };
 
   for (let li = 0; li < lines.length; li++) {
     const rawLine = lines[li];
@@ -22105,6 +22415,7 @@ function parseGCode(text) {
       cannedCycleType = 81;
       cannedZ = null; cannedR = null; cannedFeed = null;
       cannedDwell = 0; cannedPeckQ = 0;
+      cannedI = null; cannedJ = null; cannedK = null;
     }
 
     if (gcodes.includes(53)) {
@@ -22115,11 +22426,10 @@ function parseGCode(text) {
       continue;
     }
 
-    if (gcodes.includes(43) || gcodes.includes(44) || gcodes.includes(49)) {
-      const zVal = getAddr(toks, 'Z');
-      if (zVal !== null) z = isAbs ? zVal : z + zVal;
-      continue;
-    }
+    /* G43 / G44 / G49 carry the length offset, which the sim does not apply,
+       but the line is an ordinary move as well ("G43 H01 Z1.0" is how nearly
+       every tool comes down to its clearance height), so it falls through to
+       the motion code below rather than being swallowed. */
 
     const motionCodes = [0,1,2,3];
     const foundMotion = gcodes.find(g => motionCodes.includes(g));
@@ -22231,264 +22541,121 @@ function parseGCode(text) {
       continue;
     }
 
-    const activatingCanned = gcodes.find(g => [81,82,83,84].includes(g));
-    if (activatingCanned !== undefined) {
+    const cycleG = gcodes.find(g => CYCLE_CODES.includes(g));
+    /* A G00-G03 on a block of its own takes the cycle off, the way G80 does */
+    if (cycleG === undefined && cannedActive &&
+        (foundMotion !== undefined || gcodes.includes(12) || gcodes.includes(13))) {
+      /* put away with its words, the same as G80: the next cycle starts clean */
+      cannedActive = false;
+      cannedZ = null; cannedR = null; cannedFeed = null;
+      cannedDwell = 0; cannedPeckQ = 0;
+      cannedI = null; cannedJ = null; cannedK = null;
+    }
+    if (cycleG !== undefined) {
+      if (!cannedActive) cannedInitialZ = z;
       cannedActive = true;
-      cannedCycleType = activatingCanned;
-      cannedInitialZ = z;
-      if (hasZ)  cannedZ    = isAbs ? getAddr(toks,'Z') : z + getAddr(toks,'Z');
-      if (hasR)  cannedR    = isAbs ? getAddr(toks,'R') : z + getAddr(toks,'R');
-      if (fTok)  cannedFeed = parseFeed(fTok);
-
-      cannedDwell = getAddr(toks, 'P') || 0;
-
-      cannedPeckQ = getAddr(toks, 'Q') || 0;
+      cannedCycleType = cycleG;
+    }
+    if (cannedActive) {
+      /* the cycle's words are modal: a later block may change the depth, the
+         R plane, the peck or the dwell on its own, ahead of its X Y */
+      const zw = getAddr(toks, 'Z'); if (zw !== null) cannedZ = zw;
+      const rw = getAddr(toks, 'R'); if (rw !== null) cannedR = rw;
+      const qw = getAddr(toks, 'Q'); if (qw !== null) cannedPeckQ = Math.abs(qw);
+      const iw = getAddr(toks, 'I'); if (iw !== null) cannedI = Math.abs(iw);
+      const jw = getAddr(toks, 'J'); if (jw !== null) cannedJ = Math.abs(jw);
+      const kw = getAddr(toks, 'K'); if (kw !== null) cannedK = Math.abs(kw);
+      const pw = getAddrRaw(toks, 'P'); if (pw) cannedDwell = dwellSeconds(pw);
     }
 
-    if (cannedActive && cannedZ !== null && cannedR !== null) {
-      const hx = hasX ? applyVal(getAddr(toks,'X'), x) : x;
-      const hy = hasY ? applyVal(getAddr(toks,'Y'), y) : y;
-      const posChanged = (hx !== x || hy !== y) || [81,82,83,84].includes(gcodes.find(g=>[81,82,83,84].includes(g)));
-      if (posChanged) {
-        const zDepth  = cannedZ;
-        const zReturn = cannedReturnMode === 98 ? cannedInitialZ : cannedR;
-        const feed    = cannedFeed || parseFeed(modalFeedRaw) || { val:60, isIPM:false, unitsPerSec:1 };
-        const toolDia = currentTool ? (toolTable.get(currentTool) || 0.5) : 0.5;
-
-        const wPrev   = toWorld(x,  y,  z);
-        const wXY     = toWorld(hx, hy, z);
-        const wR      = toWorld(hx, hy, cannedR);
-        const wDepth  = toWorld(hx, hy, cannedZ);
-        const wReturn = toWorld(hx, hy, zReturn);
-
-        if (hx !== x || hy !== y) {
-          const rLen = wPrev.distanceTo(wXY);
-          segs.push({ start: wPrev, end: wXY, type:'rapid', lineIdx:li,
-            feedRate:300, feedIsIPM:true, feedLabel:'300 IPM (rapid)', length:rLen, duration:rLen/5 });
-          dist += rLen;
+    if (cannedActive) {
+      if ((cycleG !== undefined || hasX || hasY) && cannedZ !== null && cannedR !== null) {
+        const lw = getAddr(toks, 'L');
+        const reps = lw === null ? 1 : Math.max(0, Math.min(999, Math.floor(lw)));
+        const Rplane = isAbs ? cannedR : cannedInitialZ + cannedR;
+        const Zbot   = isAbs ? cannedZ : Rplane + cannedZ;
+        const feed   = parseFeed(modalFeedRaw) || { val: 60, isIPM: false, unitsPerSec: 1 };
+        const spec = { type: cannedCycleType, R: Rplane, Z: Zbot, mode: cannedReturnMode,
+          initialZ: cannedInitialZ, feed, dwell: cannedDwell, Q: cannedPeckQ,
+          I: cannedI || 0, J: cannedJ || 0, K: cannedK || 0 };
+        const X = getAddr(toks, 'X'), Y = getAddr(toks, 'Y');
+        for (let rep = 0; rep < reps; rep++) {
+          const hx = hasX ? (isAbs ? X : x + X) : x;
+          const hy = hasY ? (isAbs ? Y : y + Y) : y;
+          runCannedHole(li, hx, hy, spec);
         }
-
-        const rapLen = wXY.distanceTo(wR);
-        if (rapLen > 0.0001) {
-          segs.push({ start: wXY, end: wR, type:'rapid', lineIdx:li,
-            feedRate:300, feedIsIPM:true, feedLabel:'300 IPM (rapid)', length:rapLen, duration:rapLen/5 });
-          dist += rapLen;
-        }
-
-        var peckIntermediateDepths = [];
-
-        if (cannedCycleType === 81) {
-
-          const drillLen = wR.distanceTo(wDepth);
-          segs.push({ start: wR, end: wDepth, type:'cut', lineIdx:li,
-            feedRate:feed.val, feedIsIPM:feed.isIPM, feedLabel:feed.val+(feed.isIPM?' IPM':' mm/min'),
-            length:drillLen, duration:drillLen/feed.unitsPerSec });
-          dist += drillLen;
-          const retLen = wDepth.distanceTo(wReturn);
-          segs.push({ start: wDepth, end: wReturn, type:'retract', lineIdx:li,
-            feedRate:300, feedIsIPM:true, feedLabel:'300 IPM (rapid)', length:retLen, duration:retLen/5 });
-          dist += retLen;
-
-        } else if (cannedCycleType === 82) {
-
-          const drillLen = wR.distanceTo(wDepth);
-          segs.push({ start: wR, end: wDepth, type:'cut', lineIdx:li,
-            feedRate:feed.val, feedIsIPM:feed.isIPM, feedLabel:feed.val+(feed.isIPM?' IPM':' mm/min'),
-            length:drillLen, duration:drillLen/feed.unitsPerSec });
-          dist += drillLen;
-
-          const dwellSec = (cannedDwell || 0) / 1000;
-          if (dwellSec > 0) {
-            segs.push({ start: wDepth.clone(), end: wDepth.clone(), type:'cut', lineIdx:li,
-              feedRate:0, feedIsIPM:feed.isIPM, feedLabel:`Dwell ${cannedDwell}ms`,
-              length:0, duration:dwellSec });
-          }
-          const retLen = wDepth.distanceTo(wReturn);
-          segs.push({ start: wDepth, end: wReturn, type:'retract', lineIdx:li,
-            feedRate:300, feedIsIPM:true, feedLabel:'300 IPM (rapid)', length:retLen, duration:retLen/5 });
-          dist += retLen;
-
-        } else if (cannedCycleType === 83) {
-
-          const peckQ = Math.abs(cannedPeckQ) || Math.abs(cannedR - cannedZ) / 3;
-          let currentDepth = cannedR;
-          let peckNum = 0;
-
-          while (currentDepth > zDepth + 0.0001) {
-            peckNum++;
-            const nextDepth = Math.max(zDepth, currentDepth - peckQ);
-            const wPeckStart = toWorld(hx, hy, currentDepth);
-            const wPeckEnd   = toWorld(hx, hy, nextDepth);
-
-            const peckLen = wPeckStart.distanceTo(wPeckEnd);
-            segs.push({ start: wPeckStart, end: wPeckEnd, type:'cut', lineIdx:li,
-              feedRate:feed.val, feedIsIPM:feed.isIPM, feedLabel:feed.val+(feed.isIPM?' IPM':' mm/min')+` (peck ${peckNum})`,
-              length:peckLen, duration:peckLen/feed.unitsPerSec });
-            dist += peckLen;
-            if (nextDepth > zDepth + 0.0001) {
-
-              peckIntermediateDepths.push(nextDepth);
-
-              const wRetractTo = wR.clone();
-              const retractLen = wPeckEnd.distanceTo(wRetractTo);
-              segs.push({ start: wPeckEnd, end: wRetractTo, type:'retract', lineIdx:li,
-                feedRate:300, feedIsIPM:true, feedLabel:'300 IPM (peck retract)',
-                length:retractLen, duration:retractLen/5 });
-              dist += retractLen;
-
-              const wRapidTo = toWorld(hx, hy, nextDepth + 0.02);
-              const rapidBackLen = wRetractTo.distanceTo(wRapidTo);
-              segs.push({ start: wRetractTo, end: wRapidTo, type:'rapid', lineIdx:li,
-                feedRate:300, feedIsIPM:true, feedLabel:'300 IPM (rapid to peck)',
-                length:rapidBackLen, duration:rapidBackLen/5 });
-              dist += rapidBackLen;
-              currentDepth = nextDepth + 0.02;
-            } else {
-              currentDepth = nextDepth;
-            }
-          }
-
-          const wFinalDepth = toWorld(hx, hy, zDepth);
-          const finalRetLen = wFinalDepth.distanceTo(wReturn);
-          segs.push({ start: wFinalDepth, end: wReturn, type:'retract', lineIdx:li,
-            feedRate:300, feedIsIPM:true, feedLabel:'300 IPM (rapid)', length:finalRetLen, duration:finalRetLen/5 });
-          dist += finalRetLen;
-
-        } else if (cannedCycleType === 84) {
-
-          /* A tap does not plunge, it screws in: the feed is spindle speed times
-             pitch, so the tip follows a helix of that pitch. It is drawn as a
-             helix, timed by its axial travel, and the blank is cut with a real
-             thread groove along it (see StockSim). */
-          const rpmNow = currentSpindleRPM || 0;
-          let pitch = (rpmNow > 0 && feed.val > 0) ? feed.val / rpmNow : toolDia / 5;
-          if (!(pitch > toolDia / 40 && pitch < toolDia / 2)) pitch = Math.min(toolDia / 2, Math.max(toolDia / 40, pitch || toolDia / 5));
-          const rtT = 0.35 * pitch;
-          const RhT = Math.max(toolDia / 2 - rtT, rtT * 1.2);
-          const axial = Math.abs(cannedR - cannedZ);
-          const nT = Math.max(8, Math.min(600, Math.ceil(axial / pitch * 14)));
-          const tapInfo = { id: (window.__tapId = (window.__tapId || 0) + 1), top: wR.clone(), bottom: wDepth.clone(),
-                            pitch, Rh: RhT, rt: rtT, dir: 'in' };
-          const helixPt = (zz, ang) => toWorld(hx + RhT * Math.cos(ang), hy + RhT * Math.sin(ang), zz);
-          const axialSpeed = feed.unitsPerSec;
-          const helixRun = (zFrom, zTo, label, info, outward) => {
-            let prev = helixPt(zFrom, outward ? -2 * Math.PI * (cannedR - zFrom) / pitch : 0);
-            let zPrev = zFrom;
-            for (let i = 1; i <= nT; i++) {
-              const zz = zFrom + (zTo - zFrom) * i / nT;
-              const ang = -2 * Math.PI * (cannedR - zz) / pitch;
-              const pt = helixPt(zz, ang);
-              const len = prev.distanceTo(pt);
-              const axisA = toWorld(hx, hy, zPrev), axisB = toWorld(hx, hy, zz);
-              zPrev = zz;
-              segs.push({ start: prev, end: pt, axisStart: axisA, axisEnd: axisB, type: 'tap', lineIdx: li,
-                feedRate: feed.val, feedIsIPM: feed.isIPM, feedLabel: feed.val + (feed.isIPM ? ' IPM' : ' mm/min') + label,
-                length: len, duration: Math.abs(zTo - zFrom) / nT / Math.max(axialSpeed, 1e-9), tap: info });
-              dist += len;
-              prev = pt;
-            }
-          };
-          { /* from the hole's axis out to the groove radius */
-            const wG = helixPt(cannedR, 0), gl = wR.distanceTo(wG);
-            segs.push({ start: wR.clone(), end: wG, type:'rapid', lineIdx:li,
-              feedRate:300, feedIsIPM:true, feedLabel:'300 IPM (rapid)', length:gl, duration:Math.max(gl/5, 1e-4) });
-            dist += gl;
-          }
-          helixRun(cannedR, cannedZ, ' (tap in)', tapInfo, false);
-          const tapOutInfo = Object.assign({}, tapInfo, { dir: 'out' });
-          helixRun(cannedZ, cannedR, ' (tap out)', tapOutInfo, true);
-          if (Math.abs(zReturn - cannedR) > 1e-6) {
-            const wBack = toWorld(hx, hy, zReturn);
-            const wEnd = helixPt(cannedR, -2 * Math.PI * (cannedR - cannedR) / pitch);
-            const bl = wEnd.distanceTo(wBack);
-            segs.push({ start: wEnd, end: wBack, type:'retract', lineIdx:li,
-              feedRate:300, feedIsIPM:true, feedLabel:'300 IPM (rapid)', length:bl, duration:bl/5 });
-            dist += bl;
-          }
-        }
-
-        const peckDepths = peckIntermediateDepths.map(d => toWorld(hx, hy, d));
-        drillHoles.push({ x: hx, y: hy, zTop: zReturn, zDepth, zReturn,
-          returnMode: cannedReturnMode, toolDia, lineIdx: li, aDeg,
-          cycleType: cannedCycleType,
-          wTop: toWorld(hx, hy, zReturn), wDepth: toWorld(hx, hy, zDepth), wReturn,
-          peckDepths });
-
-        x = hx; y = hy; z = zReturn;
-        continue;
       }
+      continue;
     }
 
     if (gcodes.includes(12) || gcodes.includes(13)) {
-      const clockwisePocket = gcodes.includes(12);
-      const iVal = getAddr(toks, 'I');
-      const kVal = getAddr(toks, 'K');
-      const qVal = getAddr(toks, 'Q');
-      const g12HasZ = getAddr(toks, 'Z') !== null;
-      const zVal = g12HasZ ? (isAbs ? getAddr(toks,'Z') : z + getAddr(toks,'Z')) : z;
-      const lVal = getAddr(toks, 'L') || 1;
-      const feed = parseFeed(fTok || modalFeedRaw) || { val:60, isIPM:false, unitsPerSec:1 };
+      /* Haas circular pocket. The tool stands at the centre (or at X Y if the
+         block gives them), goes to Z, and spirals out ring by ring from I to K
+         in steps of Q, then comes back to the centre. I and K are radii of the
+         finished wall, so the tool's centre runs a tool radius inside them. The
+         moves come from the same Pocket.expand the cutter-comp pass uses, so
+         the raw and the compensated toolpath can never disagree. */
+      const optional = (v) => (v === null ? undefined : v);
+      const cx = hasX ? (isAbs ? getAddr(toks, 'X') : x + getAddr(toks, 'X')) : x;
+      const cy = hasY ? (isAbs ? getAddr(toks, 'Y') : y + getAddr(toks, 'Y')) : y;
+      const dWord = getAddr(toks, 'D');
+      let toolR = null;
+      if (dWord !== null && typeof dRadiusLookup === 'function') toolR = dRadiusLookup(Math.round(dWord));
+      if (toolR == null || !isFinite(toolR)) {
+        const dia = currentTool != null ? toolTable.get(currentTool) : null;
+        toolR = (dia > 0) ? dia / 2 : 0.25;
+      }
+      const ins = { i: optional(getAddr(toks, 'I')), k: optional(getAddr(toks, 'K')),
+        q: optional(getAddr(toks, 'Q')), z: optional(getAddr(toks, 'Z')),
+        f: undefined, l: optional(getAddr(toks, 'L')), incr: !isAbs, lineIndex: li };
+      const quiet = { err() {}, warn() {}, info() {} };
+      const feed = parseFeed(modalFeedRaw) || { val: 60, isIPM: false, unitsPerSec: 1 };
       const feedLabel = feed.val + (feed.isIPM ? ' IPM' : ' mm/min');
-
-      if (iVal !== null && iVal > 0) {
-
-        if (zVal !== z) {
-          const wPlungeStart = toWorld(x, y, z);
-          const wPlungeEnd   = toWorld(x, y, zVal);
-          const plungeLen = wPlungeStart.distanceTo(wPlungeEnd);
-          segs.push({ start: wPlungeStart, end: wPlungeEnd, type:'cut', lineIdx:li,
-            feedRate:feed.val, feedIsIPM:feed.isIPM, feedLabel, length:plungeLen,
-            duration:plungeLen/feed.unitsPerSec });
-          dist += plungeLen;
+      const plan = window.CutterComp.Pocket.expand(cx, cy, z, gcodes.includes(12) ? 1 : -1, ins, toolR, quiet);
+      if (plan.lines.length) {
+        /* the plan is in absolute coordinates; X Y of the block are where the
+           tool goes first, as a rapid-free feed move, the way the control does */
+        let px = x, py = y, pz = z;
+        const lead = [cx, cy, z];
+        if (Math.abs(cx - px) > 1e-9 || Math.abs(cy - py) > 1e-9) {
+          const wa = toWorld(px, py, pz), wb = toWorld(cx, cy, pz);
+          const len = wa.distanceTo(wb);
+          segs.push({ start: wa, end: wb, type: 'rapid', lineIdx: li, feedRate: 300, feedIsIPM: true,
+            feedLabel: RAPID_LABEL, length: len, duration: len / 5 });
+          dist += len; px = cx; py = cy;
         }
-
-        const radii = [];
-        if (kVal !== null && qVal !== null && qVal > 0) {
-          for (let r = iVal; r < kVal - 0.0001; r += qVal) radii.push(r);
-          radii.push(kVal);
-        } else {
-          radii.push(iVal);
-        }
-
-        radii.forEach((r, idx) => {
-          const startPt  = new THREE.Vector3(x + r, y, zVal);
-          const endPt    = startPt.clone();
-          const centerPt = new THREE.Vector3(x, y, zVal);
-
-          const prevR = idx === 0 ? 0 : radii[idx - 1];
-          const wPrevEnd = toWorld(x + prevR, y, zVal);
-          const wStart   = toWorld(x + r, y, zVal);
-          const stepLen  = wPrevEnd.distanceTo(wStart);
-          if (stepLen > 0.0001) {
-            segs.push({ start: wPrevEnd, end: wStart, type:'cut', lineIdx:li,
-              feedRate:feed.val, feedIsIPM:feed.isIPM, feedLabel,
-              length:stepLen, duration:stepLen/feed.unitsPerSec });
-            dist += stepLen;
+        for (const ln of plan.lines) {
+          const t = ln.trim().split(/\s+/);
+          const g = parseInt(t[0].slice(1), 10);
+          const w = {};
+          t.slice(1).forEach(s => { w[s[0]] = parseFloat(s.slice(1)); });
+          const nx = (w.X !== undefined) ? w.X : px, ny = (w.Y !== undefined) ? w.Y : py;
+          const nz = (w.Z !== undefined) ? w.Z : pz;
+          if (g === 1) {
+            const wa = toWorld(px, py, pz), wb = toWorld(nx, ny, nz);
+            const len = wa.distanceTo(wb);
+            if (len > 1e-9) {
+              segs.push({ start: wa, end: wb, type: 'cut', lineIdx: li, feedRate: feed.val,
+                feedIsIPM: feed.isIPM, feedLabel, length: len, duration: len / feed.unitsPerSec, pocket: true });
+              dist += len;
+            }
+          } else {
+            const startPt = new THREE.Vector3(px, py, pz);
+            const endPt = new THREE.Vector3(nx, ny, nz);
+            const centre = new THREE.Vector3(px + w.I, py + w.J, pz);
+            const arc = generateArcSegments(startPt, endPt, centre, Math.hypot(w.I, w.J),
+              g === 2, nz, feed, 'cut', li, 17);
+            arc.forEach(s => {
+              s.start = toWorld(s.start.x, s.start.y, s.start.z);
+              s.end = toWorld(s.end.x, s.end.y, s.end.z);
+              s.pocket = true;
+              dist += s.length;
+            });
+            segs.push(...arc);
           }
-
-          const arcSegs = generateArcSegments(
-            startPt, endPt, centerPt, r, clockwisePocket, zVal, feed, 'cut', li, 17
-          );
-          arcSegs.forEach(s => {
-            s.start = toWorld(s.start.x, s.start.y, s.start.z);
-            s.end   = toWorld(s.end.x,   s.end.y,   s.end.z);
-          });
-          segs.push(...arcSegs);
-          arcSegs.forEach(s => dist += s.length);
-        });
-
-        const lastR  = radii[radii.length - 1];
-        const wLastEnd = toWorld(x + lastR, y, zVal);
-        const wCenter  = toWorld(x, y, zVal);
-        const retLen   = wLastEnd.distanceTo(wCenter);
-        if (retLen > 0.0001) {
-          segs.push({ start: wLastEnd, end: wCenter, type: 'cut', lineIdx: li,
-            feedRate: feed.val, feedIsIPM: feed.isIPM, feedLabel,
-            length: retLen, duration: retLen / feed.unitsPerSec });
-          dist += retLen;
+          px = nx; py = ny; pz = nz;
         }
-
-        z = zVal;
+        x = px; y = py; z = pz;
       }
       continue;
     }
@@ -22572,24 +22739,37 @@ function parseGCode(text) {
     if (!feed) feed = { val: 60, isIPM: false, unitsPerSec: 1 };
     const feedLabel = feed.val + (feed.isIPM ? ' IPM' : ' mm/min');
 
+    const [AU, AV, AW] = ARC_AXES[activePlane];
     if (hasR) {
+      /* R arc: a positive R is the arc of 180 degrees or less, a negative R the
+         one over 180. The centre sits on the perpendicular bisector of the
+         chord, on whichever side makes the turn run the way G02/G03 says.
+         It works in the plane's own two axes, so G18 and G19 read R too. */
       const rVal = getAddr(toks, 'R');
       const R = Math.abs(rVal);
-      const dx = nx-x, dy = ny-y;
-      const d = Math.sqrt(dx*dx+dy*dy);
-      if (d > 2*R) { x=nx; y=ny; z=nz; continue; }
-      const h = Math.sqrt(R*R-(d/2)*(d/2));
-      const mx=(x+nx)/2, my=(y+ny)/2;
-
+      const du = endPart[AU] - startPart[AU], dv = endPart[AV] - startPart[AV];
+      const d = Math.hypot(du, dv);
+      if (d < 1e-9 || R < 1e-9 || d > 2 * R + 1e-4) {
+        /* no circle of that radius joins the two points (the control would
+           alarm); draw the chord so the path stays whole */
+        if (d > 1e-9 || nz !== z) {
+          const wa = toWorld(x, y, z), wb = toWorld(nx, ny, nz);
+          const len = wa.distanceTo(wb);
+          segs.push({ start: wa, end: wb, type: 'cut', lineIdx: li, feedRate: feed.val,
+            feedIsIPM: feed.isIPM, feedLabel, length: len, duration: len / feed.unitsPerSec, badArc: true });
+          dist += len;
+        }
+        x = nx; y = ny; z = nz; continue;
+      }
+      const h = Math.sqrt(Math.max(0, R * R - (d / 2) * (d / 2)));
+      const mu = (startPart[AU] + endPart[AU]) / 2, mv = (startPart[AV] + endPart[AV]) / 2;
       const largeArc = rVal < 0;
-
-      const perpX=-dy, perpY=dx;
-      const norm=Math.sqrt(perpX*perpX+perpY*perpY);
-
-      const signFinal = (clockwise !== largeArc) ? -1 : 1;
-      if (norm>0){center.x=mx+signFinal*h*perpX/norm;center.y=my+signFinal*h*perpY/norm;}
-      else{center.x=mx;center.y=my;}
-      center.z=startPart.z; radius=R;
+      const perpU = -dv / d, perpV = du / d;
+      const sign = (clockwise !== largeArc) ? -1 : 1;
+      center[AU] = mu + sign * h * perpU;
+      center[AV] = mv + sign * h * perpV;
+      center[AW] = startPart[AW];
+      radius = R;
     } else {
       const i=hasI?getAddr(toks,'I'):0, j=hasJ?getAddr(toks,'J'):0, k=hasK?getAddr(toks,'K'):0;
       if (activePlane===17){
@@ -22603,7 +22783,17 @@ function parseGCode(text) {
         radius=Math.sqrt((y-center.y)**2+(z-center.z)**2);
       }
     }
-    if (radius<=0){x=nx;y=ny;z=nz;continue;}
+    if (radius<=0){
+      /* no centre to turn about: a line to the end point keeps the path whole */
+      const wa = toWorld(x, y, z), wb = toWorld(nx, ny, nz);
+      const len = wa.distanceTo(wb);
+      if (len > 1e-9) {
+        segs.push({ start: wa, end: wb, type: 'cut', lineIdx: li, feedRate: feed.val,
+          feedIsIPM: feed.isIPM, feedLabel, length: len, duration: len / feed.unitsPerSec, badArc: true });
+        dist += len;
+      }
+      x=nx;y=ny;z=nz;continue;
+    }
 
     const partArcSegs = generateArcSegments(startPart,endPart,center,radius,clockwise,nz,feed,'cut',li,activePlane);
 
@@ -26594,6 +26784,84 @@ document.getElementById('btn-sim-prev').addEventListener('click', () => {
   if (singleBlockMode) { singleBlockStepBack(); return; }
   stepPrevBlock();
 });
+
+/* ---- Next op -------------------------------------------------------------
+ *
+ * A stop is the tool getting clear: a rapid up (a G00 that climbs, or the
+ * retract that ends a drilled hole or a canned cycle), a tool change, or the
+ * two one after the other. Blocks that move nothing (M09, M05, a G53 line)
+ * sit between them without breaking the run, so "retract, coolant off, tool
+ * change" is one stop and the button lands once, after the last of them.
+ * The peck retracts inside a G73/G83 and the hole-to-hole retracts inside one
+ * canned cycle are part of the cut, not the end of it. */
+let _opStops = null, _opKey = '';
+function opStops() {
+  const n = segTimeline.length;
+  const key = n + ':' + (n ? segTimeline[n - 1].tEnd : 0);
+  if (_opStops && _opKey === key) return _opStops;
+  const stops = [];
+  let cur = null;
+  const nextReal = (from) => {
+    for (let j = from; j < n; j++) {
+      const s = segTimeline[j].seg;
+      if (!(s.isMarker && !s.isToolChange)) return s;
+    }
+    return null;
+  };
+  for (let i = 0; i < n; i++) {
+    const { tStart, tEnd, seg } = segTimeline[i];
+    const tool = !!seg.isToolChange;
+    let up = !tool && !seg.cycPeck && !seg.isMarker && seg.end && seg.start &&
+      (seg.type === 'retract' || (seg.type === 'rapid' && seg.end.z - seg.start.z > 1e-6));
+    if (up && seg.cyc != null) {
+      const nx = nextReal(i + 1);
+      if (nx && nx.cyc != null && nx.lineIdx !== seg.lineIdx) up = false;
+    }
+    const neutral = !tool && !up && seg.isMarker && !seg.isStop;
+    if (tool || up) {
+      if (!cur) cur = { tStart, tEnd, up: false, tool: false, line: _segOrig(seg), from: null, to: null };
+      cur.tEnd = Math.max(cur.tEnd, tEnd);
+      if (up) cur.up = true;
+      if (tool) { cur.tool = true; cur.from = seg.toolFrom; cur.to = seg.toolTo; }
+    } else if (neutral && cur) {
+      cur.tEnd = Math.max(cur.tEnd, tEnd);
+    } else if (cur) {
+      stops.push(cur); cur = null;
+    }
+  }
+  if (cur) stops.push(cur);
+  _opStops = stops; _opKey = key;
+  return stops;
+}
+
+function stepNextOp() {
+  if (!segTimeline.length) return;
+  const stops = opStops();
+  const at = stops.findIndex(s => s.tEnd > simTime + 1e-3);
+  simPlaying = false;
+  simActive = true;
+  singleBlockTargetTime = null;
+  hideProgramComplete();
+  if (at < 0) {
+    simSeekToTime(simTotalTime);
+    showToast('Next op', stops.length ? 'No more rapid ups or tool changes — this is the end of the program.'
+                                       : 'This program has no rapid up or tool change in it, so Next op goes to the end.');
+    return;
+  }
+  const st = stops[at];
+  simSeekToTime(st.tEnd);
+  const what = st.tool && st.up ? 'rapid up + tool change' : st.tool ? 'tool change' : 'rapid up';
+  const tool = st.tool ? (st.from != null ? ' · T' + st.from + ' → T' + st.to : (st.to != null ? ' · T' + st.to : '')) : '';
+  showToast('Next op ' + (at + 1) + ' of ' + stops.length,
+    what + tool + ' · line ' + (st.line + 1));
+  if (typeof PlaybackUI !== 'undefined' && PlaybackUI.refresh) PlaybackUI.refresh();
+}
+document.getElementById('btn-sim-nextop').addEventListener('click', () => {
+  stepNextOp();
+  /* single block carries on from wherever the jump landed */
+  if (singleBlockMode) singleBlockCurrentSourceLine = getLineIdxAtTime(simTime);
+});
+document.getElementById('btn-sim-nextop').addEventListener('mousedown', flushAllDiameterInputs);
 
 const btnSingleBlock = document.getElementById('btn-single-block');
 btnSingleBlock.addEventListener('click', () => {
@@ -61647,6 +61915,1048 @@ window.HAAS_LATHE_CODES = {
   };
 })();
 
+</script>
+<script id="tips">
+/* Tooltips that are never cut off and never sit on the control they describe.
+ *
+ * One card lives on the page itself, above everything, and shows the hovered
+ * (or keyboard-focused) control's data-tip. Native title="" attributes are
+ * folded into data-tip first, so nothing draws its own bubble.
+ *
+ * Placement: above the control when there is room, else below, else beside it;
+ * slid sideways as needed so every edge stays inside the window, with an arrow
+ * that keeps pointing at the control. The card is tested against the control's
+ * own rectangle, and if it would cover it, the next side is tried.
+ *
+ * A data-tip is "Title" or "Title<newline>Description". A button that switches
+ * something on and off (aria-pressed) gets a small On / Off tag.
+ * It waits a moment before showing the first one, then follows the pointer from
+ * control to control with no wait. */
+(function () {
+  const css = document.createElement('style');
+  css.textContent = `
+[data-tip]::after,[data-tip]::before{content:none!important;display:none!important}
+.tipl{position:fixed;left:0;top:0;z-index:2147483000;width:max-content;max-width:min(264px,calc(100vw - 16px));pointer-events:none;visibility:hidden;transition:visibility 0s linear .14s}
+.tipl.on{visibility:visible;transition:visibility 0s}
+.tipl-in{position:relative;padding:9px 11px 10px;border-radius:10px;background:#15171d;color:#e6e9ef;border:1px solid rgba(255,255,255,.15);
+  box-shadow:0 12px 30px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.06);
+  font-family:"Inter",system-ui,sans-serif;font-size:12px;font-weight:500;line-height:1.45;text-align:left;text-transform:none;letter-spacing:normal;
+  opacity:0;transform:translateY(var(--dy,4px)) scale(.97);transform-origin:var(--ax,50%) var(--oy,100%);
+  transition:opacity .14s ease,transform .16s cubic-bezier(.2,.8,.2,1)}
+.tipl.on .tipl-in{opacity:1;transform:none}
+.tipl-h{display:flex;align-items:center;gap:10px}
+.tipl-t{font-size:12.5px;font-weight:650;letter-spacing:.01em;color:#fff}
+.tipl-s{margin-left:auto;flex:none;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,.1);color:#a9b1bf;font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.tipl-s.is-on{background:rgba(88,151,255,.22);color:#9cc0ff}
+.tipl-b{margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.1);color:#b4bbc8;font-weight:450}
+.tipl-b p{margin:0}.tipl-b p+p{margin-top:5px}
+.tipl kbd{display:inline-block;padding:2px 5px 1px;margin:0 1px;border-radius:4px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-bottom-width:2px;
+  color:#fff;font:600 10.5px/1.2 'Inter',system-ui,sans-serif}
+.tipl-a{position:absolute;width:9px;height:9px;background:#15171d;border:1px solid rgba(255,255,255,.15);transform:rotate(45deg)}
+.tipl[data-side=top] .tipl-a{left:var(--ax,50%);margin-left:-4.5px;bottom:-5px;border-top:0;border-left:0}
+.tipl[data-side=bottom] .tipl-a{left:var(--ax,50%);margin-left:-4.5px;top:-5px;border-bottom:0;border-right:0}
+.tipl[data-side=right] .tipl-a{top:var(--ay,50%);margin-top:-4.5px;left:-5px;border-top:0;border-right:0}
+.tipl[data-side=left] .tipl-a{top:var(--ay,50%);margin-top:-4.5px;right:-5px;border-bottom:0;border-left:0}
+@media (prefers-reduced-motion:reduce){.tipl,.tipl.on,.tipl-in,.tipl.on .tipl-in{transition:none;transform:none}}`;
+  document.head.appendChild(css);
+
+  const tip = document.createElement('div');
+  tip.className = 'tipl'; tip.setAttribute('role', 'tooltip'); tip.setAttribute('aria-hidden', 'true');
+  tip.innerHTML = '<div class="tipl-in"><div class="tipl-h"><span class="tipl-t"></span><span class="tipl-s" hidden></span></div><div class="tipl-b" hidden></div><span class="tipl-a"></span></div>';
+  document.body.appendChild(tip);
+  const tTitle = tip.querySelector('.tipl-t'), tState = tip.querySelector('.tipl-s'), tBody = tip.querySelector('.tipl-b');
+
+  /* ---- title="" becomes data-tip ---- */
+  function fold(el) {
+    if (!el || el.nodeType !== 1 || !el.hasAttribute('title')) return;
+    const t = (el.getAttribute('title') || '').trim();
+    if (el.tagName === 'IFRAME' || el.tagName === 'SVG' || el.tagName === 'svg') return;
+    el.removeAttribute('title');
+    if (t && !el.getAttribute('aria-label') && !(el.textContent || '').trim()) el.setAttribute('aria-label', t);
+    if (!t || el.hasAttribute('data-tip')) return;
+    let out = t;
+    if (t.indexOf('\n') < 0) {
+      const m = t.match(/^(.{2,42}?)(?::\s+| — | - )(.+)$/s);
+      if (m) out = m[1] + '\n' + m[2].charAt(0).toUpperCase() + m[2].slice(1);
+    }
+    el.setAttribute('data-tip', out);
+  }
+  function foldAll(root) {
+    if (root.nodeType !== 1) return;
+    fold(root);
+    root.querySelectorAll && root.querySelectorAll('[title]').forEach(fold);
+  }
+  foldAll(document.documentElement);
+  new MutationObserver(list => {
+    list.forEach(m => {
+      if (m.type === 'attributes') fold(m.target);
+      else m.addedNodes.forEach(foldAll);
+    });
+  }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['title'] });
+
+  const KEYS = /\b(Shift|Ctrl|Control|Alt|Option|Cmd|Esc|Enter|Return|Tab|Space|Delete|Backspace)\b/g;
+  function paragraph(text) {
+    const p = document.createElement('p'); let last = 0, m;
+    KEYS.lastIndex = 0;
+    while ((m = KEYS.exec(text))) {
+      if (m.index > last) p.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const k = document.createElement('kbd'); k.textContent = m[0]; p.appendChild(k); last = m.index + m[0].length;
+    }
+    if (last < text.length) p.appendChild(document.createTextNode(text.slice(last)));
+    return p;
+  }
+
+  let cur = null, shown = '', timer = 0, lastHide = 0;
+  const watch = new MutationObserver(() => { if (cur && tip.classList.contains('on')) fill(cur); });
+  function fill(el) {
+    const raw = el.getAttribute('data-tip') || '', pressed = el.getAttribute('aria-pressed');
+    const key = raw + '|' + pressed;
+    if (key !== shown) {
+      shown = key;
+      const lines = raw.split('\n').map(s => s.trim()).filter(Boolean);
+      tTitle.textContent = lines[0] || '';
+      tBody.textContent = '';
+      lines.slice(1).forEach(l => tBody.appendChild(paragraph(l)));
+      tBody.hidden = lines.length < 2;
+      const isToggle = pressed === 'true' || pressed === 'false';
+      tState.hidden = !isToggle;
+      if (isToggle) { tState.textContent = pressed === 'true' ? 'On' : 'Off'; tState.classList.toggle('is-on', pressed === 'true'); }
+    }
+    place(el);
+  }
+
+  const GAP = 10, M = 8;
+  function place(el) {
+    const r = el.getBoundingClientRect();
+    const W = document.documentElement.clientWidth, H = document.documentElement.clientHeight;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    const clampX = (x) => Math.max(M, Math.min(W - w - M, x));
+    const clampY = (y) => Math.max(M, Math.min(H - h - M, y));
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    /* the four candidates, each already slid inside the window */
+    const cand = {
+      top:    { x: clampX(cx - w / 2), y: r.top - GAP - h },
+      bottom: { x: clampX(cx - w / 2), y: r.bottom + GAP },
+      right:  { x: r.right + GAP,      y: clampY(cy - h / 2) },
+      left:   { x: r.left - GAP - w,   y: clampY(cy - h / 2) },
+    };
+    const fits = (c) => c.x >= M - 0.5 && c.y >= M - 0.5 && c.x + w <= W - M + 0.5 && c.y + h <= H - M + 0.5;
+    const hits = (c) => !(c.x + w <= r.left || c.x >= r.right || c.y + h <= r.top || c.y >= r.bottom);
+    /* a control in the lower half is better served from above, one in the upper half from below */
+    const order = (r.top > H - r.bottom) ? ['top', 'bottom', 'right', 'left'] : ['bottom', 'top', 'right', 'left'];
+    let side = order.find(s => fits(cand[s]) && !hits(cand[s]));
+    if (!side) {
+      /* nothing fits whole: take the side with the most room that still clears the control */
+      const room = { top: r.top, bottom: H - r.bottom, right: W - r.right, left: r.left };
+      side = order.slice().sort((a, b) => room[b] - room[a]).find(s => !hits(clampedFor(s))) || order[0];
+    }
+    function clampedFor(s) {
+      const c = cand[s];
+      if (s === 'top' || s === 'bottom') return { x: c.x, y: s === 'top' ? Math.max(M, c.y) : Math.min(H - h - M, c.y) };
+      return { x: s === 'right' ? Math.min(W - w - M, c.x) : Math.max(M, c.x), y: c.y };
+    }
+    const c = clampedFor(side);
+    tip.style.transform = `translate(${Math.round(c.x)}px,${Math.round(c.y)}px)`;
+    tip.dataset.side = side;
+    const horiz = side === 'top' || side === 'bottom';
+    tip.style.setProperty('--ax', Math.round(Math.max(16, Math.min(w - 16, cx - c.x))) + 'px');
+    tip.style.setProperty('--ay', Math.round(Math.max(14, Math.min(h - 14, cy - c.y))) + 'px');
+    tip.style.setProperty('--dy', side === 'top' ? '4px' : side === 'bottom' ? '-4px' : '0px');
+    tip.style.setProperty('--oy', side === 'top' ? '100%' : side === 'bottom' ? '0%' : '50%');
+  }
+  function reveal(el) {
+    const s = el.getAttribute('data-tip');
+    if (!s || !el.isConnected || !el.getClientRects().length) { hide(); return; }
+    if (cur !== el) { watch.disconnect(); watch.observe(el, { attributes: true, attributeFilter: ['data-tip', 'aria-pressed'] }); }
+    cur = el; fill(el);
+    tip.classList.add('on');
+  }
+  function show(el, now) {
+    clearTimeout(timer);
+    if (now || tip.classList.contains('on') || performance.now() - lastHide < 400) reveal(el);
+    else { cur = el; timer = setTimeout(() => { if (cur === el) reveal(el); }, 320); }
+  }
+  function hide() {
+    clearTimeout(timer);
+    if (tip.classList.contains('on')) lastHide = performance.now();
+    cur = null; shown = ''; watch.disconnect(); tip.classList.remove('on');
+  }
+
+  document.addEventListener('pointerover', e => {
+    if (e.pointerType === 'touch') return;
+    const el = e.target.closest && e.target.closest('[data-tip]');
+    if (el) { if (el !== cur) show(el); } else if (cur) hide();
+  }, true);
+  document.addEventListener('pointerout', e => {
+    if (cur && (!e.relatedTarget || !cur.contains(e.relatedTarget))) hide();
+  }, true);
+  document.addEventListener('focusin', e => {
+    const el = e.target.closest && e.target.closest('[data-tip]');
+    if (el && el.matches(':focus-visible')) show(el, true);
+  }, true);
+  document.addEventListener('focusout', () => { if (cur && !cur.matches(':hover')) hide(); }, true);
+  ['pointerdown', 'wheel', 'scroll'].forEach(t => document.addEventListener(t, () => { if (cur) hide(); }, { capture: true, passive: true }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && cur) hide(); }, true);
+  window.addEventListener('resize', hide);
+  window.addEventListener('blur', hide);
+  window.__tips = { place, hide, tip };
+})();
+
+</script>
+<script id="dev-stress">
+/* ===== Dev tool: G-code stress test (Ctrl+Shift+D) ===== */
+/* =============================================================================
+ * Stress-test engine: builds programs whose result is known by construction,
+ * runs them through the real parser and checks the toolpath it draws against
+ * that. Pure logic, no DOM, so the same code drives the on-screen dev tool and
+ * a headless run.
+ * ========================================================================== */
+const DevStressEngine = (function () {
+  const TAU = Math.PI * 2;
+  const EPS = 1e-6;
+
+  /* ---- seeded random ------------------------------------------------------ */
+  function rng(seed) {
+    let a = seed >>> 0;
+    const f = function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    f.range = (lo, hi) => lo + (hi - lo) * f();
+    f.int = (lo, hi) => Math.floor(lo + (hi - lo + 1) * f());
+    f.pick = (arr) => arr[Math.floor(f() * arr.length)];
+    f.chance = (p) => f() < p;
+    return f;
+  }
+
+  const r4 = (v) => Math.round(v * 1e4) / 1e4;
+  const num = (v) => { let s = r4(v).toFixed(4); return s; };
+  const decimal = (v) => { let s = String(r4(v)); return s.indexOf('.') < 0 ? s + '.' : s; };
+  const V = (x, y, z) => ({ x, y, z });
+  const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const near = (a, b, t) => Math.abs(a - b) <= (t === undefined ? EPS : t);
+  const nearP = (a, b, t) => dist3(a, b) <= (t === undefined ? 1e-5 : t);
+
+  function wrap(a) { while (a > Math.PI) a -= TAU; while (a <= -Math.PI) a += TAU; return a; }
+
+  /* ---- generic checks on any toolpath ------------------------------------- */
+  function pathIssues(segs, origin) {
+    const out = [];
+    let prev = origin || null;
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i];
+      if (!s || !s.start || !s.end) { out.push('segment ' + i + ' has no ends'); continue; }
+      const nums = [s.start.x, s.start.y, s.start.z, s.end.x, s.end.y, s.end.z, s.length, s.duration];
+      if (nums.some(v => typeof v !== 'number' || !isFinite(v))) { out.push('segment ' + i + ' has a non-finite number'); continue; }
+      if (s.duration < 0 || s.length < -1e-12) out.push('segment ' + i + ' has negative length or time');
+      if (prev && dist3(prev, s.start) > 1e-5) {
+        out.push('gap before segment ' + i + ' (line ' + (s.lineIdx + 1) + '): ' +
+          dist3(prev, s.start).toExponential(2) + ' between the end of the last one and the start of this');
+        break;
+      }
+      prev = s.end;
+    }
+    return out;
+  }
+
+  /* ---- case plumbing ------------------------------------------------------ */
+  const HEADER = ['G90 G17 G20 G40 G49 G80', 'T1 M06', 'S1200 M03'];
+
+  function buildProgram(parts) {
+    const lines = HEADER.slice();
+    const ranges = [];
+    parts.forEach(p => {
+      lines.push(...p.setup);
+      const a = lines.length;
+      lines.push(...p.body);
+      ranges.push([a, lines.length - 1]);
+      lines.push(...(p.after || []));
+    });
+    lines.push('G80 G00 G90', 'M05', 'M30');
+    return { text: lines.join('\n'), ranges };
+  }
+
+  /* ===========================================================================
+   *  G00 / G01 — straight lines, modal words, absolute and incremental
+   * ======================================================================== */
+  function genLines(R, rapid) {
+    const setup = ['G90 G00 X0. Y0. Z1.'];
+    const body = [];
+    const exp = [];
+    let cur = V(0, 0, 1), abs = true;
+    let F = null;
+    const n = R.int(3, 9);
+    body.push(rapid ? 'G00' : 'G01');
+    if (!rapid) { F = R.pick([5, 12.5, 20, 33.3, 60, 7.25]); body[0] = 'G01 F' + decimal(F); }
+    for (let i = 0; i < n; i++) {
+      const w = [];
+      if (R.chance(0.2)) { abs = !abs; w.push(abs ? 'G90' : 'G91'); }
+      if (!rapid && R.chance(0.25)) { F = R.pick([4, 9.5, 18, 44.4, 80]); w.push('F' + decimal(F)); }
+      const nx = { ...cur };
+      const axes = ['X', 'Y', 'Z'].filter(() => R.chance(0.7));
+      if (!axes.length) axes.push('Y');
+      axes.forEach(a => {
+        const k = a.toLowerCase();
+        const val = r4(R.range(-3, 3));
+        w.push(a + num(val));
+        nx[k] = abs ? val : r4(cur[k] + val);
+      });
+      const moved = dist3(cur, nx) > 1e-9;
+      body.push(w.join(' '));
+      if (moved) exp.push({ from: cur, to: nx, F });
+      cur = nx;
+    }
+    return {
+      setup, body, exp,
+      check(segs) {
+        const issues = [];
+        const real = segs.filter(s => !s.isMarker && !s.dwell);
+        if (real.length !== exp.length) issues.push('expected ' + exp.length + ' moves, drew ' + real.length);
+        for (let i = 0; i < Math.min(real.length, exp.length); i++) {
+          const s = real[i], e = exp[i];
+          if (!nearP(s.end, e.to)) issues.push('move ' + (i + 1) + ' ends at (' + [s.end.x, s.end.y, s.end.z].map(num) + ') not (' + [e.to.x, e.to.y, e.to.z].map(num) + ')');
+          if (!nearP(s.start, e.from)) issues.push('move ' + (i + 1) + ' starts in the wrong place');
+          if (rapid) {
+            if (s.type !== 'rapid' && s.type !== 'retract') issues.push('move ' + (i + 1) + ' is a ' + s.type + ', not a rapid');
+            if (s.type === 'retract' && !(s.end.z > s.start.z)) issues.push('move ' + (i + 1) + ' is a retract that does not go up');
+          } else {
+            if (s.type !== 'cut') issues.push('move ' + (i + 1) + ' is a ' + s.type + ', not a cut');
+            if (!near(s.feedRate, e.F, 1e-9)) issues.push('move ' + (i + 1) + ' feed ' + s.feedRate + ' not ' + e.F);
+            const t = s.length / (e.F / 60);
+            if (!near(s.duration, t, 1e-6 * Math.max(1, t))) issues.push('move ' + (i + 1) + ' takes ' + s.duration.toFixed(4) + 's, should be ' + t.toFixed(4));
+          }
+        }
+        return issues;
+      },
+    };
+  }
+
+  /* ===========================================================================
+   *  G02 / G03 - arcs in every plane, by I J K or by R, full circles, helices
+   * ======================================================================== */
+  function genArc(R, cw, forceFull) {
+    const plane = R.pick([17, 17, 17, 18, 19]);
+    const [U, Vk, W] = ARC_AXES[plane];                 // the plane's two axes, then the one a helix climbs
+    const byR = !forceFull && R.chance(0.35);
+    const full = forceFull || (!byR && R.chance(0.14));
+    const radius = r4(R.range(0.25, 3));
+    let sweep = full ? TAU : R.range(0.12, TAU - 0.12);
+    if (byR) while (Math.abs(sweep - Math.PI) < 0.08) sweep = R.range(0.12, TAU - 0.12);
+    const c = { u: r4(R.range(-3, 3)), v: r4(R.range(-3, 3)) };
+    const w0 = r4(R.range(-1, 1));
+    const a0 = R.range(-Math.PI, Math.PI);
+    const dir = cw ? -1 : 1;
+    const helix = R.chance(0.3) ? r4(R.range(-0.8, 0.8)) : 0;
+    const at = (a, w) => ({ u: r4(c.u + radius * Math.cos(a)), v: r4(c.v + radius * Math.sin(a)), w });
+    const sUVW = at(a0, w0);
+    const eUVW = full ? { u: sUVW.u, v: sUVW.v, w: r4(w0 + helix) } : at(a0 + dir * sweep, r4(w0 + helix));
+    const place = (p) => { const o = {}; o[U] = p.u; o[Vk] = p.v; o[W] = p.w; return o; };
+    const S = place(sUVW), E = place(eUVW);
+    const inc = R.chance(0.4);
+    const code = cw ? 'G02' : 'G03';
+    const setup = ['G90 G' + plane + ' G00 X' + num(S.x) + ' Y' + num(S.y) + ' Z' + num(S.z),
+                   'G01 F' + decimal(R.pick([10, 18.5, 40]))];
+    const words = [code];
+    const end = {};
+    ['x', 'y', 'z'].forEach(k => {
+      const same = Math.abs(E[k] - S[k]) < 1e-9;
+      if (same && (k === W || full) && R.chance(0.5)) { end[k] = S[k]; return; }   // a full circle may leave it off
+      const val = inc ? r4(E[k] - S[k]) : E[k];
+      words.push(k.toUpperCase() + num(val));
+      end[k] = inc ? r4(S[k] + val) : val;
+    });
+    let ctr = null, expectR = null;
+    const chord = Math.hypot(end[U] - S[U], end[Vk] - S[Vk]);
+    const impossible = byR && !full && chord > 0.05 && R.chance(0.08);   // no circle of that radius joins the points
+    if (byR) {
+      words.push('R' + num(impossible ? chord * 0.4 : (sweep > Math.PI ? -radius : radius)));
+      expectR = { r: radius, major: sweep > Math.PI };
+    } else {
+      const word = { x: 'I', y: 'J', z: 'K' };
+      ctr = {};
+      [[U, c.u], [Vk, c.v]].forEach(([k, cc]) => {
+        const off = r4(cc - S[k]);
+        words.push(word[k] + num(off));
+        ctr[k] = r4(S[k] + off);
+      });
+      ctr[W] = S[W];
+    }
+    if (inc) words.unshift('G91');
+    const body = [words.join(' ')];
+    if (inc) body.push('G90');
+    const closed = Math.hypot(end[U] - S[U], end[Vk] - S[Vk]) < 1e-9;
+    return {
+      setup, body, plane, byR, full: closed, cw,
+      check(segs) {
+        const issues = [];
+        if (impossible) {
+          /* the control would alarm; the sim keeps the path whole with a straight cut */
+          if (segs.length !== 1 || !segs[0].badArc) issues.push('an R too small for its chord should draw one straight cut, drew ' + segs.length + ' segment(s)');
+          else if (!nearP(segs[0].end, end) || !nearP(segs[0].start, S)) issues.push('the straight cut for an impossible R does not join the two points');
+          return issues;
+        }
+        const arcs = segs.filter(q => q.arc);
+        if (!arcs.length) return ['no arc was drawn'];
+        if (segs.length !== arcs.length) issues.push('the block drew ' + (segs.length - arcs.length) + ' segment(s) that are not part of the arc');
+        const first = arcs[0], last = arcs[arcs.length - 1];
+        if (!nearP(first.start, S)) issues.push('the arc does not start where the tool was');
+        if (!nearP(last.end, end)) issues.push('the arc ends at (' + [last.end.x, last.end.y, last.end.z].map(num) + ') not at (' + [end.x, end.y, end.z].map(num) + ')');
+        const C = byR ? { x: first.center.x, y: first.center.y, z: first.center.z } : ctr;
+        const ang = (p) => Math.atan2(p[Vk] - C[Vk], p[U] - C[U]);
+        const rad = (p) => Math.hypot(p[U] - C[U], p[Vk] - C[Vk]);
+        const rs = rad(S), re = rad(end);
+        if (byR && (!near(rs, expectR.r, 1e-4) || !near(re, expectR.r, 1e-4)))
+          issues.push('the R arc\'s centre is ' + rs.toFixed(5) + ' and ' + re.toFixed(5) + ' from its ends, R is ' + expectR.r);
+        const lo = Math.min(rs, re) - 1e-7, hi = Math.max(rs, re) + 1e-7;
+        let total = 0, radiusOK = true;
+        const turns = arcs.map(q => {
+          [q.start, q.end].forEach(p => { const r = rad(p); if (r < lo || r > hi) radiusOK = false; });
+          const d = wrap(ang(q.end) - ang(q.start));
+          if (cw && d > 1e-9) issues.push('a G02 chord turns counter-clockwise');
+          if (!cw && d < -1e-9) issues.push('a G03 chord turns clockwise');
+          if (q.arc.cw !== cw) issues.push('the arc is flagged ' + (q.arc.cw ? 'clockwise' : 'counter-clockwise') + ' but the block is ' + code);
+          total += d;
+          return total;
+        });
+        if (!radiusOK) issues.push('a point is off the circle (radius should run ' + rs.toFixed(5) + ' to ' + re.toFixed(5) + ')');
+        let helixOK = true;
+        arcs.forEach((q, i) => {
+          const f = turns[i] / total;
+          if (Math.abs(q.end[W] - (S[W] + (end[W] - S[W]) * f)) > 1e-5) helixOK = false;
+        });
+        if (!helixOK) issues.push('the helix does not climb steadily with the angle');
+        if (closed && !byR) {
+          if (!near(total, dir * TAU, 1e-6)) issues.push('a full circle sweeps ' + (total / Math.PI).toFixed(4) + ' pi, not ' + (dir * 2));
+        } else if (!byR) {
+          let want = ang(end) - ang(S);
+          if (cw) { while (want >= 0) want -= TAU; } else { while (want <= 0) want += TAU; }
+          if (!near(total, want, 1e-6)) issues.push('the arc sweeps ' + total.toFixed(6) + ' rad, should be ' + want.toFixed(6));
+        } else {
+          if ((Math.abs(total) > Math.PI + 1e-9) !== expectR.major)
+            issues.push('R' + (expectR.major ? '-' : '+') + ' should be the ' + (expectR.major ? 'major' : 'minor') + ' arc but sweeps ' + (total / Math.PI).toFixed(3) + ' pi');
+          if (cw ? total >= 0 : total <= 0) issues.push('the R arc runs the wrong way round');
+        }
+        return issues;
+      },
+    };
+  }
+
+  /* ===========================================================================
+   *  G12 / G13 - Haas circular pockets
+   * ======================================================================== */
+  function genPocket(R, cw, toolDia) {
+    const toolR = toolDia / 2;
+    const bad = R.chance(0.1);
+    const I = r4(bad ? toolR * R.range(0.3, 0.95) : toolR + R.range(0.02, 0.4));
+    const useK = !bad && R.chance(0.75);
+    const Q = r4(R.range(0.05, 0.4));
+    const K = useK ? r4(I + (R.chance(0.15) ? 0 : R.range(0.05, 1.2))) : undefined;
+    const incr = R.chance(0.3);
+    const L = R.chance(0.35) ? R.int(2, 3) : 1;
+    const z0 = 0.1;
+    const Zw = incr ? r4(-R.range(0.05, 0.25)) : r4(-R.range(0.05, 0.6));
+    const sx = r4(R.range(-3, 3)), sy = r4(R.range(-3, 3));
+    const withXY = R.chance(0.4);
+    const cx = withXY ? r4(R.range(-3, 3)) : sx, cy = withXY ? r4(R.range(-3, 3)) : sy;
+    const F = R.pick([8, 14.5, 20, 33.25]);
+    const setup = ['G90 G00 X' + num(sx) + ' Y' + num(sy) + ' Z' + num(z0)];
+    const words = [cw ? 'G12' : 'G13'];
+    if (withXY) {
+      words.push('X' + num(incr ? cx - sx : cx), 'Y' + num(incr ? cy - sy : cy));
+    }
+    words.push('I' + num(I));
+    if (useK) words.push('K' + num(K), 'Q' + num(Q));
+    words.push('Z' + num(Zw), 'F' + decimal(F));
+    if (L > 1) words.push('L' + L);
+    const body = incr ? ['G91', words.join(' '), 'G90'] : [words.join(' ')];
+    /* what must come out */
+    const radii = [];
+    if (useK) { let r = I; while (r < K - 1e-9) { radii.push(r); r += Q; } radii.push(K); } else radii.push(I);
+    const gouge = I <= toolR + 1e-12 || radii.some(r => r <= toolR);
+    return {
+      setup, body, toolDia, bad: gouge,
+      check(segs) {
+        const issues = [];
+        const cuts = segs.filter(q => q.type === 'cut');
+        if (gouge) {
+          if (cuts.length) issues.push('a pocket smaller than the tool was cut anyway (' + cuts.length + ' cutting moves)');
+          return issues;
+        }
+        const arcs = segs.filter(q => q.arc);
+        const per = radii.length;
+        const wantArcs = per * L;
+        const ctr = V(cx, cy, 0);
+        /* rings, in the order they are cut */
+        const ringSeq = [];
+        let lastKey = null;
+        arcs.forEach(q => {
+          const rr = Math.hypot(q.start.x - cx, q.start.y - cy);
+          const key = r4(rr) + '@' + r4(q.start.z);
+          const open = ringSeq.length && Math.abs(ringSeq[ringSeq.length - 1].sweep) < TAU - 1e-7;
+          if (key !== lastKey || !open) { ringSeq.push({ r: rr, z: q.start.z, sweep: 0, cw: q.arc.cw }); lastKey = key; }
+          const a0 = Math.atan2(q.start.y - cy, q.start.x - cx), a1 = Math.atan2(q.end.y - cy, q.end.x - cx);
+          ringSeq[ringSeq.length - 1].sweep += wrap(a1 - a0);
+          if (Math.abs(Math.hypot(q.end.x - cx, q.end.y - cy) - rr) > 1e-6) issues.push('a pocket arc drifts off its ring');
+        });
+        if (ringSeq.length !== wantArcs) issues.push('expected ' + wantArcs + ' rings (' + per + ' x ' + L + ' loops), drew ' + ringSeq.length);
+        const dirWant = cw ? -1 : 1;
+        for (let i = 0; i < Math.min(ringSeq.length, wantArcs); i++) {
+          const loop = Math.floor(i / per), k = i % per;
+          const wantR = radii[k] - toolR;
+          const wantZ = incr ? r4(z0 + Zw * (loop + 1)) : Zw;
+          const g = ringSeq[i];
+          if (!near(g.r, wantR, 2e-5)) issues.push('ring ' + (i + 1) + ' is at radius ' + g.r.toFixed(5) + ', should be ' + wantR.toFixed(5) + ' (pocket radius ' + radii[k] + ' less the tool radius ' + toolR + ')');
+          if (!near(g.z, wantZ, 2e-5)) issues.push('ring ' + (i + 1) + ' is at Z ' + g.z.toFixed(5) + ', should be ' + wantZ.toFixed(5));
+          if (!near(g.sweep, dirWant * TAU, 1e-6)) issues.push('ring ' + (i + 1) + ' sweeps ' + (g.sweep / Math.PI).toFixed(4) + ' pi, not ' + (dirWant * 2));
+          if (g.cw !== cw) issues.push('ring ' + (i + 1) + ' runs ' + (g.cw ? 'clockwise' : 'counter-clockwise') + ' under ' + (cw ? 'G12' : 'G13'));
+        }
+        const lastSeg = segs[segs.length - 1];
+        const zEnd = incr ? r4(z0 + Zw * L) : Zw;
+        if (lastSeg && !nearP(lastSeg.end, V(cx, cy, zEnd), 2e-5))
+          issues.push('the pocket does not end at its centre (' + [lastSeg.end.x, lastSeg.end.y, lastSeg.end.z].map(num) + ' not ' + [cx, cy, zEnd].map(num) + ')');
+        const reach = Math.max.apply(null, segs.filter(q => q.type === 'cut').map(q => Math.max(Math.hypot(q.start.x - cx, q.start.y - cy), Math.hypot(q.end.x - cx, q.end.y - cy))));
+        if (reach > radii[radii.length - 1] - toolR + 1e-5) issues.push('the tool centre reaches ' + reach.toFixed(5) + ', past the finished wall ' + (radii[radii.length - 1] - toolR).toFixed(5));
+        return issues;
+      },
+    };
+  }
+
+  /* ===========================================================================
+   *  Canned cycles
+   * ======================================================================== */
+  const CYCLE_CODES = [73, 74, 76, 77, 81, 82, 83, 84, 85, 86, 87, 88, 89];
+
+  function genCycle(R, code, toolDia) {
+    const CLR = 0.02;
+    const abs = !R.chance(0.3);
+    const mode0 = R.pick([98, 99]);
+    const z0 = r4(R.range(0.4, 1.5));
+    const sx = r4(R.range(-2, 2)), sy = r4(R.range(-2, 2));
+    const Rabs = r4(R.range(0.05, 0.35));
+    const depth = r4(R.range(0.15, 1.2));
+    const Zabs = r4(Rabs - depth);
+    const Rw = abs ? Rabs : r4(Rabs - z0);                // under G91 R is measured from the initial level
+    const Zw = abs ? Zabs : r4(-depth);                   //        and Z from the R plane
+    const F = (code === 84 || code === 74) ? 60 : R.pick([6, 10.5, 15, 22.25]);
+    const peckQ = r4(R.range(0.06, Math.max(0.07, depth * 0.8)));
+    const useIJK = code === 83 && R.chance(0.35);
+    const I = r4(R.range(0.12, 0.5)), J = r4(R.range(0.01, 0.1)), K = r4(R.range(0.04, 0.11));
+    const shift = r4(R.range(0.01, 0.06));
+    const dwellForms = ['P500', 'P.5', 'P0.25', 'P1000', 'P250'];
+    const pTok = R.pick(dwellForms);
+    const needsP = [82, 88, 89, 76].indexOf(code) >= 0;
+    const pSecs = (() => { const v = parseFloat(pTok.slice(1)); return pTok.indexOf('.') >= 0 ? v : v / 1000; })();
+    const setup = ['G90 G00 X' + num(sx) + ' Y' + num(sy) + ' Z' + num(z0)];
+    const body = [];
+    const holes = [];
+    let x = sx, y = sy, z = z0;
+    let mode = mode0, initialZ = z0;
+    let curR = Rabs, curZb = Zabs, absNow = abs;
+    const retOf = () => (mode === 98 ? Math.max(initialZ, curR) : curR);
+
+    const first = [];
+    if (!abs) first.push('G91');
+    first.push('G' + mode, 'G' + code);
+    const withXY = R.chance(0.7);
+    const reps = R.chance(0.25) ? R.int(1, 3) : 1;
+    let ix = r4(R.range(-1, 1)), iy = r4(R.range(-1, 1));
+    if (!abs && Math.abs(ix) < 0.2) ix = 0.5;
+    const fx = r4(R.range(-2, 2)), fy = r4(R.range(-2, 2));
+    if (withXY) first.push('X' + num(abs ? fx : ix), 'Y' + num(abs ? fy : iy));
+    first.push('Z' + num(Zw), 'R' + num(Rw));
+    if (code === 83 || code === 73) {
+      if (useIJK) first.push('I' + num(I), 'J' + num(J), 'K' + num(K)); else first.push('Q' + num(peckQ));
+    }
+    if (code === 76 || code === 77) first.push('Q' + num(shift));
+    if (needsP) first.push(pTok);
+    first.push('F' + decimal(F));
+    if (reps > 1) first.push('L' + reps);
+    body.push(first.join(' '));
+    const doHole = (hx, hy) => {
+      holes.push({ x: hx, y: hy, R: curR, Zb: curZb, ret: retOf(), mode });
+      x = hx; y = hy; z = retOf();
+    };
+    for (let k = 0; k < reps; k++) {
+      let hx = x, hy = y;
+      if (withXY) { hx = abs ? fx : r4(x + ix); hy = abs ? fy : r4(y + iy); }
+      doHole(hx, hy);
+    }
+    /* modal blocks: just a position, a position with G98/G99, or a new depth */
+    const more = R.int(0, 3);
+    for (let m = 0; m < more; m++) {
+      const w = [];
+      const kind = R.pick(['xy', 'xy', 'mode', 'depth']);
+      if (kind === 'mode') { mode = mode === 98 ? 99 : 98; w.push('G' + mode); }
+      if (kind === 'depth') {
+        const nd = r4(R.range(0.12, 1.2));
+        curZb = r4(curR - nd);
+        w.push('Z' + num(abs ? curZb : -nd));
+      }
+      const nxv = r4(R.range(-2, 2)), nyv = r4(R.range(-2, 2));
+      w.push('X' + num(abs ? nxv : r4(nxv * 0.4)), 'Y' + num(abs ? nyv : r4(nyv * 0.4)));
+      body.push(w.join(' '));
+      doHole(abs ? nxv : r4(x + r4(nxv * 0.4)), abs ? nyv : r4(y + r4(nyv * 0.4)));
+    }
+    if (!abs) body.push('G90');
+    /* getting out: G80, or just a G00 / G01 which must put the cycle away too */
+    const tailKind = R.pick(['g80', 'g80', 'g00', 'g01']);
+    const tx = r4(R.range(-2, 2)), ty = r4(R.range(-2, 2)), tz = r4(R.range(0.5, 2));
+    const tail = [];
+    if (tailKind === 'g80') body.push('G80', 'G00 X' + num(tx) + ' Y' + num(ty));
+    else if (tailKind === 'g00') body.push('G00 X' + num(tx) + ' Y' + num(ty));
+    else body.push('G01 X' + num(tx) + ' Y' + num(ty) + ' F30.');
+    body.push('G00 Z' + num(tz));
+    const tailTo = [V(tx, ty, z), V(tx, ty, tz)];
+
+    return {
+      setup, body, code, holes,
+      check(segs) {
+        const issues = [];
+        const cyc = segs.filter(q => q.cyc != null);
+        const ids = [];
+        cyc.forEach(q => { if (ids.indexOf(q.cycHole) < 0) ids.push(q.cycHole); });
+        if (ids.length !== holes.length) { issues.push('expected ' + holes.length + ' holes, drew ' + ids.length); return issues; }
+        let tailStart = segs.indexOf(cyc[cyc.length - 1]) + 1;
+        ids.forEach((id, hi) => {
+          const h = holes[hi];
+          const g = cyc.filter(q => q.cycHole === id);
+          const tag = 'hole ' + (hi + 1) + ' (G' + code + ' at ' + num(h.x) + ', ' + num(h.y) + '): ';
+          const lastEnd = g[g.length - 1].end;
+          if (!nearP(lastEnd, V(h.x, h.y, h.ret))) issues.push(tag + 'finishes at (' + [lastEnd.x, lastEnd.y, lastEnd.z].map(num) + '), should be back at (' + [h.x, h.y, h.ret].map(num) + ')');
+          const zs = []; g.forEach(q => { zs.push(q.start.z, q.end.z); });
+          if (!near(Math.min.apply(null, zs), h.Zb, 1e-7)) issues.push(tag + 'bottom is ' + Math.min.apply(null, zs).toFixed(5) + ', Z says ' + h.Zb);
+          if (Math.max.apply(null, g.slice(1).map(q => q.end.z)) > Math.max(h.ret, g[0].start.z) + 1e-7) issues.push(tag + 'climbs above where it should');
+          const feeds = g.filter(q => q.type === 'cut' && !q.dwell);
+          const taps = g.filter(q => q.type === 'tap');
+          const dwells = g.filter(q => q.dwell);
+          /* nothing but the tool's own XY approach moves at depth */
+          g.forEach(q => {
+            if (q.type === 'rapid' && (Math.abs(q.start.x - q.end.x) > 1e-9 || Math.abs(q.start.y - q.end.y) > 1e-9) && !q.cycShift && q.type !== 'tap') {
+              if (Math.min(q.start.z, q.end.z) < h.R - 1e-7 && q.cycHole === id && !q.tap) issues.push(tag + 'travels sideways below the R plane');
+            }
+          });
+          if (code !== 84 && code !== 74 && code !== 77) {
+            feeds.forEach(q => { if (!near(q.start.x, h.x, 1e-9) || !near(q.start.y, h.y, 1e-9) || !near(q.end.x, h.x, 1e-9) || !near(q.end.y, h.y, 1e-9)) issues.push(tag + 'cuts off the hole\'s axis'); });
+            feeds.forEach(q => { if (!near(q.feedRate, F, 1e-9)) issues.push(tag + 'feed ' + q.feedRate + ' not F' + F); });
+          }
+          if ([81, 82, 83, 73, 85, 86, 87, 88, 89, 76].indexOf(code) >= 0) {
+            /* every depth between R and Z fed through, with no gap */
+            const iv = feeds.map(q => [Math.min(q.start.z, q.end.z), Math.max(q.start.z, q.end.z)]).sort((a, b) => a[0] - b[0]);
+            let covered = h.Zb, ok = true;
+            iv.forEach(p => { if (p[0] > covered + 1e-7) ok = false; covered = Math.max(covered, p[1]); });
+            if (!ok || covered < h.R - 1e-7) issues.push(tag + 'leaves part of the hole between R and Z un-fed');
+          }
+          const wantDwell = [82, 88, 89, 76].indexOf(code) >= 0 ? 1 : 0;
+          if (dwells.length !== wantDwell) issues.push(tag + 'has ' + dwells.length + ' dwell(s), should have ' + wantDwell);
+          else if (wantDwell && !near(dwells[0].duration, pSecs, 1e-9)) issues.push(tag + 'dwells ' + dwells[0].duration + 's for ' + pTok + ' (should be ' + pSecs + 's)');
+          const depthNow = h.R - h.Zb;
+          if (code === 81 || code === 82 || code === 86 || code === 87 || code === 88) {
+            if (feeds.length !== 1) issues.push(tag + feeds.length + ' feed moves, should be 1');
+            if (feeds[0] && !(near(feeds[0].start.z, h.R, 1e-9) && near(feeds[0].end.z, h.Zb, 1e-9))) issues.push(tag + 'feed does not run R to Z');
+          }
+          if (code === 85 || code === 89) {
+            if (feeds.length !== 2) issues.push(tag + feeds.length + ' feed moves, should be 2 (in and out)');
+            else if (!(feeds[1].start.z < feeds[1].end.z && near(feeds[1].end.z, h.R, 1e-9))) issues.push(tag + 'does not feed back out to R');
+          }
+          if (code === 83 || code === 73) {
+            let q = useIJK ? I : peckQ; const bottoms = []; let b = h.R;
+            const fl = useIJK ? Math.max(K, 0) : q;
+            let guard = 0;
+            while (b > h.Zb + 1e-9 && guard++ < 999) { const nb = Math.max(h.Zb, b - q); bottoms.push(nb); b = nb; if (useIJK) q = Math.max(fl, q - J); }
+            const got = feeds.map(f => f.end.z);
+            if (got.length !== bottoms.length) issues.push(tag + got.length + ' pecks, expected ' + bottoms.length);
+            else bottoms.forEach((bb, i) => { if (!near(got[i], bb, 1e-7)) issues.push(tag + 'peck ' + (i + 1) + ' bottoms at ' + got[i].toFixed(5) + ', should be ' + bb.toFixed(5)); });
+            const pr = g.filter(x2 => x2.cycPeck && x2.type === 'retract');
+            if (pr.length !== Math.max(0, bottoms.length - 1)) issues.push(tag + pr.length + ' peck retracts, expected ' + Math.max(0, bottoms.length - 1));
+            pr.forEach((x2, i) => {
+              const want = code === 83 ? h.R : Math.min(bottoms[i] + CLR, h.R);
+              if (!near(x2.end.z, want, 1e-7)) issues.push(tag + 'peck retract goes to ' + x2.end.z.toFixed(5) + ', should be ' + want.toFixed(5));
+            });
+          }
+          if (code === 84 || code === 74) {
+            if (!taps.length) issues.push(tag + 'no tap moves');
+            else {
+              const hand = code === 74 ? -1 : 1;
+              const ang = (p) => Math.atan2(p.y - h.y, p.x - h.x);
+              let sIn = 0, sOut = 0;
+              taps.forEach(q => { const d = wrap(ang(q.end) - ang(q.start)); if (q.end.z <= q.start.z + 1e-12 && q.feedLabel.indexOf('in') >= 0 && q.tap.dir === 'in') sIn += d; else if (q.tap.dir === 'out') sOut += d; });
+              const pitch = F / 1200;
+              const turns = depthNow / pitch;
+              if (!near(sIn, hand * -TAU * turns, 1e-3 * Math.max(1, turns))) issues.push(tag + 'tap in turns ' + (sIn / TAU).toFixed(3) + ' times, should be ' + (hand * -turns).toFixed(3));
+              if (!near(sOut, hand * TAU * turns, 1e-3 * Math.max(1, turns))) issues.push(tag + 'tap out turns ' + (sOut / TAU).toFixed(3) + ' times, should be ' + (hand * turns).toFixed(3));
+              if (Math.min.apply(null, taps.map(q => Math.min(q.start.z, q.end.z))) > h.Zb + 1e-7) issues.push(tag + 'tap does not reach the bottom');
+            }
+          }
+          if (code === 76) {
+            const sh = g.filter(q => q.cycShift);
+            if (sh.length !== 2) issues.push(tag + sh.length + ' shifts, should be 2');
+            else if (!near(sh[0].end.x - sh[0].start.x, shift, 1e-9)) issues.push(tag + 'shifts ' + (sh[0].end.x - sh[0].start.x).toFixed(5) + ', Q says ' + shift);
+          }
+          if (code === 77) {
+            const sh = g.filter(q => q.cycShift);
+            if (sh.length !== 4) issues.push(tag + sh.length + ' shifts, should be 4');
+            const up = feeds.filter(q => q.end.z > q.start.z);
+            if (up.length !== 1 || !near(up[0].start.z, h.Zb, 1e-9) || !near(up[0].end.z, h.R, 1e-9)) issues.push(tag + 'the back bore does not feed up from Z to R');
+          }
+          /* the return plane */
+          if (!near(lastEnd.z, h.ret, 1e-7)) issues.push(tag + 'returns to ' + lastEnd.z.toFixed(5) + ' not ' + h.ret.toFixed(5));
+        });
+        /* what comes after must not be swallowed by the cycle */
+        const rest = segs.slice(tailStart).filter(q => !q.isMarker);
+        if (rest.length !== 2) issues.push('after the cycle ' + rest.length + ' moves were drawn, expected 2 (the cycle must end with G80 or a G00/G01)');
+        else {
+          if (!nearP(rest[0].end, tailTo[0], 1e-5)) issues.push('the move after the cycle ends at (' + [rest[0].end.x, rest[0].end.y, rest[0].end.z].map(num) + ')');
+          if (!nearP(rest[1].end, tailTo[1], 1e-5)) issues.push('the Z move after the cycle ends at ' + rest[1].end.z);
+          if (tailKind === 'g01' && rest[0].type !== 'cut') issues.push('a G01 after the cycle was not drawn as a cut');
+        }
+        return issues;
+      },
+    };
+  }
+
+  /* ===========================================================================
+   *  Cases
+   * ======================================================================== */
+  const CATEGORIES = ['G00', 'G01', 'G02', 'G03', 'G12', 'G13']
+    .concat(CYCLE_CODES.map(c => 'G' + c)).concat(['MIX']);
+
+  function partFor(R, cat, toolDia) {
+    switch (cat) {
+      case 'G00': return genLines(R, true);
+      case 'G01': return genLines(R, false);
+      case 'G02': return genArc(R, true, R.chance(0.1));
+      case 'G03': return genArc(R, false, R.chance(0.1));
+      case 'G12': return genPocket(R, true, toolDia);
+      case 'G13': return genPocket(R, false, toolDia);
+      default: return genCycle(R, parseInt(cat.slice(1), 10), toolDia);
+    }
+  }
+
+  function makeCase(cat, seed) {
+    const R = rng(seed * 2654435761 + 12345);
+    const toolDia = R.pick([0.125, 0.25, 0.375, 0.5]);
+    let parts, label;
+    if (cat === 'MIX') {
+      const pool = CATEGORIES.filter(c => c !== 'MIX');
+      parts = []; const n = R.int(3, 6);
+      for (let i = 0; i < n; i++) parts.push(partFor(R, R.pick(pool), toolDia));
+      label = 'mixed program, ' + n + ' blocks';
+    } else {
+      parts = [partFor(R, cat, toolDia)];
+      label = cat;
+    }
+    const prog = buildProgram(parts);
+    return { cat, seed, label, parts, text: prog.text, ranges: prog.ranges, toolDia };
+  }
+
+  /* host: { parse(text, toolDia) -> segs, pocketPipeline(text, toolDia) -> { segs, map } | null } */
+  function runCase(c, host) {
+    const out = { cat: c.cat, seed: c.seed, label: c.label, text: c.text, issues: [], segs: [], ms: 0 };
+    const t0 = performance.now();
+    let segs;
+    try { segs = host.parse(c.text, c.toolDia); }
+    catch (e) { out.issues.push('the parser threw: ' + (e && e.message)); out.ms = performance.now() - t0; return out; }
+    out.segs = segs;
+    pathIssues(segs, V(0, 0, 0)).forEach(m => out.issues.push('path: ' + m));
+    c.parts.forEach((p, i) => {
+      const [a, z] = c.ranges[i];
+      const mine = segs.filter(q => q.lineIdx >= a && q.lineIdx <= z);
+      p.check(mine).forEach(m => out.issues.push('[block ' + (i + 1) + '] ' + m));
+    });
+    /* pockets go through the cutter-compensation pass as well, and the two must agree */
+    if (c.parts.some(p => p.bad !== undefined) && host.pocketPipeline) {
+      let comp = null;
+      try { comp = host.pocketPipeline(c.text, c.toolDia); }
+      catch (e) { out.issues.push('the compensation pass threw: ' + (e && e.message)); }
+      if (comp) {
+        out.compSegs = comp.segs;
+        pathIssues(comp.segs, V(0, 0, 0)).forEach(m => out.issues.push('comp path: ' + m));
+        c.parts.forEach((p, i) => {
+          if (p.bad === undefined) return;
+          const [a, z] = c.ranges[i];
+          const mine = comp.segs.filter(q => { const o = comp.map[q.lineIdx]; return o >= a && o <= z; });
+          p.check(mine).forEach(m => out.issues.push('[block ' + (i + 1) + ', after cutter comp] ' + m));
+        });
+      }
+    }
+    out.ms = performance.now() - t0;
+    out.ok = out.issues.length === 0;
+    return out;
+  }
+
+  return { CATEGORIES, makeCase, runCase, CYCLE_CODES, genPocket, genCycle, rng, num, decimal, r4, V, dist3, near, nearP, wrap, pathIssues, buildProgram, genLines, genArc, TAU, EPS, HEADER };
+})();
+
+/* Runs the real parser without leaving a mark on the user's program: every
+   global parseGCode writes is put back afterwards, and the tool-table redraw
+   it triggers is held off while a test runs. */
+const DevStressHost = (function () {
+  function sandbox(fn) {
+    const keep = {
+      toolTable: new Map(toolTable), unitMode, totalDistance, toolChanges, spindleChanges,
+      allDrillHoles, allMCodeEvents, tap: window.__tapId,
+    };
+    const redraw = window.updateToolTableUI;
+    window.updateToolTableUI = function () {};
+    try { return fn(); }
+    finally {
+      window.updateToolTableUI = redraw;
+      toolTable.clear(); keep.toolTable.forEach((v, k) => toolTable.set(k, v));
+      unitMode = keep.unitMode; totalDistance = keep.totalDistance; toolChanges = keep.toolChanges;
+      spindleChanges = keep.spindleChanges; allDrillHoles = keep.allDrillHoles;
+      allMCodeEvents = keep.allMCodeEvents; window.__tapId = keep.tap;
+    }
+  }
+  return {
+    parse(text, dia) {
+      return sandbox(() => { toolTable.set(1, dia); return parseGCode(text); });
+    },
+    pocketPipeline(text, dia) {
+      return sandbox(() => {
+        toolTable.set(1, dia);
+        const r = window.CutterComp.applyToolCompensation(text, dia / 2, dRadiusLookup);
+        if (!r || !r.gcode) return null;
+        return { segs: parseGCode(r.gcode), map: r.compToOrig || [] };
+      });
+    },
+  };
+})();
+
+/* The stress-test panel: Ctrl+Shift+D, or Dev tools in the sidebar. One case is
+   built, run through the real parser and checked ten times a second; the
+   counters, the category lamps and the path preview all update on each one. */
+(function () {
+  const E = DevStressEngine, H = DevStressHost;
+  const TICK_MS = 100;                               // 10 cases a second
+
+  const css = document.createElement('style');
+  css.textContent = `
+#ds{position:fixed;right:12px;bottom:12px;z-index:900;width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);display:flex;flex-direction:column;
+  background:#0b0c0e;color:#ececee;border:1px solid #2a2d31;border-radius:10px;font:500 13px/1.45 'Inter',system-ui,sans-serif;font-feature-settings:"tnum" 1,"cv11" 1;
+  box-shadow:0 18px 48px rgba(0,0,0,.55);opacity:0;transform:translateY(8px) scale(.985);visibility:hidden;pointer-events:none;
+  transition:opacity .22s ease,transform .22s cubic-bezier(.2,.8,.2,1),visibility 0s linear .22s}
+#ds.on{opacity:1;transform:none;visibility:visible;pointer-events:auto;transition:opacity .22s ease,transform .22s cubic-bezier(.2,.8,.2,1),visibility 0s}
+#ds *{box-sizing:border-box;font-family:inherit}
+.ds-h{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #222428}
+.ds-h i.lamp{width:8px;height:8px;border-radius:50%;background:#3d4147;flex:none;transition:background-color .2s ease,box-shadow .2s ease}
+#ds.run .ds-h i.lamp{background:#5fcf8a;box-shadow:0 0 10px #5fcf8a}
+#ds.bad .ds-h i.lamp{background:#ff7a6e;box-shadow:0 0 10px #ff7a6e}
+.ds-t{font-size:13px;font-weight:650;letter-spacing:.01em}
+.ds-hz{margin-left:auto;color:#8a8f97;font-size:12px}
+.ds-hz b{color:#ececee;font-weight:600}
+#ds button,#ds input{font:inherit;color:#ececee}
+.ds-b{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:32px;padding:0 11px;background:transparent;border:1px solid #3d4147;border-radius:8px;font-weight:600;font-size:12.5px;cursor:pointer;
+  transition:background-color .22s ease,border-color .22s ease,color .22s ease,transform .12s ease}
+.ds-b:hover,.ds-b:focus-visible{border-color:#fff;background:rgba(255,255,255,.08);outline:none}
+.ds-b:active{transform:scale(.97)}
+.ds-b[aria-pressed="true"]{border-color:#5b93ea;color:#5b93ea;background:rgba(91,147,234,.16)}
+.ds-b.sq{width:32px;padding:0}
+.ds-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 12px 0}
+.ds-seed{width:84px;height:32px;padding:0 9px;background:rgba(10,11,13,.5);border:1px solid #3d4147;border-radius:8px;transition:border-color .22s ease}
+.ds-seed:focus{border-color:#5b93ea;outline:none}
+.ds-kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:10px 12px 0}
+.ds-kpi div{padding:7px 9px;border:1px solid #222428;border-radius:8px;background:#131416}
+.ds-kpi small{display:block;color:#8a8f97;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.ds-kpi b{font-size:16px;font-weight:650}
+.ds-kpi .ok b{color:#5fcf8a}.ds-kpi .no b{color:#ff7a6e}
+.ds-body{overflow:auto;padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px;min-height:0}
+.ds-prev{position:relative;border:1px solid #2a2d31;border-radius:8px;background:#0d0e10;overflow:hidden;transition:border-color .25s ease,box-shadow .25s ease}
+.ds-prev.ok{border-color:#5fcf8a;box-shadow:0 0 0 1px rgba(95,207,138,.25)}
+.ds-prev.no{border-color:#ff7a6e;box-shadow:0 0 0 1px rgba(255,122,110,.3)}
+.ds-prev canvas{display:block;width:100%;height:150px}
+.ds-cap{position:absolute;left:8px;top:6px;right:8px;display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:#8a8f97;pointer-events:none}
+.ds-cap b{color:#ececee;font-weight:600}
+.ds-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+.ds-c{position:relative;padding:6px 8px 7px;border:1px solid #222428;border-radius:8px;background:#131416;transition:border-color .2s ease,background-color .2s ease}
+.ds-c.now{border-color:#5b93ea;background:rgba(91,147,234,.14)}
+.ds-c.fail{border-color:#ff7a6e}
+.ds-c b{font-size:12.5px;font-weight:650}
+.ds-c span{display:block;color:#8a8f97;font-size:11px}
+.ds-c i{display:block;height:2px;margin-top:5px;border-radius:2px;background:#5fcf8a;transform-origin:left;transition:transform .25s ease,background-color .2s ease}
+.ds-c.fail i{background:#ff7a6e}
+.ds-log{display:flex;flex-direction:column;gap:5px;max-height:170px;overflow:auto}
+.ds-log button{display:block;width:100%;text-align:left;padding:7px 9px;background:#131416;border:1px solid #222428;border-radius:8px;cursor:pointer;transition:border-color .2s ease,background-color .2s ease}
+.ds-log button:hover{border-color:#ff7a6e;background:rgba(255,122,110,.08)}
+.ds-log b{color:#ff7a6e;font-weight:650}.ds-log small{display:block;color:#a9afb8;font-size:11.5px;line-height:1.35}
+.ds-empty{color:#8a8f97;font-size:12px;padding:2px}
+.ds-sec{color:#8a8f97;font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;margin:2px 0 -4px}
+@media (max-width:560px){#ds{right:0;bottom:0;left:0;width:100%;border-radius:12px 12px 0 0;max-height:78dvh}.ds-kpi{grid-template-columns:repeat(2,1fr)}}
+@media (prefers-reduced-motion:reduce){#ds,#ds.on,.ds-b,.ds-c,.ds-c i,.ds-prev{transition:none}}`;
+  document.head.appendChild(css);
+
+  const root = document.createElement('div');
+  root.id = 'ds'; root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'G-code stress test');
+  root.innerHTML = `
+  <div class="ds-h"><i class="lamp"></i><span class="ds-t">G-code stress test</span><span class="ds-hz"><b id="ds-hz">0.0</b> Hz</span>
+    <button class="ds-b sq" id="ds-x" type="button" aria-label="Close" data-tip="Close&#10;The test keeps its place while the panel is shut; Ctrl Shift D opens it again."><i class="fa-solid fa-xmark"></i></button></div>
+  <div class="ds-bar">
+    <button class="ds-b" id="ds-go" type="button" aria-pressed="false" data-tip="Run&#10;Builds, runs and checks ten programs a second: G00 G01 G02 G03 G12 G13 and every canned cycle."><i class="fa-solid fa-play"></i><span>Run</span></button>
+    <button class="ds-b" id="ds-step" type="button" data-tip="Step&#10;Runs the next case once."><i class="fa-solid fa-forward-step"></i><span>Step</span></button>
+    <button class="ds-b" id="ds-burst" type="button" data-tip="Burst&#10;Runs 20 of every kind as fast as the browser allows, then shows the totals."><i class="fa-solid fa-bolt"></i><span>Burst</span></button>
+    <button class="ds-b sq" id="ds-reset" type="button" aria-label="Reset" data-tip="Reset&#10;Clears the counters and starts again from the seed."><i class="fa-solid fa-rotate-left"></i></button>
+    <input class="ds-seed" id="ds-seed" type="number" min="1" step="1" value="1" aria-label="Seed" data-tip="Seed&#10;The first case number. The same seed always builds the same programs.">
+  </div>
+  <div class="ds-kpi"><div><small>Cases</small><b id="ds-n">0</b></div><div class="ok"><small>Passed</small><b id="ds-p">0</b></div><div class="no"><small>Failed</small><b id="ds-f">0</b></div><div><small>Last</small><b id="ds-ms">0.0 ms</b></div></div>
+  <div class="ds-body">
+    <div class="ds-prev" id="ds-prev"><canvas id="ds-cv"></canvas><div class="ds-cap"><span id="ds-what">Waiting</span><span id="ds-st"></span></div></div>
+    <div class="ds-sec">Every kind</div><div class="ds-grid" id="ds-grid"></div>
+    <div class="ds-sec">Failures</div><div class="ds-log" id="ds-log"><div class="ds-empty">None yet. Click a failure to load its program into the editor.</div></div>
+  </div>`;
+  document.body.appendChild(root);
+
+  const $ = (id) => document.getElementById(id);
+  const grid = $('ds-grid'), cv = $('ds-cv'), ctx = cv.getContext('2d');
+  const chips = {};
+  E.CATEGORIES.forEach(c => {
+    const d = document.createElement('div'); d.className = 'ds-c'; d.innerHTML = '<b>' + c + '</b><span>0 / 0</span><i style="transform:scaleX(0)"></i>';
+    grid.appendChild(d); chips[c] = { el: d, txt: d.children[1], bar: d.children[2], pass: 0, fail: 0 };
+  });
+
+  const S = { running: false, n: 0, pass: 0, fail: 0, seed: 1, idx: 0, last: 0, ticks: [], failures: [] };
+
+  function drawPreview(segs, ok) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+    if (!segs || !segs.length) return;
+    /* the two axes with the most spread, so a G18 or G19 arc still shows */
+    let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+    segs.forEach(s => ['start', 'end'].forEach(k => { const p = s[k]; [p.x, p.y, p.z].forEach((v, i) => { if (v < mn[i]) mn[i] = v; if (v > mx[i]) mx[i] = v; }); }));
+    const span = [0, 1, 2].map(i => mx[i] - mn[i]);
+    const order = [0, 1, 2].sort((a, b) => span[b] - span[a]);
+    const ax = order[0], ay = order[1];
+    const pad = 22, sc = Math.min((w - 2 * pad) / Math.max(span[ax], 1e-6), (h - 2 * pad) / Math.max(span[ay], 1e-6));
+    const ox = (w - span[ax] * sc) / 2, oy = (h + span[ay] * sc) / 2;
+    const P = (p) => { const a = [p.x, p.y, p.z]; return [ox + (a[ax] - mn[ax]) * sc, oy - (a[ay] - mn[ay]) * sc]; };
+    ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    const col = { rapid: '#5b93ea', retract: '#ff7a6e', cut: '#e4e6ea', tap: '#c58af9', probe: '#5fcf8a' };
+    segs.forEach(s => {
+      if (s.length < 1e-9) return;
+      ctx.strokeStyle = col[s.type] || '#8a8f97'; ctx.globalAlpha = s.type === 'rapid' ? 0.45 : 0.95;
+      const a = P(s.start), b = P(s.end);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  function paintChip(cat) {
+    const c = chips[cat], t = c.pass + c.fail;
+    c.txt.textContent = c.pass + ' / ' + t;
+    c.bar.style.transform = 'scaleX(' + (t ? c.pass / t : 0) + ')';
+    c.el.classList.toggle('fail', c.fail > 0);
+  }
+  let nowChip = null;
+  function show(r) {
+    $('ds-n').textContent = S.n; $('ds-p').textContent = S.pass; $('ds-f').textContent = S.fail;
+    $('ds-ms').textContent = r.ms.toFixed(1) + ' ms';
+    $('ds-what').innerHTML = '<b>' + r.label + '</b> · seed ' + r.seed;
+    $('ds-st').textContent = r.issues.length ? r.issues.length + ' issue' + (r.issues.length > 1 ? 's' : '') : 'ok';
+    const pv = $('ds-prev'); pv.classList.toggle('ok', !r.issues.length); pv.classList.toggle('no', !!r.issues.length);
+    root.classList.toggle('bad', S.fail > 0);
+    if (nowChip) nowChip.classList.remove('now');
+    const key = chips[r.cat] ? r.cat : 'MIX';
+    nowChip = chips[key].el; nowChip.classList.add('now');
+    drawPreview(r.segs, !r.issues.length);
+  }
+
+  function record(r) {
+    S.n++;
+    const key = chips[r.cat] ? r.cat : 'MIX';
+    if (r.issues.length) {
+      S.fail++; chips[key].fail++;
+      S.failures.unshift(r); if (S.failures.length > 40) S.failures.pop();
+      paintLog();
+    } else { S.pass++; chips[key].pass++; }
+    paintChip(key);
+  }
+  function paintLog() {
+    const log = $('ds-log'); log.textContent = '';
+    if (!S.failures.length) { log.innerHTML = '<div class="ds-empty">None yet. Click a failure to load its program into the editor.</div>'; return; }
+    S.failures.forEach(r => {
+      const b = document.createElement('button'); b.type = 'button';
+      b.innerHTML = '<b></b><small></small>';
+      b.firstChild.textContent = r.cat + ' · seed ' + r.seed;
+      b.lastChild.textContent = r.issues[0] + (r.issues.length > 1 ? '  (+' + (r.issues.length - 1) + ' more)' : '');
+      b.onclick = () => { try { loadGCode(r.text); rewindSimToStart(); } catch (e) { console.warn(e); } };
+      log.appendChild(b);
+    });
+  }
+
+  function nextCase() {
+    const cat = E.CATEGORIES[S.idx % E.CATEGORIES.length];
+    const seed = S.seed + Math.floor(S.idx / E.CATEGORIES.length);
+    S.idx++;
+    return E.runCase(E.makeCase(cat, seed), H);
+  }
+  function one() { const r = nextCase(); record(r); show(r); return r; }
+
+  /* Ten a second on a self-correcting timer, so the rate holds whatever the
+     frame rate is doing; a case is a few milliseconds of work, well inside a
+     frame. The preview itself is only painted once per case. */
+  let timer = 0, startT = 0, fired = 0, hzT = 0, hzN = 0;
+  function loop() {
+    if (!S.running) return;
+    one(); fired++; hzN++;
+    const now = performance.now();
+    if (now - hzT >= 500) { $('ds-hz').textContent = (hzN * 1000 / (now - hzT)).toFixed(1); hzN = 0; hzT = now; }
+    /* the next one is due at startT + fired * 100 ms; never queue a backlog */
+    const due = startT + fired * TICK_MS;
+    if (due < now - TICK_MS) { startT = now - fired * TICK_MS; }
+    timer = setTimeout(loop, Math.max(0, startT + fired * TICK_MS - performance.now()));
+  }
+  function run(on) {
+    S.running = on;
+    root.classList.toggle('run', on);
+    const b = $('ds-go'); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.innerHTML = on ? '<i class="fa-solid fa-pause"></i><span>Pause</span>' : '<i class="fa-solid fa-play"></i><span>Run</span>';
+    clearTimeout(timer);
+    if (on) { startT = performance.now(); fired = 0; hzT = startT; hzN = 0; loop(); }
+    else { $('ds-hz').textContent = '0.0'; }
+  }
+  function reset() {
+    run(false);
+    S.n = S.pass = S.fail = 0; S.idx = 0; S.failures = []; S.seed = Math.max(1, parseInt($('ds-seed').value, 10) || 1);
+    E.CATEGORIES.forEach(c => { chips[c].pass = chips[c].fail = 0; paintChip(c); chips[c].el.classList.remove('now'); });
+    $('ds-n').textContent = $('ds-p').textContent = $('ds-f').textContent = '0'; $('ds-ms').textContent = '0.0 ms';
+    $('ds-what').textContent = 'Waiting'; $('ds-st').textContent = ''; $('ds-prev').className = 'ds-prev';
+    root.classList.remove('bad'); paintLog(); drawPreview(null);
+  }
+
+  /* a batch with no waiting: used by the Burst button and by the headless runs */
+  function batch(per) {
+    let last = null;
+    const t0 = performance.now();
+    for (let i = 0; i < per * E.CATEGORIES.length; i++) { last = nextCase(); record(last); }
+    if (last) show(last);
+    return { cases: per * E.CATEGORIES.length, ms: performance.now() - t0, failed: S.fail, passed: S.pass };
+  }
+
+  $('ds-go').onclick = () => run(!S.running);
+  $('ds-step').onclick = () => { run(false); one(); };
+  $('ds-burst').onclick = () => { run(false); const b = $('ds-burst'); b.disabled = true; setTimeout(() => { batch(20); b.disabled = false; }, 30); };
+  $('ds-reset').onclick = reset;
+  $('ds-seed').addEventListener('change', reset);
+  $('ds-x').onclick = () => api.close();
+
+  const api = {
+    open() { root.classList.add('on'); drawPreview(null); },
+    close() { root.classList.remove('on'); },
+    toggle() { root.classList.contains('on') ? api.close() : api.open(); },
+    run, reset, step: one, batch, state: S,
+  };
+  window.DevStress = api;
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) { e.preventDefault(); api.toggle(); }
+    if (e.key === 'Escape' && root.classList.contains('on')) api.close();
+  });
+  if (/[#&]dev\b/.test(location.hash)) api.open();
+})();
+
+document.getElementById('btn-dev-stress').addEventListener('click', () => window.DevStress && window.DevStress.toggle());
 </script>
 </body>
 </html>
