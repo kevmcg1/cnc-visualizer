@@ -14,6 +14,7 @@ A single-file G-code simulator for a Haas-style mill. Open `index.html` in a bro
 - **Collision by real contact**: the Setup check tests the cutter's body against the actual fixed jaw, moving jaw, vise bed and parallels, each with its own thickness and height. Passing over a jaw, or beside it, is fine; only touching it is flagged.
 - **Coolant** is drawn as a jet and spray only (no nozzle or hose). Beads left on the blank let go when a cut takes their metal away, all of it clears on a rewind or seek, and it stops at M30 or the end of the program.
 - **Bottom panel**: the mode banner and playback sit in a fixed left column and the view controls scroll on their own on the right, so scrolling one never moves the other. The footer plate is flush with the bottom of the window, with no empty band under it.
+- **Status cards** (toasts, program complete, stop banner, mode banner, fit note) share one look: a flat dark card, a bright arc that travels round the outline, and a leading icon that dances.
 - Text engraving sweeps a real V-groove at the cutter's point angle (a 60 degree center drill cuts a thin line), instead of stamping a round pit at the start of each stroke.
 - Tooltips are drawn on one page-level card that never overlaps its control or leaves the window.
 - One design language throughout (Inter, outlined controls, flat dark HUD cards).

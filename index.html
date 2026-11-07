@@ -19706,7 +19706,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </div>
 
       <div id="stop-hud"></div>
-      <div id="program-complete-banner"><span>✔ Program complete</span><span class="banner-x" id="banner-close">✕</span></div>
+      <div id="program-complete-banner" data-kind="ok"><i class="fa-solid fa-circle-check sc-ico" aria-hidden="true"></i><span>Program complete</span><span class="banner-x" id="banner-close"><i class="fa-solid fa-xmark"></i></span></div>
       <div id="toast"></div>
 
       <div id="xyz-hud" class="v-hud">
@@ -20000,6 +20000,14 @@ function showToast(title, body) {
   }
 
   el.innerHTML = '';
+  /* every status card leads with an icon that dances, picked from what the message says */
+  const kind = /error|fail|crash|cannot|can't|could not|too thin|too big|would hit|would find|collid|problem|warning|not found|blocked/i.test(head + ' ' + text) ? 'warn'
+    : /complete|loaded|ready|back|adjusted|saved|added|done|applied|re-cut|aligned|banked|set centered|detected|copied|restored|on\b/i.test(head + ' ' + text) ? 'ok' : 'info';
+  el.dataset.kind = kind;
+  const ic = document.createElement('i');
+  ic.className = 'fa-solid sc-ico ' + (kind === 'warn' ? 'fa-triangle-exclamation' : kind === 'ok' ? 'fa-circle-check' : 'fa-circle-info');
+  ic.setAttribute('aria-hidden', 'true');
+  el.appendChild(ic);
   const h = document.createElement('span');
   h.className = 'toast-title';
   h.textContent = head;
@@ -63972,8 +63980,8 @@ html body #site-header a{position:relative;z-index:1;display:block;--cut:14px;pa
 html body #site-header a::before{content:"";position:absolute;inset:0 1px 1px;z-index:-1;background:#08090a;clip-path:polygon(0 0,100% 0,calc(100% - var(--cut) + .5px) 100%,calc(var(--cut) - .5px) 100%)}
 html body #site-header a:hover,html body #site-header a:focus-visible{color:var(--accent)!important;outline:none}
 html body #site-header a .brk{display:none}
-html body .foot-strip{position:relative;flex:none;display:flex;justify-content:center;padding-bottom:0;overflow:hidden;background:#08090a}
-html body .foot-strip::before{content:"";position:absolute;left:0;right:0;bottom:-12px;height:24px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V12H24L16 2H0Z' fill='%2308090a'/%3E%3Cpath d='M34 11.5H24L16 1.5H0' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") left bottom/34px 24px no-repeat,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V2H18L10 12H0Z' fill='%2308090a'/%3E%3Cpath d='M0 11.5H10L18 1.5H34' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") right bottom/34px 24px no-repeat,linear-gradient(#3c3f46,#3c3f46) left 34px bottom 12px/calc(100% - 68px) 1px no-repeat}
+html body .foot-strip{position:relative;flex:none;display:flex;justify-content:center;padding-bottom:12px;background:#08090a}
+html body .foot-strip::before{content:"";position:absolute;left:0;right:0;bottom:0;height:24px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V12H24L16 2H0Z' fill='%2308090a'/%3E%3Cpath d='M34 11.5H24L16 1.5H0' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") left bottom/34px 24px no-repeat,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V2H18L10 12H0Z' fill='%2308090a'/%3E%3Cpath d='M0 11.5H10L18 1.5H34' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") right bottom/34px 24px no-repeat,linear-gradient(#3c3f46,#3c3f46) left 34px bottom 12px/calc(100% - 68px) 1px no-repeat}
 html body .foot-strip .foot,html body #site-footer.foot{--cut:16px;position:relative;z-index:1;flex:0 1 auto;max-width:100%;padding:10px 28px 4px!important;border:0!important;background:#3c3f46!important;
   clip-path:polygon(var(--cut) 0,calc(100% - var(--cut)) 0,100% 100%,0 100%);border-radius:0!important;box-shadow:none!important;text-align:center;color:var(--text-dim)!important}
 html body #site-footer.foot::before{content:"";position:absolute;inset:1px 1px 0;z-index:-1;background:#08090a;clip-path:polygon(calc(var(--cut) - .5px) 0,calc(100% - var(--cut) + .5px) 0,100% 100%,0 100%)}
@@ -64049,9 +64057,9 @@ html body #hud-side #transport-bar{position:relative!important;padding-top:26px!
 html body #hud-side #transport-bar::before{content:"PLAYBACK";position:absolute;left:12px;top:8px;font:600 10px/1 'Inter',system-ui,sans-serif;letter-spacing:.16em;color:var(--text-dim)}
 
 /* ---- the control panel, organised: playback on the left, view controls on the right ---- */
-html body #editor-panel{height:clamp(340px,48vh,500px)!important}
+html body #editor-panel{height:clamp(352px,50vh,520px)!important}
 html body #hud-side{display:grid!important;grid-template-columns:minmax(330px,1fr) minmax(280px,1fr);grid-template-rows:minmax(0,1fr);gap:10px;align-content:stretch;align-items:stretch;
-  flex:0 0 clamp(680px,58%,960px)!important;padding:10px!important;overflow:hidden!important}
+  flex:0 0 clamp(680px,58%,960px)!important;padding:10px 10px 0!important;overflow:hidden!important}
 html body #hud-side #vp-mode-status{flex:none!important}
 html body #hud-side #transport-bar{align-self:start;flex:none!important}
 html body #hud-side #viewport-toolbar{align-self:start;flex:none!important}
@@ -65084,6 +65092,65 @@ const HaasSamples = (function () {
   window.ToolDetector = { detect, detectSetup, describe, build, apply };
 })();
 </script>
+<style id="status-cards">
+/* Status cards: the toast, the program-complete banner, the stop banner, the mode banner and the fit note.
+   Flat dark card, a hairline outline with a bright arc that travels round it, and a leading icon that dances. */
+@property --sc-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+#toast, #program-complete-banner, #stop-hud, #vp-mode-status, #fit-note { --sc-c: #5b93ea; }
+#toast[data-kind="ok"], #program-complete-banner, #vp-mode-status.is-sim { --sc-c: #3ecf7a; }
+#toast[data-kind="warn"], #stop-hud.stop-m01 { --sc-c: #e6a23a; }
+#stop-hud.stop-m00 { --sc-c: #f0606a; }
+html body :is(#toast, #program-complete-banner, #stop-hud, #vp-mode-status, #fit-note) {
+  background: var(--hud-card) !important; border: 1px solid rgba(255,255,255,.09) !important; border-radius: 10px !important;
+  box-shadow: 0 12px 30px rgba(0,0,0,.5) !important; color: var(--text) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+}
+html body :is(#toast, #program-complete-banner, #stop-hud, #vp-mode-status, #fit-note)::before {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none; z-index: 1;
+  background: conic-gradient(from var(--sc-a), transparent 0deg, transparent 230deg, color-mix(in srgb, var(--sc-c) 55%, transparent) 300deg, var(--sc-c) 350deg, #fff 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); mask-composite: exclude;
+  animation: sc-trace 2.6s linear infinite;
+}
+@keyframes sc-trace { to { --sc-a: 360deg; } }
+@keyframes sc-dance {
+  0%, 52%, 100% { transform: translateY(0) rotate(0) scale(1); }
+  8%  { transform: translateY(-4px) rotate(-14deg) scale(1.12); }
+  16% { transform: translateY(0) rotate(12deg) scale(1); }
+  24% { transform: translateY(-3px) rotate(-9deg) scale(1.08); }
+  32% { transform: translateY(0) rotate(6deg) scale(1); }
+  40% { transform: translateY(-1px) rotate(-3deg); }
+}
+.sc-ico, #stop-hud::after, #vp-mode-status .vms-dot::before, #fit-note::after {
+  color: var(--sc-c); transform-origin: 50% 70%; animation: sc-dance 2.4s ease-in-out infinite;
+}
+/* toast: icon beside the two lines */
+html body #toast.show { display: grid !important; grid-template-columns: auto 1fr; column-gap: 11px; row-gap: 2px; align-items: center; }
+html body #toast .sc-ico { grid-row: 1 / span 2; grid-column: 1; font-size: 17px; }
+html body #toast .toast-title { grid-column: 2; color: var(--text) !important; }
+html body #toast .toast-body { grid-column: 2; }
+html body #toast.is-bare .sc-ico { grid-row: 1; }
+/* program complete */
+html body #program-complete-banner.show { display: flex !important; align-items: center; gap: 10px; }
+html body #program-complete-banner .sc-ico { font-size: 16px; }
+html body #program-complete-banner > span:first-of-type { color: var(--text) !important; font-weight: 600; }
+html body #program-complete-banner .banner-x { color: var(--text-dim); cursor: pointer; transition: color .18s ease; }
+html body #program-complete-banner .banner-x:hover { color: var(--text); }
+/* stop banner: the glyph is drawn after the text */
+html body #stop-hud { position: absolute; padding-left: 38px !important; }
+html body #stop-hud::after { position: absolute; left: 14px; top: 50%; margin-top: -8px; font: 900 15px/16px "Font Awesome 6 Free"; content: "\f28b"; }
+html body #stop-hud.stop-m01::after { content: "\f28c"; }
+/* mode banner: the status dot becomes the icon */
+html body #vp-mode-status .vms-dot { flex: 0 0 auto; width: auto; height: auto; background: none !important; box-shadow: none !important; border-radius: 0; }
+html body #vp-mode-status .vms-dot::before { display: block; font: 900 15px/1 "Font Awesome 6 Free"; content: "\f1b2"; }
+html body #vp-mode-status.is-sim .vms-dot::before { content: "\f144"; }
+/* fit note */
+html body #fit-note { --sc-c: #7cc4ff; }
+html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; top: 14px; font: 900 14px/1 "Font Awesome 6 Free"; }
+@media (prefers-reduced-motion: reduce) {
+  html body :is(#toast, #program-complete-banner, #stop-hud, #vp-mode-status, #fit-note)::before, .sc-ico, #stop-hud::after, #vp-mode-status .vms-dot::before, #fit-note::after { animation: none !important; }
+}
+</style>
 <script id="boot-reveal">
 /* The page builds its scene in stages: the blank first, then it slides into the vise, then the cutters and holders fill in.
    Showing the stages looks broken (a bare white cutter over a blank floating by the vise), so the 3D view fades in once the
