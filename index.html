@@ -21193,13 +21193,13 @@ function updateFrustum() {
 }
 
 const mainRenderer = new THREE.WebGLRenderer({
-  canvas: mainCanvas, antialias: true, powerPreference: "high-performance",
+  canvas: mainCanvas, antialias: (window.devicePixelRatio || 1) < 1.5, powerPreference: "high-performance",
 });
-mainRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+mainRenderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 mainRenderer.setSize(viewport.clientWidth, viewport.clientHeight);
 
 const Quality = (() => {
-  const CEIL = Math.min(devicePixelRatio || 1, 2);
+  const CEIL = Math.min(devicePixelRatio || 1, 1.5);
 
   const MIN_Q = 0.25, MAX_Q = 1;
   const SLOW = 20, FAST = 11;
@@ -21219,7 +21219,7 @@ const Quality = (() => {
   const LOW_STEPS = 22;
   const MIN_STEPS = 24;
   const steps = () => mode === "low" ? LOW_STEPS
-                    : Math.round(MIN_STEPS + (128 - MIN_STEPS) * ((q - MIN_Q) / (MAX_Q - MIN_Q)));
+                    : Math.round(MIN_STEPS + (88 - MIN_STEPS) * ((q - MIN_Q) / (MAX_Q - MIN_Q)));
 
   const fast = () => mode === "low" || (mode === "auto" && q < 0.8);
 
@@ -21255,7 +21255,20 @@ const Quality = (() => {
 
   const hold = on => { held = Math.max(0, held + (on ? 1 : -1)); };
 
-  return { frame, set, steps, fast, hold, get mode() { return mode; },
+  /* Software rendering, or a machine with very little memory or few cores, cannot
+     keep up with the full picture; it starts on Low rather than freezing on the
+     first frames while the governor learns. Anyone can still pick High. */
+  let weak = false;
+  try {
+    const gl = mainRenderer.getContext();
+    const ext = gl && gl.getExtension("WEBGL_debug_renderer_info");
+    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : "";
+    weak = /swiftshader|llvmpipe|software|basic render|microsoft basic|mesa offscreen/i.test(name) ||
+           (navigator.deviceMemory && navigator.deviceMemory <= 2) ||
+           (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
+  } catch (e) {  }
+
+  return { frame, set, get weak() { return weak; }, steps, fast, hold, get mode() { return mode; },
            get scale() { return q; }, get fps() { return 1000 / Math.max(ema, 1e-3); },
            resize: () => { applied = -1; push(); } };
 })();
@@ -21270,6 +21283,10 @@ window.addEventListener("resize", () => { markActivity(); Quality.resize(); });
 document.addEventListener("DOMContentLoaded", () => {
   const bar = document.getElementById("vt-quality");
   if (!bar) return;
+  if (Quality.weak) {
+    Quality.set("low");
+    bar.querySelectorAll("[data-quality]").forEach(x => x.classList.toggle("on", x.dataset.quality === "low"));
+  }
   bar.addEventListener("click", e => {
     const b = e.target.closest("[data-quality]");
     if (!b) return;
@@ -34194,23 +34211,6 @@ const Stock = (() => {
       return e;
     }
 
-    // The bright line a bevel catches: where the surface normal turns quickly over
-    // a short step and the turn is convex (a rounded outside edge), not an inside corner.
-    float edgeGlow(vec3 p, vec3 n){
-      if (uFast == 1) return 0.0;
-      float w = 0.006 * (uHalf.z + 2.0) + 0.03;
-      vec3 up = abs(n.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-      vec3 t1 = normalize(cross(n, up));
-      vec3 t2 = cross(n, t1);
-      float k = 0.0;
-      k = max(k, 1.0 - dot(n, calcN(p + t1 * w)));
-      k = max(k, 1.0 - dot(n, calcN(p - t1 * w)));
-      k = max(k, 1.0 - dot(n, calcN(p + t2 * w)));
-      k = max(k, 1.0 - dot(n, calcN(p - t2 * w)));
-      float convex = step(w * 0.9, sdPart(p + n * w));      // an outside edge stands off the part by at least w
-      return smoothstep(0.015, 0.20, k) * convex;
-    }
-
     vec3 shade(vec3 p, vec3 n, vec3 rd, bool cutFace){
 
       // --- how far along the sweep does this point sit? 0 start, 1 end ---
@@ -34252,7 +34252,6 @@ const Stock = (() => {
       float dif = max(dot(n, L), 0.0);
       float amb = 0.19 + 0.11 * max(n.z, 0.0);
       float occ = ao(p, n);
-      float edgeL = edgeGlow(p, n);
       vec3 h = normalize(L - rd);
       float spe = pow(max(dot(n, h), 0.0), max(shine, 1.0)) * (cutFace ? 0.52 : 0.20);
       float fres = pow(1.0 - max(dot(n, -rd), 0.0), 4.0) * (cutFace ? 0.15 : 0.07);
@@ -34290,8 +34289,6 @@ const Stock = (() => {
         col = mix(col, env * tint * 0.95, refl);
         if (cutFace) col += spec * pow(max(dot(n, h), 0.0), shine * 4.0 + 40.0) * 0.9;
       }
-      // bevels catch the light: a thin bright line along every outside edge
-      col = mix(col, vec3(1.02, 1.03, 1.05), edgeL * 0.62);
 
       // --- the construction front: cells lighting up in the incoming metal,
       //     tinted with that metal rather than pushed toward white ---
@@ -34474,7 +34471,7 @@ const Stock = (() => {
         uProjView: { value: new THREE.Matrix4() },
         uCamDirW: { value: new THREE.Vector3(0, 0, -1) },
         uOrtho: { value: 1 }, uBackoff: { value: 1000 }, uScale: { value: 1 },
-        uSteps: { value: rec.def.steps || 128 },
+        uSteps: { value: rec.def.steps || 88 },
         uFast: { value: 0 },
       },
     });
@@ -61380,23 +61377,63 @@ window.HAAS_LATHE_CODES = {
   group.add(jet);
 
   /* ------------------------------------------------------------------ nozzle */
-  const nozMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, metalness: 0.9, roughness: 0.32 });
-  const linkMat = new THREE.MeshStandardMaterial({ color: 0x1b1d20, metalness: 0.6, roughness: 0.4 });
+  /* A Loc-Line style coolant hose, built the way the real one is: a machined nozzle with a
+     hex collar, grooves and a dark orifice; a chain of black ball-and-socket segments, every
+     ball a bright steel sphere seated in the next cup; and a clamp block on the spindle head
+     with its cap screws, a swivel barrel and a brass elbow where the hose leaves it. */
+  const nozMat   = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: 0.95, roughness: 0.22 });
+  const linkMat  = new THREE.MeshStandardMaterial({ color: 0x15171a, metalness: 0.5, roughness: 0.36 });
+  const brassMat = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.9, roughness: 0.28 });
+  const darkMat  = new THREE.MeshStandardMaterial({ color: 0x08090a, metalness: 0.3, roughness: 0.6 });
+  /* real Loc-Line is about half an inch across: drawn at twice the millimetres it was, so it reads at the scale of the machine */
+  const SZ = 2.4;
   const nozzle = new THREE.Group();
   group.add(nozzle);
-  const nozTip = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 2.2, 9, 14), nozMat);
+
+  const lathe = (pts, seg) => new THREE.LatheGeometry(pts.map(q => new THREE.Vector2(q[0], q[1])), seg || 20);
+
+  /* the nozzle: +Y runs back toward the hose, the orifice is at y = -4.55 */
+  const nozTip = new THREE.Group();
+  nozTip.add(new THREE.Mesh(lathe([[0.001, 4.8], [1.8, 4.8], [2.0, 4.4], [2.0, 2.8], [1.55, 2.5], [1.5, 0.6], [1.3, -1.6],
+    [1.05, -3.7], [1.18, -4.15], [1.08, -4.55], [0.6, -4.55], [0.5, -4.3], [0.001, -4.3]], 22), brassMat));
+  const hex = new THREE.Mesh(new THREE.CylinderGeometry(2.75, 2.75, 1.5, 6), nozMat); hex.position.y = 3.65; nozTip.add(hex);
+  [1.6, -0.3, -2.1].forEach(y => {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(y === 1.6 ? 1.52 : y === -0.3 ? 1.42 : 1.2, 0.13, 6, 20), nozMat);
+    ring.rotation.x = Math.PI / 2; ring.position.y = y; nozTip.add(ring);
+  });
+  const orifice = new THREE.Mesh(new THREE.CircleGeometry(0.52, 14), darkMat);
+  orifice.rotation.x = Math.PI / 2; orifice.position.y = -4.56; nozTip.add(orifice);
   nozzle.add(nozTip);
+
+  /* one segment: a cup, open at the bottom, with a rim ring; its ball sits in the next one */
+  const socketGeo = lathe([[0.001, -2.5], [2.45, -2.5], [2.75, -2.0], [2.9, 0.2], [2.7, 2.0], [2.3, 2.6], [0.001, 2.6]], 18);
+  const rimGeo = new THREE.TorusGeometry(2.5, 0.22, 6, 18);
+  const ballGeo = new THREE.SphereGeometry(2.45, 16, 12);
   const LINKS = 9;
-  const links = [];
+  const links = [], balls = [];
   for (let i = 0; i < LINKS; i++) {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 5, 12), linkMat);
+    const m = new THREE.Mesh(socketGeo, linkMat);
+    const rim = new THREE.Mesh(rimGeo, nozMat); rim.rotation.x = Math.PI / 2; rim.position.y = -2.5; m.add(rim);
     nozzle.add(m); links.push(m);
+    const bl = new THREE.Mesh(ballGeo, nozMat);
+    nozzle.add(bl); balls.push(bl);
   }
-  const balls = [];
-  for (let i = 0; i < LINKS; i++) {
-    const b = new THREE.Mesh(new THREE.SphereGeometry(2.5, 10, 8), nozMat);
-    nozzle.add(b); balls.push(b);
-  }
+
+  /* the clamp block that carries the hose off the spindle head */
+  const mount = new THREE.Group();
+  const block = new THREE.Mesh(new THREE.BoxGeometry(15, 11, 9), linkMat); mount.add(block);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(17, 2, 11), nozMat); plate.position.y = -5.5; mount.add(plate);
+  const capHead = new THREE.CylinderGeometry(1.5, 1.5, 1.6, 6), capSock = new THREE.CylinderGeometry(0.7, 0.7, 1.7, 10);
+  [[-4.5, 3.2], [4.5, 3.2], [-4.5, -3.2], [4.5, -3.2]].forEach(q => {
+    const h = new THREE.Mesh(capHead, nozMat); h.position.set(q[0], -6.6, q[1]); mount.add(h);
+    const k = new THREE.Mesh(capSock, darkMat); k.position.set(q[0], -7.0, q[1]); mount.add(k);
+  });
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(3.1, 3.1, 8, 18), nozMat); barrel.position.set(8.2, 1.5, 0); barrel.rotation.z = Math.PI / 2; mount.add(barrel);
+  [[-1.8, 3.2], [1.8, 3.2]].forEach(q => { const rg = new THREE.Mesh(new THREE.TorusGeometry(3.15, 0.3, 6, 18), brassMat); rg.rotation.y = Math.PI / 2; rg.position.set(8.2 + q[0], 1.5, 0); mount.add(rg); });
+  const elbow = new THREE.Mesh(new THREE.SphereGeometry(3.4, 16, 12), brassMat); elbow.position.set(12.6, 1.5, 0); mount.add(elbow);
+  const lever = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 6, 8), darkMat); lever.position.set(8.2, 6.2, 0); mount.add(lever);
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8), darkMat); knob.position.set(8.2, 9.2, 0); mount.add(knob);
+  nozzle.add(mount);
 
   /* ------------------------------------------------------------------- spray */
   const pGeo = new THREE.BufferGeometry();
@@ -61473,10 +61510,10 @@ window.HAAS_LATHE_CODES = {
   /* kinds: 0 droplet, 1 fine mist, 2 stream droplet (becomes 0 once it has hit something) */
   function spawn(pos, vel, life, size, kind) {
     for (let t = 0; t < 8; t++) {
-      const q = P[cursor]; cursor = (cursor + 1) % MAXP;
+      const q = P[cursor]; cursor = (cursor + 1) % Math.max(600, Math.floor(MAXP * Math.min(1, perf() * 1.15)));
       if (q.alive && t < 7) continue;
       /* a flying drop lasts until it lands (or falls out of the machine); only mist has a timer */
-      const lf = kind === 1 ? life : 8;
+      const lf = (kind === 1 || kind === 3) ? life : 8;
       q.alive = true; q.p.copy(pos); q.pv.copy(pos); q.v.copy(vel); q.life = lf; q.max = lf; q.size = size; q.kind = kind; q.b = 0; q.stuck = false; q.slide = 0;
       return q;
     }
@@ -61492,7 +61529,22 @@ window.HAAS_LATHE_CODES = {
   const _tip = new THREE.Vector3(), _ax = new THREE.Vector3(), _q = new THREE.Quaternion();
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
   const _side = new THREE.Vector3(), _up = new THREE.Vector3();
+  const _mb = new THREE.Matrix4(), _ma = new THREE.Vector3();
 
+  /* flood (M08) throws a solid stream and a heavy splash; mist (M07) is a fine fog with almost no jet */
+  function modeNow() {
+    if (S.force !== null) return S.force ? "flood" : null;
+    const f = document.getElementById("cool-flood"), m = document.getElementById("cool-mist");
+    if (f && f.classList.contains("on")) return "flood";
+    if (m && m.classList.contains("on")) return "mist";
+    return null;
+  }
+  /* how much of the spray a machine can afford: the picture on a slow one is the same, just less of it */
+  function perf() {
+    const Q = window.Quality;
+    if (!Q) return 1;
+    return Q.mode === "low" ? 0.38 : (Q.mode === "auto" && Q.scale < 0.8) ? 0.65 : 1;
+  }
   function lamp() {
     if (S.force !== null) return !!S.force;
     const f = document.getElementById("cool-flood"), m = document.getElementById("cool-mist");
@@ -61963,6 +62015,7 @@ window.HAAS_LATHE_CODES = {
     const dt = Math.min(0.05, Math.max(0.001, (now - (S.last || now)) / 1000)); S.last = now;
     S.time += dt;
     const wantOn = S.enabled && lamp();
+    if (wantOn) S.mode = modeNow() || S.mode;
     const pose = toolPose();
     S.on = wantOn && !!pose;
     S.fade += ((S.on ? 1 : 0) - S.fade) * Math.min(1, dt * 7);
@@ -62033,7 +62086,7 @@ window.HAAS_LATHE_CODES = {
         }
       }
       jetGeo.attributes.position.needsUpdate = true; jetGeo.attributes.normal.needsUpdate = true;
-      jetMat.uniforms.uTime.value = S.time; jetMat.uniforms.uFade.value = S.fade;
+      jetMat.uniforms.uTime.value = S.time; jetMat.uniforms.uFade.value = S.fade * (S.mode === "mist" ? 0.08 : 1);
       jet.visible = S.fade > 0.02;
 
       /* nozzle + loc-line hose, curving back up to the head */
@@ -62042,8 +62095,13 @@ window.HAAS_LATHE_CODES = {
       const mid = headPt.clone().lerp(nozzlePos, 0.5).addScaledVector(_side, 28 * U).addScaledVector(ax, 8 * U);
       nozTip.position.copy(nozzlePos).addScaledVector(dir, -2 * U * 0);
       nozTip.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().negate());
-      nozTip.scale.setScalar(U);
-      nozTip.position.copy(nozzlePos).addScaledVector(dir, -4.5 * U);
+      nozTip.scale.setScalar(U * SZ);
+      nozTip.position.copy(nozzlePos).addScaledVector(dir, -4.5 * U * SZ);
+      /* the clamp block: its local Y is the spindle axis, X points out from the head toward the hose */
+      mount.position.copy(headPt).addScaledVector(_side, -12.6 * U * SZ).addScaledVector(ax, -1.5 * U * SZ);   /* the elbow sits where the hose ends */
+      _mb.makeBasis(_side, ax, _ma.crossVectors(_side, ax).normalize());
+      mount.quaternion.setFromRotationMatrix(_mb);
+      mount.scale.setScalar(U * SZ);
       const hp = new THREE.Vector3(), hq = new THREE.Vector3(), hn = new THREE.Vector3();
       for (let i = 0; i < LINKS; i++) {
         const t = (i + 0.5) / LINKS, t1 = Math.min(1, t + 0.5 / LINKS);
@@ -62054,8 +62112,8 @@ window.HAAS_LATHE_CODES = {
         const len = hn.length(); hn.normalize();
         const m = links[i], bl = balls[i];
         m.position.copy(hp); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), hn);
-        m.scale.set(U, Math.max(0.01, len / (5 * 1)), U); m.scale.y = len / 5;
-        bl.position.copy(hp); bl.scale.setScalar(U);
+        m.scale.set(U * SZ, Math.max(0.01, len / (5 * 1)), U * SZ); m.scale.y = len / 5;
+        bl.position.copy(hp); bl.scale.setScalar(U * SZ);
       }
     } else {
       jet.visible = false; nozzle.visible = false; S.col = null;
@@ -62063,7 +62121,8 @@ window.HAAS_LATHE_CODES = {
 
     /* ----------------------------------------------------------- emit */
     if (hit && S.on) {
-      const rate = 1800;                                 /* droplets / second off the cutter */
+      const mist = S.mode === "mist", pf = perf();
+      const rate = (mist ? 520 : 4300) * pf;             /* droplets / second off the cutter: flood throws a lot more than mist */
       S.emitAcc += rate * dt;
       const n = Math.floor(S.emitAcc); S.emitAcc -= n;
       const nrm = hit.side;                               /* surface normal at the hit */
@@ -62086,8 +62145,8 @@ window.HAAS_LATHE_CODES = {
       const hDrop = S.col ? Math.max(0, axis0.clone().sub(S.col.tip).dot(hit.ax)) : 0;
       for (let i = 0; i < n; i++) {
         const r = Math.random();
-        const big = Math.random() < 0.1;
-        const size = (big ? 3.2 : 1.2 + Math.random() * 1.1) * U;
+        const big = Math.random() < (mist ? 0.02 : 0.2);
+        const size = (mist ? 0.5 + Math.random() * 0.55 : (big ? 3.6 : 1.3 + Math.random() * 1.3)) * U;
         if (r < 0.32) {                                        /* 1. the splash sheet */
           const s = Math.random() < 0.5 ? -1 : 1;
           vel.copy(tangent).multiplyScalar(s * (0.9 + Math.random() * 0.5))
@@ -62117,7 +62176,7 @@ window.HAAS_LATHE_CODES = {
       }
       /* the incoming stream itself: real droplets flying down the jet arc, so they hit the
          cutter and are deflected by the collision below rather than being drawn as a bounce */
-      S.streamAcc = (S.streamAcc || 0) + 900 * dt;
+      S.streamAcc = (S.streamAcc || 0) + (mist ? 0 : 1700 * pf) * dt;
       const ns = Math.floor(S.streamAcc); S.streamAcc -= ns;
       for (let i = 0; i < ns; i++) {
         const t0 = Math.random() * 0.15 * hit.T;            /* start just past the nozzle */
@@ -62126,14 +62185,33 @@ window.HAAS_LATHE_CODES = {
         vel.copy(hit.v0).addScaledVector(_up, -g * t0).multiplyScalar(1 + (Math.random() - 0.5) * 0.04);
         spawn(pp, vel, hit.T * 1.6 + 0.9, (0.9 + Math.random() * 0.5) * U, 2);
       }
-      /* a little fine mist hanging round the contact */
-      S.mistAcc += 0 * dt;
+      /* fog: flood only leaves a little hanging round the contact; mist is mostly this, a cone of
+         fine aerosol blown from the nozzle that drifts down onto the tool and the work */
+      S.mistAcc += (mist ? 1500 : 160) * pf * dt;
       const m = Math.floor(S.mistAcc); S.mistAcc -= m;
       for (let i = 0; i < m; i++) {
-        vel.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.2).multiplyScalar(260 * U)
-          .addScaledVector(refl, 120 * U * Math.random());
-        pp.copy(hit.flank).addScaledVector(nrm, hit.R * 0.2);
-        spawn(pp, vel, 0.7 + Math.random() * 0.9, (1.0 + Math.random() * 1.2) * U, 1);
+        if (mist) {
+          const spread = 0.16;
+          vel.copy(hit.dir).multiplyScalar(hit.speed * (0.55 + Math.random() * 0.45));
+          vel.x += (Math.random() - 0.5) * spread * hit.speed; vel.y += (Math.random() - 0.5) * spread * hit.speed; vel.z += (Math.random() - 0.5) * spread * hit.speed;
+          pp.copy(hit.nozzlePos).addScaledVector(hit.dir, Math.random() * 4 * U);
+          spawn(pp, vel, 0.9 + Math.random() * 0.9, (0.9 + Math.random() * 1.1) * U, 3);
+        } else {
+          vel.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.2).multiplyScalar(260 * U)
+            .addScaledVector(refl, 120 * U * Math.random());
+          pp.copy(hit.flank).addScaledVector(nrm, hit.R * 0.2);
+          spawn(pp, vel, 0.7 + Math.random() * 0.9, (1.0 + Math.random() * 1.2) * U, 1);
+        }
+      }
+      if (mist) {
+        /* and a haze round the cutter where the fog meets the spin */
+        S.hazeAcc = (S.hazeAcc || 0) + 700 * pf * dt;
+        const h = Math.floor(S.hazeAcc); S.hazeAcc -= h;
+        for (let i = 0; i < h; i++) {
+          vel.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.3).multiplyScalar(90 * U);
+          pp.copy(hit.flank).addScaledVector(nrm, hit.R * (0.4 + Math.random() * 1.6)).addScaledVector(hit.ax, (Math.random() - 0.7) * hit.R * 3);
+          spawn(pp, vel, 0.8 + Math.random() * 0.9, (1.3 + Math.random() * 1.6) * U, 1);
+        }
       }
     }
 
@@ -62153,6 +62231,7 @@ window.HAAS_LATHE_CODES = {
       } else {
         const szMM = q.size / U;
         if (q.kind === 1) { q.v.multiplyScalar(Math.exp(-3.2 * dt)); q.v.z += g * 0.05 * dt; }
+        else if (q.kind === 3) { q.v.multiplyScalar(Math.exp(-1.15 * dt)); q.v.z += g * 0.035 * dt; }
         else {
           /* small drops are slowed by the air far more than big ones; the jet's own droplets barely at all */
           const k = q.kind === 2 ? 0.35 : 0.9 + 2.0 / (0.6 + szMM);
@@ -62166,8 +62245,8 @@ window.HAAS_LATHE_CODES = {
       const k = q.life / q.max;
       pPos[i * 3] = q.p.x; pPos[i * 3 + 1] = q.p.y; pPos[i * 3 + 2] = q.p.z;
       pVel[i * 3] = q.v.x; pVel[i * 3 + 1] = q.v.y; pVel[i * 3 + 2] = q.v.z;
-      pSize[i] = 0.4 * q.size * grow * (q.kind === 1 ? 1.4 - 0.4 * k : 1);
-      pAlpha[i] = q.kind === 1 ? 0.12 * Math.min(1, k * 3) : (q.stuck ? Math.min(1, k * 4) : Math.min(1, k * 10));
+      pSize[i] = 0.4 * q.size * grow * (q.kind === 1 ? 1.4 - 0.4 * k : q.kind === 3 ? 1 + 1.6 * (1 - k) : 1);
+      pAlpha[i] = (q.kind === 1 || q.kind === 3) ? (q.kind === 3 ? 0.085 : 0.12) * Math.min(1, k * 3) : (q.stuck ? Math.min(1, k * 4) : Math.min(1, k * 10));
     }
     pGeo.attributes.position.needsUpdate = true;
     pGeo.attributes.aSize.needsUpdate = true;
@@ -63741,10 +63820,9 @@ html body #hud-side > #transport-bar::before{content:"PLAYBACK";position:absolut
   }
 
   function keyNow() {
-    const fx = (window.PartModels && PartModels.all) ? PartModels.all().filter(p => p.role === 'fixture' && p.visible).map(p => {
-      const b = p.node ? new THREE.Box3().setFromObject(p.node) : null;
-      return p.id + ':' + (b ? [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z].map(x => x.toFixed(2)).join(',') : '');
-    }).join('|') : '';
+    const fx = (window.PartModels && PartModels.all) ? PartModels.all().filter(p => p.role === 'fixture' && p.visible).map(p =>
+      p.id + ':' + (p.node ? p.node.matrix.elements.slice(12, 15).map(x => x.toFixed(2)).join(',') + p.node.position.z.toFixed(2) : '')
+    ).join('|') : '';
     return segTimeline.length + ':' + simTotalTime.toFixed(2) + ':' + Array.from(toolTable.entries()).join(';') + ':' + fx;
   }
 
@@ -63784,7 +63862,7 @@ html body #hud-side > #transport-bar::before{content:"PLAYBACK";position:absolut
       }
     }
     lastT = simTime;
-    setTimeout(loop, 100);
+    setTimeout(loop, 250);
   }
   /* a restart, or a seek back before an acknowledged crash, asks again */
   document.addEventListener('click', e => { if (e.target.closest && e.target.closest('#btn-sim-reset')) acknowledged.clear(); });
