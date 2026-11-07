@@ -59148,10 +59148,38 @@ window.HAAS_LATHE_CODES = {
     redraw();
   }
 
+  /* Switching camera mode dissolves from the old picture to the new one
+     instead of cutting: freeze what is on screen, build the new view
+     underneath, then fade the frozen frame away. */
+  function crossfade(change) {
+    let ghost = null;
+    try {
+      const src = (typeof mainRenderer !== "undefined") ? mainRenderer.domElement : null;
+      const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (src && src.parentElement && src.width && !reduce) {
+        if (typeof renderMain === "function") renderMain();
+        ghost = document.createElement("canvas");
+        ghost.width = src.width; ghost.height = src.height;
+        ghost.getContext("2d").drawImage(src, 0, 0);
+        ghost.style.cssText = "position:absolute;left:" + src.offsetLeft + "px;top:" + src.offsetTop + "px;width:" + src.clientWidth + "px;height:" + src.clientHeight +
+          "px;pointer-events:none;z-index:6;opacity:1;transition:opacity .42s cubic-bezier(.4,0,.2,1);will-change:opacity";
+        src.parentElement.appendChild(ghost);
+      }
+    } catch (e) { ghost = null; }
+    change();
+    if (!ghost) return;
+    if (window.VPBusy && window.VPBusy.hold) window.VPBusy.hold("camfade");
+    requestAnimationFrame(() => requestAnimationFrame(() => { ghost.style.opacity = "0"; }));
+    setTimeout(() => {
+      ghost.remove();
+      if (window.VPBusy && window.VPBusy.release) window.VPBusy.release("camfade");
+    }, 480);
+  }
+
   function setLayout(k) {
     if (!LAYOUTS[k]) return;
     st.layout = k;
-    save(); refresh();
+    save(); crossfade(refresh);
     if (typeof showToast === "function") {
       showToast(LAYOUTS[k].name + " layout", camsFor(k).map(c => CAMS[c].name).join(" · "));
     }
@@ -59162,7 +59190,7 @@ window.HAAS_LATHE_CODES = {
     const a = camsFor(st.layout).slice();
     if (i < 0 || i >= a.length) return false;
     a[i] = key; st.assign[st.layout] = a;
-    save(); refresh();
+    save(); crossfade(refresh);
     return true;
   }
 
@@ -64182,6 +64210,29 @@ html body .hlcard input[type=checkbox]{margin:1px 0 0}
 html body input[type=checkbox]{width:18px!important;height:18px!important;accent-color:initial}
 html body .legend-cb{width:16px!important;height:16px!important}
 
+
+/* ---- small laptops: give the 3D view back its height; tighten the control deck ---- */
+@media (min-width:801px) and (max-height:780px){
+  html body #editor-panel{height:clamp(250px,44vh,340px)!important}
+  html body #hud-side #vp-mode-status{display:none!important}
+  html body #hud-side{gap:8px;padding:8px 8px 0!important}
+  html body #hud-side #transport-bar{padding:24px 10px 8px!important;gap:5px!important}
+  html body #hud-side #viewport-toolbar{padding-top:22px!important}
+  html body #hud-side #vp-dock{padding:22px 8px 8px!important}
+  html body #hud-play,html body #hud-side{overflow-y:auto!important;scrollbar-width:thin}
+  html body #viewport-toolbar button,html body #viewport-toolbar .pt-chip{min-height:0!important;height:24px!important;padding-top:0!important;padding-bottom:0!important;font-size:10.5px!important}
+  html body #viewport-toolbar .vt-row,html body #viewport-toolbar .vt-grid,html body #viewport-toolbar .vt-quality,html body #viewport-toolbar .path-chips{gap:4px!important}
+  html body #viewport-toolbar .vt-iso{margin-top:3px!important}
+  html body #viewport-toolbar .path-chips{padding:3px 2px 0!important}
+  html body #hud-side #transport-bar button{min-height:0!important}
+  html body #viewport-toolbar > .vcat:first-child .vt-row{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))}
+  html body #viewport-toolbar > .vcat:first-child .vt-row button{padding:0 4px!important;letter-spacing:.02em!important;white-space:nowrap;gap:4px!important;justify-content:center}
+  html body #viewport-toolbar .vt-iso-head,html body #viewport-toolbar .pt-title{display:none!important}
+  html body #viewport-toolbar .pt-chip{padding:0 7px 0 6px!important;font-size:10px!important}
+}
+@media (min-width:801px) and (max-height:620px){
+  html body #editor-panel{height:clamp(220px,38vh,280px)!important}
+}
 /* toggle outline pulse: a ring blooms outward from the control when it flips on */
 @keyframes ctlRing{0%{outline-color:color-mix(in srgb,var(--accent) 85%,transparent);outline-offset:0}100%{outline-color:color-mix(in srgb,var(--accent) 0%,transparent);outline-offset:6px}}
 html body .ctl-ring{outline:2px solid transparent;animation:ctlRing .45s cubic-bezier(.22,.61,.36,1) 1}
@@ -65880,6 +65931,118 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
 
   api.vols = volumes; api.touches = touches; api.check = check; api.refresh = refresh; api.scan = scan; api.open = open; api.close = close;
   window.SetupAware = api;
+})();
+</script>
+<script>
+/* tour.js - a spotlight walkthrough of the screen. Launched from "Take the tour". */
+(function(){
+  "use strict";
+  var STEPS=[
+    {t:"Welcome",b:"A two minute look around: where the machine is, where the program is, and how to run it. Use the arrow keys or the buttons. Esc leaves at any time.",icon:"fa-compass"},
+    {sel:"#viewport",t:"The 3D view",b:"Your part, vise and cutter. Drag with the left mouse button to orbit, the right button to pan, and scroll to zoom. On a touch screen use one finger to orbit and two to pan and zoom.",icon:"fa-cube",pos:"bottom"},
+    {sel:"#cube-wrap",t:"View cube",b:"Click a face to swing square to that side. Double-click the cube to return to the isometric view.",icon:"fa-vector-square",pos:"left"},
+    {sel:"#editor-main",t:"G-code editor",b:"Paste or type a program here. Tools and setup are read from the comments, and problems are flagged as you type. The cursor line is the line the cutter is on.",icon:"fa-code",pos:"top"},
+    {sel:"#transport-bar",t:"Playback",b:"Play, step and scrub through the program. Jump between operations, stop at every M01, run one block at a time, or have the camera follow the tool.",icon:"fa-play",pos:"top"},
+    {sel:"#viewport-toolbar",t:"View controls",b:"Show or hide the grid, axes, toolpaths and cutter. Isolate or section the part, change graphics quality, and filter which kinds of move are drawn.",icon:"fa-sliders",pos:"left"},
+    {sel:"#sidebar",t:"Sidebar",b:"Machine state, tools, offsets, fixtures and samples live here, grouped in sections that open and close. Collapse all keeps it tidy.",icon:"fa-table-columns",pos:"right"},
+    {sel:"#btn-make-program",t:"Start from nothing",b:"How do I use it? walks you from an empty machine to a running job, one step at a time. Pick a sample from the sidebar first if you would rather see a finished program.",icon:"fa-flag-checkered",pos:"right"}
+  ];
+  var css=document.createElement("style");
+  css.textContent=
+  "#tour-root{position:fixed;inset:0;z-index:99990;pointer-events:none;font-family:'Inter',system-ui,sans-serif}"+
+  "#tour-root.on{pointer-events:auto}"+
+  "#tour-hole{position:fixed;left:0;top:0;border-radius:10px;box-shadow:0 0 0 100vmax rgba(6,7,9,.72);outline:1px solid var(--accent,#5b93ea);opacity:0;will-change:transform,width,height;transition:transform .45s cubic-bezier(.22,.61,.36,1),width .45s cubic-bezier(.22,.61,.36,1),height .45s cubic-bezier(.22,.61,.36,1),opacity .3s ease;pointer-events:none}"+
+  "#tour-root.on #tour-hole{opacity:1}"+
+  "#tour-card{position:fixed;left:0;top:0;width:min(340px,calc(100vw - 32px));box-sizing:border-box;padding:16px 16px 14px;border:1px solid var(--ctl-line,#2d3238);border-radius:12px;background:#111317;color:#e6e8eb;opacity:0;will-change:transform,opacity;transition:transform .45s cubic-bezier(.22,.61,.36,1),opacity .3s ease}"+
+  "#tour-root.on #tour-card{opacity:1}"+
+  "#tour-card .tr-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}"+
+  "#tour-card .tr-head i{font-size:14px;color:#fff;width:16px;text-align:center}"+
+  "#tour-card .tr-title{font-size:14px;font-weight:600;flex:1}"+
+  "#tour-card .tr-count{margin-right:24px;font-size:10.5px;color:#8b929b;letter-spacing:.06em}"+
+  "#tour-card .tr-body{font-size:12.5px;line-height:1.55;color:#aeb4bc;margin:0 0 14px;min-height:3.1em}"+
+  "#tour-card .tr-foot{display:flex;align-items:center;gap:8px}"+
+  "#tour-card .tr-dots{display:flex;gap:5px;flex:1}"+
+  "#tour-card .tr-dots b{width:6px;height:6px;border-radius:50%;background:#2d3238;transition:background .3s ease,transform .3s ease}"+
+  "#tour-card .tr-dots b.on{background:var(--accent,#5b93ea);transform:scale(1.25)}"+
+  "#tour-card button{font:600 11.5px 'Inter',system-ui,sans-serif;padding:0 12px;height:30px;border-radius:8px;border:1px solid #2d3238;background:transparent;color:#e6e8eb;cursor:pointer;transition:border-color .22s ease,color .22s ease,background-color .22s ease,transform .16s ease}"+
+  "#tour-card button:hover{border-color:#fff;background:rgba(255,255,255,.08)}"+
+  "#tour-card button:active{transform:scale(.97)}"+
+  "#tour-card button.pri{border-color:var(--accent,#5b93ea);color:var(--accent,#5b93ea)}"+
+  "#tour-card button:disabled{opacity:.35;cursor:default}"+
+  "#tour-card .tr-x{position:absolute;right:8px;top:8px;width:26px;height:26px;padding:0;border:0;color:#8b929b}"+
+  "html body #sidebar #tour-btn{margin:0 0 8px;width:100%;height:36px!important;min-height:36px!important;padding:0 12px!important;box-sizing:border-box;display:flex;font-size:12px;align-items:center;justify-content:center;gap:8px}"+
+  "@media (prefers-reduced-motion:reduce){#tour-hole,#tour-card{transition:none}}";
+  document.head.appendChild(css);
+
+  var root=document.createElement("div");root.id="tour-root";
+  root.innerHTML='<div id="tour-hole"></div><div id="tour-card" role="dialog" aria-live="polite"><button class="tr-x" aria-label="Close tour"><i class="fa-solid fa-xmark"></i></button><div class="tr-head"><i class="fa-solid"></i><span class="tr-title"></span><span class="tr-count"></span></div><p class="tr-body"></p><div class="tr-foot"><div class="tr-dots"></div><button class="tr-back">Back</button><button class="tr-next pri">Next</button></div></div>';
+  document.body.appendChild(root);
+  var hole=root.querySelector("#tour-hole"),card=root.querySelector("#tour-card");
+  var q=function(s){return card.querySelector(s)};
+  var dots=q(".tr-dots");STEPS.forEach(function(){dots.appendChild(document.createElement("b"))});
+  var i=0,open=false;
+
+  function place(){
+    var st=STEPS[i],vw=innerWidth,vh=innerHeight,cw=card.offsetWidth,ch=card.offsetHeight,pad=8;
+    var el=st.sel&&document.querySelector(st.sel),r=el&&el.getBoundingClientRect();
+    if(r&&(r.width<4||r.height<4))r=null;
+    var x,y;
+    if(r){
+      var hx=Math.max(4,r.left-pad),hy=Math.max(4,r.top-pad),hw=Math.min(vw-8,r.width+pad*2)-(hx<r.left-pad?0:0),hh=Math.min(vh-8,r.height+pad*2);
+      hole.style.transform="translate("+hx+"px,"+hy+"px)";hole.style.width=hw+"px";hole.style.height=hh+"px";
+      var small=vw<700,pos=st.pos||"bottom";
+      if(small){x=(vw-cw)/2;y=(r.top+r.height/2<vh/2)?Math.min(vh-ch-12,r.bottom+16):Math.max(12,r.top-ch-16)}
+      else{
+        var tries={left:[r.left-cw-16,r.top],right:[r.right+16,r.top],top:[r.left+r.width/2-cw/2,r.top-ch-16],bottom:[r.left+r.width/2-cw/2,r.bottom+16]};
+        var o=tries[pos];x=o[0];y=o[1];
+        if(x<12||x+cw>vw-12||y<12||y+ch>vh-12){var alt=["top","bottom","left","right"];for(var k=0;k<4;k++){var a=tries[alt[k]];if(a[0]>=12&&a[0]+cw<=vw-12&&a[1]>=12&&a[1]+ch<=vh-12){x=a[0];y=a[1];break}}}
+      }
+    }else{
+      hole.style.transform="translate("+(vw/2)+"px,"+(vh/2)+"px)";hole.style.width="0px";hole.style.height="0px";
+      x=(vw-cw)/2;y=(vh-ch)/2;
+    }
+    x=Math.max(12,Math.min(vw-cw-12,x));y=Math.max(12,Math.min(vh-ch-12,y));
+    card.style.transform="translate("+Math.round(x)+"px,"+Math.round(y)+"px)";
+  }
+  function show(n){
+    i=Math.max(0,Math.min(STEPS.length-1,n));var st=STEPS[i];
+    var el=st.sel&&document.querySelector(st.sel);
+    if(el&&el.scrollIntoView)el.scrollIntoView({block:"nearest",inline:"nearest"});
+    q(".tr-head i").className="fa-solid "+st.icon;
+    q(".tr-title").textContent=st.t;q(".tr-count").textContent=(i+1)+" / "+STEPS.length;
+    q(".tr-body").textContent=st.b;
+    q(".tr-back").disabled=i===0;
+    var nx=q(".tr-next");nx.textContent=i===STEPS.length-1?"Done":"Next";
+    [].forEach.call(dots.children,function(d,k){d.classList.toggle("on",k===i)});
+    place();
+  }
+  function start(){
+    if(open)return;open=true;root.classList.add("on");
+    card.style.transition="none";show(0);void card.offsetWidth;card.style.transition="";
+    try{document.activeElement&&document.activeElement.blur()}catch(e){}
+  }
+  function stop(){open=false;root.classList.remove("on")}
+  q(".tr-next").onclick=function(){i===STEPS.length-1?stop():show(i+1)};
+  q(".tr-back").onclick=function(){show(i-1)};
+  q(".tr-x").onclick=stop;
+  root.addEventListener("click",function(e){if(e.target===root)stop()});
+  addEventListener("keydown",function(e){
+    if(!open)return;
+    if(e.key==="Escape"){stop();e.preventDefault()}
+    else if(e.key==="ArrowRight"||e.key==="Enter"){q(".tr-next").click();e.preventDefault()}
+    else if(e.key==="ArrowLeft"){q(".tr-back").click();e.preventDefault()}
+  },true);
+  var rz;addEventListener("resize",function(){if(open){cancelAnimationFrame(rz);rz=requestAnimationFrame(place)}});
+
+  var wrap=document.getElementById("mkp-launch");
+  if(wrap){
+    var b=document.createElement("button");b.id="tour-btn";b.type="button";
+    b.innerHTML='<i class="fa-solid fa-compass"></i> Take the tour';
+    b.title="A short spotlight walkthrough of the screen. Nothing is erased.";
+    b.addEventListener("click",start);
+    wrap.insertBefore(b,wrap.firstChild);
+  }
+  window.Tour={start:start,stop:stop};
 })();
 </script>
 <script>
