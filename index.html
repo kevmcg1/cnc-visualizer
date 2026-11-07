@@ -64995,7 +64995,7 @@ const HaasSamples = (function () {
   }
   function toolMaterials(fn) {
     const roots = [];
-    try { roots.push(ToolModels.root()); } catch (e) { /* none */ }
+    try { const tm = ToolModels.root(); if (tm) roots.push(tm); } catch (e) { /* none */ }
     if (typeof toolCylinderMesh !== 'undefined' && toolCylinderMesh) roots.push(toolCylinderMesh);
     roots.forEach(r => r.traverse(o => {
       if (!o.material) return;
@@ -67075,5 +67075,1453 @@ html body #play-bar{ container:pb / inline-size }
 
 @media (prefers-reduced-motion:reduce){ html body #right-sidebar#right-sidebar *,html body #right-sidebar#right-sidebar *::before,html body #right-sidebar#right-sidebar *::after{ transition-duration:.01s!important; animation-duration:.01s!important } }
 </style>
+<script id="ux-stress">
+/* ux-stress.js: page-wide stress test and UX audit (dev tool).
+ *
+ * Open or close it with the backtick key (`). There is no other way in: no
+ * address parameter, no global function, no button on the page. While it is
+ * closed the only thing it costs is one keydown listener.
+ *
+ * It runs a fixed 10 tests a second (one test unit every 100 ms, never more),
+ * and splits long work into short slices so the page stays at 60 fps.
+ *
+ *   functional  every button, toggle, slider, input, select, tab, canvas and
+ *               editor control is found and exercised, then random-order fuzzed
+ *   visual      cut-off and clipped text, overlap, tap size, contrast, fonts,
+ *               icons, outlined buttons, alignment, horizontal scroll, run at
+ *               14 viewport sizes (320 px up to 2560 px, portrait and landscape)
+ *   keyboard    reachability, focus visibility, Enter and Space activation
+ *   motion      transitions on controls; frame time, long tasks, memory growth
+ *
+ * It tests a hidden sandbox copy of the page (an iframe) so the real page is
+ * left alone. If the browser will not let it reach into the copy (file://),
+ * it falls back to testing this page and says so.
+ *
+ * The reusable part is everything above ADAPTER. Point ADAPTER at another app
+ * (selectors for expanders, ignored elements, extra scenarios) to reuse it.
+ */
+(function () {
+  'use strict';
+  if (window.name === 'ux-sandbox' || window.__uxStress) return;
+  window.__uxStress = true;
+
+  const VERSION = '1.0.0';
+  const TICK = 100;                                  /* ms: 10 test units a second */
+  const VIEWPORTS = [[320, 568], [360, 640], [375, 667], [390, 844], [414, 896], [568, 320], [667, 375],
+                     [844, 390], [768, 1024], [1024, 768], [1280, 720], [1440, 900], [1920, 1080], [2560, 1440]];
+  const SEV = { critical: 4, major: 3, minor: 2, info: 1 };
+  const SEV_ICON = { critical: 'fa-circle-xmark', major: 'fa-triangle-exclamation', minor: 'fa-circle-minus', info: 'fa-circle-info' };
+  const CATS = { functional: 'Functional', console: 'Console and errors', layout: 'Layout', type: 'Typography',
+                 style: 'Style rules', a11y: 'Accessibility', keyboard: 'Keyboard', motion: 'Motion', perf: 'Performance' };
+
+  /* ------------------------------------------------------------------ ADAPTER
+   * Everything app-specific lives here. */
+  const ADAPTER = {
+    name: 'CNC Mill Visualizer',
+    ignore: ['#ux-root', '#ux-hl', 'input[type=file]', 'a[download]', 'a[target=_blank]'],
+    /* collapsed sections to open before the functional pass: head selector, and
+       a function telling whether it is already open */
+    expanders: [{ head: '.sec-head', isOpen: h => h.classList.contains('open') }],
+    /* console noise that is the browser's, not the app's */
+    noise: [/GL Driver Message/i, /GPU stall/i, /sigmaRadians/i, /Failed to load resource.*favicon/i],
+    editor: '#gcode-input',
+    scenarios: [],                                   /* filled in below */
+  };
+
+  /* ------------------------------------------------------------------ rules */
+  const RULES = {};
+  function rule(id, cat, title, sev) { RULES[id] = { id, cat, title, sev, examined: 0, failed: 0 }; }
+  rule('func.error', 'functional', 'Interaction threw an error', 'critical');
+  rule('func.noeffect', 'functional', 'Control had no observable effect', 'minor');
+  rule('func.slow', 'functional', 'Interaction blocked the page', 'major');
+  rule('func.toggle', 'functional', 'Toggle did not change its state', 'major');
+  rule('func.burst', 'functional', 'Rapid repeated activation misbehaved', 'major');
+  rule('func.leak', 'functional', 'Repeated activation keeps adding DOM nodes', 'major');
+  rule('func.input', 'functional', 'Input handled a value badly', 'major');
+  rule('func.xss', 'functional', 'Typed markup was executed or inserted as HTML', 'critical');
+  rule('func.nan', 'functional', 'NaN, undefined or [object] shown on screen', 'major');
+  rule('func.scenario', 'functional', 'Scenario failed', 'major');
+  rule('func.link', 'functional', 'Link has no usable destination', 'minor');
+  rule('func.reload', 'functional', 'Interaction reloaded or navigated the page', 'critical');
+  rule('func.gone', 'functional', 'Control disappeared before it could be tested', 'info');
+  rule('console.error', 'console', 'console.error', 'major');
+  rule('console.warn', 'console', 'console.warn', 'minor');
+  rule('console.exception', 'console', 'Uncaught exception', 'critical');
+  rule('console.rejection', 'console', 'Unhandled promise rejection', 'critical');
+  rule('console.resource', 'console', 'Resource failed to load', 'major');
+  rule('console.csp', 'console', 'Content security policy violation', 'major');
+  rule('layout.hscroll', 'layout', 'Horizontal page scroll', 'critical');
+  rule('layout.viewport', 'layout', 'Element cut off by the window edge', 'major');
+  rule('layout.clipped', 'layout', 'Element cut off by its container', 'major');
+  rule('layout.textclip', 'layout', 'Text cut off', 'major');
+  rule('layout.truncated', 'layout', 'Label truncated with an ellipsis', 'minor');
+  rule('layout.spill', 'layout', 'Text spills out of its box', 'major');
+  rule('layout.overlap', 'layout', 'Controls overlap', 'major');
+  rule('layout.obscured', 'layout', 'Control is covered by another element', 'major');
+  rule('layout.tap', 'layout', 'Tap target too small', 'minor');
+  rule('layout.align', 'layout', 'Near-miss misalignment', 'minor');
+  rule('layout.icon-center', 'layout', 'Icon off-centre in its button', 'minor');
+  rule('type.font', 'type', 'Font is not Inter', 'major');
+  rule('type.inter-loaded', 'type', 'Inter did not load', 'critical');
+  rule('type.size', 'type', 'Text too small', 'minor');
+  rule('type.contrast', 'type', 'Low text contrast', 'major');
+  rule('style.emoji', 'style', 'Emoji used', 'major');
+  rule('style.glyph', 'style', 'Unicode glyph used as an icon', 'minor');
+  rule('style.icon-font', 'style', 'Icon is not Font Awesome', 'minor');
+  rule('style.icon-color', 'style', 'Icon is not black or white', 'minor');
+  rule('style.fill', 'style', 'Button is filled', 'major');
+  rule('style.outline', 'style', 'Button has no outline', 'major');
+  rule('a11y.name', 'a11y', 'No accessible name', 'major');
+  rule('a11y.tooltip-only', 'a11y', 'Icon-only control has a tooltip but no aria-label', 'minor');
+  rule('a11y.label', 'a11y', 'Form field has no label', 'major');
+  rule('a11y.role', 'a11y', 'Clickable element is not a control', 'minor');
+  rule('a11y.dup-id', 'a11y', 'Duplicate id', 'major');
+  rule('a11y.doc', 'a11y', 'Document basics missing', 'minor');
+  rule('a11y.img-alt', 'a11y', 'Image has no alt text', 'major');
+  rule('keyboard.reachable', 'keyboard', 'Control cannot be reached by keyboard', 'major');
+  rule('keyboard.focus', 'keyboard', 'No visible focus indicator', 'major');
+  rule('keyboard.activate', 'keyboard', 'Enter or Space does not activate it', 'major');
+  rule('keyboard.tabindex', 'keyboard', 'Positive tabindex', 'minor');
+  rule('motion.none', 'motion', 'Control changes state with no transition', 'minor');
+  rule('motion.layout', 'motion', 'Transition animates a layout property', 'info');
+  rule('perf.fps', 'perf', 'Frame rate below 60 fps', 'major');
+  rule('perf.frames', 'perf', 'Slow frames (over 16.7 ms)', 'minor');
+  rule('perf.long', 'perf', 'Long tasks (over 50 ms)', 'minor');
+  rule('perf.memory', 'perf', 'JS heap or DOM growth', 'major');
+  rule('perf.cadence', 'perf', 'Test cadence missed 10 Hz', 'info');
+
+  /* ------------------------------------------------------------------ utils */
+  const now = () => performance.now();
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const macro = (() => { const ch = new MessageChannel(); const q = []; ch.port1.onmessage = () => { const f = q.shift(); f && f(); };
+    return () => new Promise(r => { q.push(r); ch.port2.postMessage(0); }); })();
+  function mulberry(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  const inch = px => (px / 96).toFixed(2) + ' in (' + (px * 25.4 / 96).toFixed(1) + ' mm)';
+  const clip = (s, n) => { s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+  const pct = (arr, p) => { if (!arr.length) return 0; const a = arr.slice().sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(a.length * p))]; };
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  /* ------------------------------------------------------------------ state */
+  const S = {
+    state: 'idle', queue: [], done: 0, total: 0, ticks: [], overruns: 0, started: 0, finished: 0, elapsed: 0,
+    findings: new Map(), elements: new Map(), log: [], seed: 20260711, fuzzSecs: 30, target: 'sandbox', watch: false,
+    perf: { frames: [], long: [], mem: [], phases: {} }, matrix: new Map(), phase: 'boot', notes: [], coverage: {},
+    viewport: null, sandboxOK: false, discovered: 0, deferred: [], perParent: new Map(), unitMs: [],
+  };
+  let T = null;                                      /* target: { W, D, frame, self } */
+  let cur = '';                                      /* label of the action in flight */
+  let H = null;                                      /* installed hooks */
+  let timer = 0, due = 0, busy = false, runId = 0, rnd = mulberry(S.seed), snap = null, fuzzN = 0;
+
+  function logEv(kind, msg) { S.log.push({ t: Math.round(now() - S.started), kind, msg: clip(msg, 220) }); if (S.log.length > 400) S.log.shift(); }
+  function vpTag() { return T ? T.W.innerWidth + 'x' + T.W.innerHeight : ''; }
+
+  /* element identity */
+  const recOf = new WeakMap();
+  function cssPath(el) {
+    const D = T.D; const parts = []; let n = el;
+    while (n && n.nodeType === 1 && n !== D.documentElement) {
+      if (n.id && D.querySelectorAll('#' + CSS.escape(n.id)).length === 1) { parts.unshift('#' + CSS.escape(n.id)); break; }
+      let s = n.localName;
+      const cls = [...n.classList].filter(c => !/^(on|open|show|active|selected|hover|focus|is-|ux-)/.test(c)).slice(0, 2);
+      if (cls.length) s += '.' + cls.map(c => CSS.escape(c)).join('.');
+      const p = n.parentElement;
+      if (p) { const sib = [...p.children].filter(c => c.localName === n.localName); if (sib.length > 1) s += ':nth-of-type(' + (sib.indexOf(n) + 1) + ')'; }
+      parts.unshift(s); n = p;
+    }
+    while (parts.length > 1) { try { if (D.querySelectorAll(parts.slice(1).join(' > ')).length === 1) parts.shift(); else break; } catch (e) { break; } }
+    return parts.join(' > ');
+  }
+  function textOf(el) { return (el.textContent || '').replace(/\s+/g, ' ').trim(); }
+  function tipOf(el) { return (el.getAttribute('data-tip') || '').split(/\n|&#10;/)[0].trim(); }
+  const ICON_SEL = 'i[class*="fa-"], svg, img, [class^="fa-"], [class*=" fa-"]';
+  function visibleText(el) {
+    let t = ''; const w = T.D.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) { const p = n.parentElement; if (p && p.closest('[aria-hidden="true"]')) continue; t += n.nodeValue; }
+    return t.replace(/\s+/g, ' ').trim();
+  }
+  function accName(el) {
+    const D = T.D;
+    const lb = el.getAttribute('aria-labelledby');
+    if (lb) { const t = lb.split(/\s+/).map(id => { const e = D.getElementById(id); return e ? textOf(e) : ''; }).join(' ').trim(); if (t) return { name: t, src: 'aria-labelledby' }; }
+    const al = el.getAttribute('aria-label'); if (al && al.trim()) return { name: al.trim(), src: 'aria-label' };
+    if (el.labels && el.labels.length) { const t = [...el.labels].map(textOf).join(' ').trim(); if (t) return { name: t, src: 'label' }; }
+    if (el.localName === 'input' && /^(button|submit|reset)$/.test(el.type) && el.value) return { name: el.value, src: 'value' };
+    if (el.localName === 'img' && el.alt) return { name: el.alt, src: 'alt' };
+    const vt = visibleText(el); if (vt) return { name: vt, src: 'text' };
+    const img = el.querySelector('img[alt]'); if (img && img.alt) return { name: img.alt, src: 'alt' };
+    const ti = el.getAttribute('title'); if (ti && ti.trim()) return { name: ti.trim(), src: 'title' };
+    const tp = tipOf(el); if (tp) return { name: tp, src: 'data-tip' };
+    if (el.placeholder) return { name: el.placeholder, src: 'placeholder' };
+    return { name: '', src: '' };
+  }
+  function labelOf(el) {
+    const a = accName(el); if (a.name) return clip(a.name, 48);
+    return '<' + el.localName + (el.id ? '#' + el.id : '') + '>';
+  }
+
+  /* findings */
+  function rec(el) {
+    let r = recOf.get(el);
+    if (!r) {
+      r = { el, selector: cssPath(el), label: labelOf(el), tag: el.localName, kind: '', status: 'new', note: '', checks: {}, rect: null };
+      recOf.set(el, r); S.elements.set(r.selector + '|' + S.elements.size, r);
+    }
+    return r;
+  }
+  function examine(ruleId, el, n) {
+    const R = RULES[ruleId]; R.examined += (n || 1);
+    if (el) { const r = rec(el); if (!r.checks[R.cat]) r.checks[R.cat] = { ok: true, sev: '', rules: {} }; }
+  }
+  function add(ruleId, el, msg, extra) {
+    const R = RULES[ruleId]; R.failed++;
+    const sev = (extra && extra.sev) || R.sev;
+    let selector = '', label = '', rect = null;
+    if (el && el.nodeType === 1) {
+      const r = rec(el); selector = r.selector; label = r.label;
+      const b = el.getBoundingClientRect(); rect = { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), vw: T.W.innerWidth, vh: T.W.innerHeight };
+      const c = r.checks[R.cat] || (r.checks[R.cat] = { ok: true, sev: '', rules: {} });
+      c.ok = false; c.rules[ruleId] = true; if (SEV[sev] > (SEV[c.sev] || 0)) c.sev = sev;
+    }
+    const key = ruleId + '|' + selector + '|' + (extra && extra.key != null ? extra.key : clip(msg, 60));
+    let f = S.findings.get(key);
+    const vp = vpTag();
+    if (!f) {
+      f = { id: S.findings.size + 1, rule: ruleId, cat: R.cat, title: R.title, severity: sev, selector, label, message: clip(msg, 300),
+            count: 0, viewports: [], rect, html: '', action: cur, first: Math.round(now() - S.started) };
+      if (el && el.nodeType === 1) f.html = clip(el.outerHTML.replace(/\s+/g, ' '), 240);
+      S.findings.set(key, f);
+      logEv('finding', sev + ' ' + R.title + (label ? ' - ' + label : ''));
+    }
+    f.count++; if (vp && f.viewports.indexOf(vp) < 0) f.viewports.push(vp);
+    if (SEV[sev] > SEV[f.severity]) f.severity = sev;
+    const m = S.matrix.get(vp); if (m) { m[sev]++; }
+    return f;
+  }
+  function pass(ruleId, el) { examine(ruleId, el); }
+
+  /* ------------------------------------------------------------------ target hooks */
+  function installHooks(W) {
+    const h = { errs: [], restore: [], mut: 0, mo: null, longs: [], unload: 0 };
+    const D = W.document;
+    const wrap = (obj, name, fn) => { const o = obj[name]; if (typeof o !== 'function') return; obj[name] = function () { try { fn.apply(this, arguments); } catch (e) {} return o.apply(this, arguments); }; h.restore.push(() => { obj[name] = o; }); };
+    const stub = (obj, name, fn) => { const o = obj[name]; obj[name] = fn; h.restore.push(() => { obj[name] = o; }); };
+    const fmt = a => Array.prototype.map.call(a, x => { try { return x && x.stack ? x.stack.split('\n')[0] : (typeof x === 'object' ? JSON.stringify(x) : String(x)); } catch (e) { return String(x); } }).join(' ');
+    const push = (rule, msg) => {
+      const m = clip(msg, 260);
+      if (ADAPTER.noise.some(re => re.test(m))) { RULES[rule].examined++; return; }
+      h.errs.push({ rule, msg: m, action: cur });
+      const f = add(rule, null, m.replace(/\d+(\.\d+)?/g, '#'), { key: m.replace(/\d+(\.\d+)?/g, '#') });
+      f.message = m; f.action = f.action || cur;
+    };
+    wrap(W.console, 'error', function () { push('console.error', fmt(arguments)); });
+    wrap(W.console, 'warn', function () { push('console.warn', fmt(arguments)); });
+    const onErr = e => {
+      if (e.target && e.target !== W && e.target.nodeType === 1) { push('console.resource', 'Failed to load <' + e.target.localName + '> ' + (e.target.currentSrc || e.target.src || e.target.href || '')); return; }
+      push('console.exception', (e.message || 'error') + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
+    };
+    const onRej = e => push('console.rejection', e.reason && e.reason.stack ? e.reason.stack.split('\n').slice(0, 2).join(' ') : String(e.reason));
+    const onCsp = e => push('console.csp', e.violatedDirective + ' blocked ' + e.blockedURI);
+    const onUnload = () => { h.unload++; };
+    W.addEventListener('error', onErr, true); W.addEventListener('unhandledrejection', onRej);
+    W.addEventListener('securitypolicyviolation', onCsp); W.addEventListener('beforeunload', onUnload);
+    h.restore.push(() => { W.removeEventListener('error', onErr, true); W.removeEventListener('unhandledrejection', onRej); W.removeEventListener('securitypolicyviolation', onCsp); W.removeEventListener('beforeunload', onUnload); });
+    stub(W, 'alert', () => { logEv('stub', 'alert suppressed'); });
+    stub(W, 'confirm', () => true); stub(W, 'prompt', () => ''); stub(W, 'print', () => {});
+    stub(W, 'open', () => { logEv('stub', 'window.open suppressed'); return null; });
+    const AP = W.HTMLAnchorElement.prototype, ac = AP.click;
+    AP.click = function () { if (this.hasAttribute('download')) { logEv('stub', 'download suppressed'); return; } return ac.apply(this, arguments); };
+    h.restore.push(() => { AP.click = ac; });
+    if (W.showOpenFilePicker) stub(W, 'showOpenFilePicker', () => Promise.reject(new Error('picker blocked by test')));
+    if (W.showSaveFilePicker) stub(W, 'showSaveFilePicker', () => Promise.reject(new Error('picker blocked by test')));
+    h.mo = new W.MutationObserver(recs => {
+      for (const r of recs) { const t = r.target.nodeType === 1 ? r.target : r.target.parentElement; if (t && t.closest && t.closest('#ux-root, #ux-hl')) continue; h.mut++; }
+    });
+    h.mo.observe(D.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+    h.restore.push(() => h.mo.disconnect());
+    try {
+      h.po = new W.PerformanceObserver(list => { for (const e of list.getEntries()) { S.perf.long.push({ t: Math.round(e.startTime), d: Math.round(e.duration), phase: S.phase }); } });
+      h.po.observe({ entryTypes: ['longtask'] }); h.restore.push(() => h.po.disconnect());
+    } catch (e) {}
+    /* frame-time sampler */
+    let last = 0, alive = true, id = 0;
+    const frame = t => { if (!alive) return; if (last) { const d = t - last; if (d < 1000) S.perf.frames.push({ d, phase: S.phase }); } last = t; id = W.requestAnimationFrame(frame); };
+    id = W.requestAnimationFrame(frame);
+    h.restore.push(() => { alive = false; W.cancelAnimationFrame(id); });
+    return h;
+  }
+  function removeHooks() { if (H) { H.restore.reverse().forEach(f => { try { f(); } catch (e) {} }); H = null; } }
+  const raf = () => new Promise(r => { let done = false; const f = () => { if (!done) { done = true; r(); } }; T.W.requestAnimationFrame(f); setTimeout(f, 80); });
+
+  /* ------------------------------------------------------------------ sandbox */
+  async function makeTarget() {
+    if (S.target === 'self') { T = { W: window, D: document, self: true }; S.sandboxOK = false; S.notes.push('Testing this page directly. Its state will change; reload when finished.'); return; }
+    const f = document.createElement('iframe');
+    f.name = 'ux-sandbox'; f.id = 'ux-sandbox'; f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1; f.title = 'UX test copy of the page';
+    f.style.cssText = 'position:fixed;left:0;top:0;width:' + innerWidth + 'px;height:' + innerHeight + 'px;border:0;background:#000;pointer-events:none;z-index:2147483000;opacity:' + (S.watch ? 1 : 0) + ';transition:opacity .25s ease';
+    f.src = location.pathname + (location.search.replace(/[?&]?ux=1/, '') || '');
+    const ready = new Promise((res, rej) => { f.addEventListener('load', res, { once: true }); setTimeout(() => rej(new Error('sandbox load timeout')), 60000); });
+    document.body.appendChild(f);
+    try { await ready; void f.contentWindow.document.body; }
+    catch (e) {
+      f.remove(); S.notes.push('Could not open a sandbox copy (' + (e.message || e) + '). Testing this page directly.');
+      T = { W: window, D: document, self: true }; return;
+    }
+    T = { W: f.contentWindow, D: f.contentWindow.document, frame: f, self: false }; S.sandboxOK = true;
+    /* wait for the app's own startup (loader fades once the page is built) */
+    const t0 = now();
+    while (now() - t0 < 30000) { if (T.D.readyState === 'complete' && T.D.body && T.D.body.children.length > 3) { await sleep(2500); break; } await sleep(250); }
+  }
+  async function setViewport(w, h) {
+    if (!T.frame) return false;
+    T.frame.style.width = w + 'px'; T.frame.style.height = h + 'px';
+    await raf(); await raf(); await sleep(60);
+    return true;
+  }
+  function destroyTarget() { if (T && T.frame) { T.frame.remove(); } T = null; }
+
+  /* ------------------------------------------------------------------ visibility, hit tests */
+  const CANDIDATES = 'button, a[href], input, select, textarea, summary, canvas, [role=button], [role=tab], [role=switch], [role=checkbox], [role=radio], [role=slider], [role=menuitem], [role=option], [role=link], [tabindex]:not([tabindex="-1"]), [contenteditable=""], [contenteditable=true], [onclick]';
+  function isIgnored(el) {
+    if (T.self && el.closest && el.closest('#ux-root, #ux-hl, #ux-sandbox')) return true;
+    for (const s of ADAPTER.ignore) { try { if (el.matches(s)) return true; } catch (e) {} }
+    return false;
+  }
+  function visible(el) {
+    if (!el.isConnected) return false;
+    try { if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false; } catch (e) {}
+    const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;
+  }
+  function isDisabled(el) { return !!el.disabled || el.getAttribute('aria-disabled') === 'true' || !!el.closest('fieldset:disabled'); }
+  function kindOf(el) {
+    const t = el.localName;
+    if (t === 'canvas') return 'canvas';
+    if (t === 'input') { const ty = (el.type || 'text').toLowerCase();
+      if (ty === 'file') return 'skip'; if (ty === 'range') return 'range'; if (ty === 'number') return 'number';
+      if (ty === 'checkbox' || ty === 'radio') return 'check'; if (/^(button|submit|reset|image|color)$/.test(ty)) return 'click'; return 'text'; }
+    if (t === 'textarea') return 'textarea'; if (t === 'select') return 'select';
+    if (t === 'summary') return 'summary'; if (t === 'a') return 'link';
+    if (el.isContentEditable) return 'editable';
+    const role = el.getAttribute('role');
+    if (role === 'switch' || role === 'checkbox' || role === 'radio') return 'toggle';
+    if (role === 'slider') return 'aslider';
+    return 'click';
+  }
+
+  /* ------------------------------------------------------------------ event synthesis */
+  function ptr(el, type, x, y, extra) {
+    const W = T.W, o = Object.assign({ bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, view: W, button: 0, buttons: /up|click$/.test(type) ? 0 : 1, pointerId: 1, pointerType: 'mouse', isPrimary: true }, extra || {});
+    const C = /^pointer/.test(type) ? W.PointerEvent : W.MouseEvent;
+    return el.dispatchEvent(new C(type, o));
+  }
+  function center(el) { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }
+  function click(el) {
+    const [x, y] = center(el);
+    ptr(el, 'pointerover', x, y); ptr(el, 'mouseover', x, y); ptr(el, 'pointerdown', x, y); ptr(el, 'mousedown', x, y);
+    try { el.focus({ preventScroll: true }); } catch (e) {}
+    ptr(el, 'pointerup', x, y); ptr(el, 'mouseup', x, y); ptr(el, 'click', x, y);
+  }
+  function key(el, k, extra) {
+    const W = T.W, o = Object.assign({ key: k, code: k.length === 1 ? 'Key' + k.toUpperCase() : k, bubbles: true, cancelable: true, composed: true, view: W }, extra || {});
+    el.dispatchEvent(new W.KeyboardEvent('keydown', o)); el.dispatchEvent(new W.KeyboardEvent('keyup', o));
+  }
+  function setValue(el, v) {
+    const W = T.W, proto = el.localName === 'textarea' ? W.HTMLTextAreaElement.prototype : el.localName === 'select' ? W.HTMLSelectElement.prototype : W.HTMLInputElement.prototype;
+    const d = Object.getOwnPropertyDescriptor(proto, 'value'); if (d && d.set) d.set.call(el, v); else el.value = v;
+    el.dispatchEvent(new W.Event('input', { bubbles: true })); el.dispatchEvent(new W.Event('change', { bubbles: true }));
+  }
+  function typeChars(el, text, limit) {
+    const W = T.W; const n = Math.min(text.length, limit || 40);
+    for (let i = 0; i < n; i++) {
+      const c = text[i];
+      el.dispatchEvent(new W.KeyboardEvent('keydown', { key: c, bubbles: true, cancelable: true }));
+      const ok = el.dispatchEvent(new W.InputEvent('beforeinput', { data: c, inputType: 'insertText', bubbles: true, cancelable: true }));
+      if (ok) {
+        const d = Object.getOwnPropertyDescriptor(el.localName === 'textarea' ? W.HTMLTextAreaElement.prototype : W.HTMLInputElement.prototype, 'value');
+        d.set.call(el, el.value + c); el.dispatchEvent(new W.InputEvent('input', { data: c, inputType: 'insertText', bubbles: true }));
+      }
+      el.dispatchEvent(new W.KeyboardEvent('keyup', { key: c, bubbles: true }));
+    }
+  }
+  /* run one action and watch what it did */
+  async function act(label, fn) {
+    cur = label; const e0 = H.errs.length, m0 = H.mut, u0 = H.unload; const t0 = now(); let thrown = null;
+    try { await fn(); } catch (e) { thrown = e; }
+    const dt = now() - t0; await raf();
+    RULES['console.error'].examined++; RULES['console.exception'].examined++; RULES['console.rejection'].examined++;
+    const r = { dt, thrown, errs: H.errs.slice(e0), mut: H.mut - m0, unload: H.unload - u0 };
+    cur = ''; return r;
+  }
+  function stateSig(el) {
+    return [el.className, el.value, el.checked, el.getAttribute('aria-pressed'), el.getAttribute('aria-selected'), el.getAttribute('aria-expanded'), el.open, el.getAttribute('style'), el.disabled].join('|');
+  }
+  function reportAct(ruleBase, el, a, label) {
+    let bad = false;
+    if (a.thrown) { add('func.error', el, label + ' threw: ' + (a.thrown.message || a.thrown)); bad = true; }
+    if (a.unload) { add('func.reload', el, label + ' tried to leave the page'); bad = true; }
+    if (a.errs.length) { add('func.error', el, label + ' logged: ' + a.errs[0].msg, { key: a.errs[0].msg.slice(0, 60) }); bad = true; }
+    return bad;
+  }
+  function badText(root) {
+    const w = T.D.createTreeWalker(root || T.D.body, NodeFilter.SHOW_TEXT, { acceptNode: n => { const p = n.parentElement; return !p || /^(SCRIPT|STYLE|TEXTAREA|NOSCRIPT)$/.test(p.tagName) || p.closest('#ux-root') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; } });
+    const out = [];
+    for (let n = w.nextNode(); n; n = w.nextNode()) { if (/\bNaN\b|\bundefined\b|\[object \w+\]|\bInfinity\b|\bnull\b(?!\w)/.test(n.nodeValue) && visible(n.parentElement)) out.push(n.parentElement); if (out.length > 5) break; }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ discovery */
+  async function discover() {
+    const D = T.D, W = T.W; const found = [];
+    const seen = new Set(S.elements.size ? [...S.elements.values()].map(r => r.el) : []);
+    const list = new Set(D.querySelectorAll(CANDIDATES));
+    /* own-cursor:pointer roots that are not native controls */
+    const all = D.body.getElementsByTagName('*'); let last = now();
+    for (let i = 0; i < all.length; i++) {
+      const el = all[i];
+      if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml' || list.has(el)) continue;
+      const cs = W.getComputedStyle(el);
+      if (cs.cursor === 'pointer' && !/^(i|svg|path|span|b|em|strong|img)$/.test(el.localName) && el.parentElement && W.getComputedStyle(el.parentElement).cursor !== 'pointer' && !el.closest(CANDIDATES.replace(/\[onclick\]/, 'button'))) { list.add(el); el.__uxClickable = true; }
+      if (now() - last > 8) { await macro(); last = now(); }
+    }
+    S.sigs = S.sigs || new Set();
+    for (const el of list) {
+      if (seen.has(el) || isIgnored(el)) continue;
+      const r = rec(el); const sig = r.selector + '|' + r.label;
+      if (S.sigs.has(sig) || S.elements.size > 1500) { S.elements.forEach((v, k) => { if (v === r) S.elements.delete(k); }); recOf.delete(el); continue; }
+      S.sigs.add(sig); r.kind = kindOf(el); r.clickable = !!el.__uxClickable; r.queued = false; found.push(r);
+    }
+    S.discovered = S.elements.size; return found;
+  }
+
+  /* ------------------------------------------------------------------ functional exercises */
+  async function exercise(r) {
+    const D = T.D; r.queued = true;
+    let el = r.el;
+    if (!el.isConnected) { el = D.querySelector(r.selector); if (!el) { r.status = 'gone'; add('func.gone', null, r.label + ' disappeared'); return; } r.el = el; }
+    if (r.kind === 'skip') { r.status = 'skip'; r.note = 'file picker'; return; }
+    if (isDisabled(el)) { r.status = 'skip'; r.note = 'disabled'; return; }
+    if (!visible(el)) { r.status = 'deferred'; r.note = 'hidden'; if (S.deferred.indexOf(r) < 0) S.deferred.push(r); return; }
+    const pk = parentKey(el); S.perParent.set(pk, (S.perParent.get(pk) || 0) + 1);
+    if (S.perParent.get(pk) > 10 && !el.id) { r.status = 'skip'; r.note = 'sampled: same kind as 10 siblings already tested'; return; }
+    const label = r.label;
+    try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+    let bad = false; examine('func.error', el);
+    const k = r.kind;
+    if (k === 'range' || k === 'aslider') bad = await exRange(el, r, label);
+    else if (k === 'number') bad = await exNumber(el, r, label);
+    else if (k === 'text' || k === 'textarea' || k === 'editable') bad = await exText(el, r, label);
+    else if (k === 'select') bad = await exSelect(el, r, label);
+    else if (k === 'check' || k === 'toggle') bad = await exToggle(el, r, label);
+    else if (k === 'canvas') bad = await exCanvas(el, r, label);
+    else if (k === 'link') bad = await exLink(el, r, label);
+    else bad = await exClick(el, r, label);
+    r.status = bad ? 'fail' : (r.status === 'noeffect' ? 'noeffect' : 'pass');
+    const bt = badText(); for (const b of bt) add('func.nan', b, 'Visible text contains "' + clip(b.textContent, 40) + '"', { key: cssPath(b) });
+    if (T.D.activeElement && /INPUT|TEXTAREA/.test(T.D.activeElement.tagName) === false) { /* leave focus */ }
+    revealDeferred();
+  }
+  const pIds = new WeakMap(); let pN = 0;
+  function parentKey(el) { const p = el.parentElement; if (!p) return 'root'; let k = pIds.get(p); if (!k) { k = ++pN; pIds.set(p, k); } return k + ':' + el.localName; }
+  let lastMut = -1;
+  function revealDeferred() {
+    if (!S.deferred.length || H.mut === lastMut) return; lastMut = H.mut;
+    const shown = [], rest = [];
+    for (const r of S.deferred) { if (!r.el.isConnected) continue; if (visible(r.el)) shown.push(r); else rest.push(r); }
+    S.deferred = rest;
+    if (shown.length) logEv('reveal', shown.length + ' hidden controls became visible');
+    for (let i = shown.length - 1; i >= 0; i--) { const n = shown[i]; n.status = 'new'; S.queue.unshift(U('functional', 'Exercise ' + n.label, () => exercise(n))); S.total++; }
+  }
+  async function exClick(el, r, label) {
+    let bad = false; const sig0 = stateSig(el);
+    const a = await act('click ' + label, () => click(el));
+    bad = reportAct('click', el, a, 'Click');
+    examine('func.slow', el); if (a.dt > 250) { add('func.slow', el, 'Click blocked the page for ' + Math.round(a.dt) + ' ms', { key: 'slow' }); }
+    const changed = a.mut > 0 || stateSig(el) !== sig0;
+    examine('func.noeffect', el);
+    if (!changed && !bad) { r.status = 'noeffect'; add('func.noeffect', el, 'No DOM or state change within a frame of clicking (may be a canvas-only change)', { key: 'noeffect' }); }
+    r.effect = changed;
+    if (a.dt < 120 && !bad) {
+      S.queue.unshift(U('functional', 'Rapid clicks on ' + label, () => exBurst(el, r, label)));
+      S.total++;
+    }
+    if (!/^(button|a|input|select|textarea|summary)$/.test(el.localName)) {
+      S.queue.unshift(U('functional', 'Keyboard activation of ' + label, () => exKeyAct(el, r, label, changed)));
+      S.total++;
+    }
+    return bad;
+  }
+  async function exBurst(el, r, label) {
+    if (!el.isConnected) return;
+    const n0 = T.D.getElementsByTagName('*').length;
+    const b = await act('burst ' + label, async () => { for (let i = 0; i < 12; i++) { click(el); if (i % 4 === 3) await raf(); } });
+    examine('func.burst', el);
+    if (reportAct('burst', el, b, 'Rapid clicking')) { add('func.burst', el, 'Errors during 12 rapid clicks', { key: 'burst' }); r.status = 'fail'; }
+    examine('func.leak', el); const grow = T.D.getElementsByTagName('*').length - n0;
+    if (grow > 150) add('func.leak', el, '12 rapid clicks added ' + grow + ' DOM nodes', { key: 'leak' });
+    if (b.dt > 12 * 250) add('func.slow', el, '12 rapid clicks took ' + Math.round(b.dt) + ' ms', { key: 'burst-slow' });
+  }
+  async function exKeyAct(el, r, label, changed) {
+    if (!el.isConnected) return;
+    examine('keyboard.activate', el);
+    const kb = await act('Enter ' + label, () => { el.focus({ preventScroll: true }); key(el, 'Enter'); key(el, ' '); });
+    if (kb.mut === 0 && !kb.errs.length && changed) add('keyboard.activate', el, 'Click changes the page but Enter and Space do nothing');
+  }
+  async function exToggle(el, r, label) {
+    const get = () => el.checked != null && el.localName === 'input' ? el.checked : el.getAttribute('aria-checked') === 'true';
+    const was = get(); const a = await act('toggle ' + label, () => click(el));
+    let bad = reportAct('toggle', el, a, 'Toggle'); examine('func.toggle', el);
+    if (get() === was && a.mut === 0 && !bad && el.type !== 'radio') add('func.toggle', el, 'Clicking did not change its state');
+    const b = await act('toggle back ' + label, async () => { for (let i = 0; i < 8; i++) click(el); });
+    if (reportAct('toggle', el, b, 'Rapid toggling')) bad = true;
+    if (get() !== was && el.type !== 'radio') { await act('restore ' + label, () => click(el)); }
+    return bad;
+  }
+  async function exRange(el, r, label) {
+    let bad = false; const W = T.W; const orig = el.value;
+    const min = parseFloat(el.min || el.getAttribute('aria-valuemin') || 0), max = parseFloat(el.max || el.getAttribute('aria-valuemax') || 100);
+    if (el.localName !== 'input') { return exClick(el, r, label); }
+    const a = await act('slide ' + label, async () => {
+      for (const v of [min, (min + max) / 2, max, min - 1e6, max + 1e6, NaN, '']) { setValue(el, String(v)); }
+      el.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true, clientX: center(el)[0], clientY: center(el)[1] }));
+      for (let i = 0; i <= 10; i++) { setValue(el, String(min + (max - min) * i / 10)); }
+      el.dispatchEvent(new W.PointerEvent('pointerup', { bubbles: true }));
+      key(el, 'ArrowRight'); key(el, 'ArrowLeft'); key(el, 'Home'); key(el, 'End');
+    });
+    bad = reportAct('slide', el, a, 'Slider'); examine('func.input', el);
+    const v = parseFloat(el.value); if (isNaN(v) || v < min - 1e-9 || v > max + 1e-9) { add('func.input', el, 'Slider value ' + el.value + ' left its range ' + min + ' to ' + max); bad = true; }
+    if (a.mut === 0 && !bad) { r.status = 'noeffect'; add('func.noeffect', el, 'Moving the slider changed nothing in the DOM', { key: 'noeffect' }); }
+    setValue(el, orig); return bad;
+  }
+  async function exNumber(el, r, label) {
+    let bad = false; const orig = el.value; const min = el.min !== '' ? parseFloat(el.min) : null, max = el.max !== '' ? parseFloat(el.max) : null;
+    const vals = ['', '0', '-1', '1', '0.0001', '999999999', '-999999999', '1e3', '12.5', max != null ? String(max + 1) : '123456', min != null ? String(min - 1) : '-5'];
+    const a = await act('type ' + label, async () => { for (const v of vals) { el.focus({ preventScroll: true }); setValue(el, v); key(el, 'ArrowUp'); key(el, 'ArrowDown'); } el.blur(); });
+    bad = reportAct('type', el, a, 'Typing numbers'); examine('func.input', el);
+    if (a.dt > 400) add('func.slow', el, 'Typing 11 values took ' + Math.round(a.dt) + ' ms', { key: 'type-slow' });
+    setValue(el, orig); return bad;
+  }
+  const PAYLOADS = ['G01 X1.0 Y1.0 F20.', 'a'.repeat(3000), '<img src=x onerror="window.__uxx=1">', '"><script>window.__uxx=1<\/script>', '{{7*7}} ${7*7} %s %d', 'café 中文 مرحبا', '\n\n\n\t  \n', ';'.repeat(50)];
+  async function exText(el, r, label) {
+    let bad = false; const W = T.W; const isEdit = el.isContentEditable;
+    const orig = isEdit ? el.textContent : el.value; W.__uxx = 0;
+    const a = await act('type ' + label, async () => {
+      el.focus({ preventScroll: true });
+      for (const p of PAYLOADS) {
+        if (isEdit) { el.textContent = p; el.dispatchEvent(new W.InputEvent('input', { bubbles: true })); }
+        else { setValue(el, ''); typeChars(el, p, 24); setValue(el, p.slice(0, 4000)); }
+      }
+      if (!isEdit) { key(el, 'Tab'); key(el, 'Enter'); key(el, 'Escape'); }
+      el.blur();
+    });
+    bad = reportAct('type', el, a, 'Typing'); examine('func.input', el); examine('func.xss', el);
+    if (W.__uxx || T.D.querySelector('img[src="x"]')) { add('func.xss', el, 'Typed markup ran or was inserted as HTML', { key: 'xss' }); bad = true; try { T.D.querySelectorAll('img[src="x"]').forEach(n => n.remove()); } catch (e) {} }
+    if (a.dt > 800) add('func.slow', el, 'Typing 8 payloads took ' + Math.round(a.dt) + ' ms', { key: 'type-slow' });
+    if (isEdit) el.textContent = orig; else setValue(el, orig);
+    if (a.mut === 0 && !bad && el.localName === 'input') { r.status = 'noeffect'; }
+    return bad;
+  }
+  async function exSelect(el, r, label) {
+    let bad = false; const orig = el.value;
+    const a = await act('select ' + label, async () => { for (const o of el.options) { if (o.disabled) continue; setValue(el, o.value); await raf(); } });
+    bad = reportAct('select', el, a, 'Selecting an option'); examine('func.input', el);
+    if (a.mut === 0 && !bad && el.options.length > 1) { r.status = 'noeffect'; add('func.noeffect', el, 'Choosing each option changed nothing in the DOM', { key: 'noeffect' }); }
+    setValue(el, orig); return bad;
+  }
+  async function exLink(el, r, label) {
+    const href = el.getAttribute('href') || ''; examine('func.link', el);
+    if (!href || href === '#' || /^javascript:/i.test(href)) { if (!el.onclick && !el.hasAttribute('onclick')) add('func.link', el, 'Link href is "' + href + '" and no click handler is set on the element', { key: 'link' }); }
+    if (/^#/.test(href) && href.length > 1) { if (!T.D.getElementById(href.slice(1)) && !T.D.getElementsByName(href.slice(1)).length) add('func.link', el, 'Anchor target ' + href + ' does not exist', { key: 'anchor' }); }
+    if (/^#|^$|^javascript:/i.test(href)) return exClick(el, r, label);
+    r.status = 'skip'; r.note = 'leaves the page'; return false;
+  }
+  async function exCanvas(el, r, label) {
+    const W = T.W; const rc = el.getBoundingClientRect(); if (rc.width < 60 || rc.height < 60) { r.status = 'skip'; r.note = 'tiny canvas'; return false; }
+    const cx = rc.left + rc.width / 2, cy = rc.top + rc.height / 2;
+    const a = await act('gestures ' + label, async () => {
+      const drag = async (btn, dx, dy) => { ptr(el, 'pointerdown', cx, cy, { button: btn, buttons: 1 << btn }); ptr(el, 'mousedown', cx, cy, { button: btn, buttons: 1 << btn });
+        for (let i = 1; i <= 8; i++) { ptr(el, 'pointermove', cx + dx * i / 8, cy + dy * i / 8, { buttons: 1 << btn, button: btn }); ptr(el, 'mousemove', cx + dx * i / 8, cy + dy * i / 8, { buttons: 1 << btn }); if (i % 4 === 0) await raf(); }
+        ptr(el, 'pointerup', cx + dx, cy + dy, { button: btn }); ptr(el, 'mouseup', cx + dx, cy + dy, { button: btn }); };
+      await drag(0, rc.width / 4, -rc.height / 5); await drag(2, -rc.width / 5, rc.height / 6); await drag(1, rc.width / 6, rc.height / 6);
+      for (const dy of [-240, 240, -120, 120]) el.dispatchEvent(new W.WheelEvent('wheel', { deltaY: dy, clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
+      ptr(el, 'click', cx, cy); ptr(el, 'dblclick', cx, cy); el.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+      el.focus && el.focus({ preventScroll: true }); for (const k of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '-', 'Home']) key(el, k);
+    });
+    const bad = reportAct('gesture', el, a, 'Canvas gestures');
+    if (a.dt > 1500) add('func.slow', el, 'Canvas gestures blocked the page for ' + Math.round(a.dt) + ' ms', { key: 'gesture' });
+    return bad;
+  }
+  async function expandAll() {
+    const D = T.D; let n = 0;
+    for (const ex of ADAPTER.expanders) {
+      for (const h of D.querySelectorAll(ex.head)) { if (isIgnored(h) || !visible(h)) continue; if (!ex.isOpen(h)) { await act('expand ' + labelOf(h), () => click(h)); n++; } }
+    }
+    for (const d of D.querySelectorAll('details:not([open])')) { d.open = true; n++; }
+    for (const b of D.querySelectorAll('[aria-expanded="false"]')) { if (isIgnored(b) || !visible(b)) continue; await act('expand ' + labelOf(b), () => click(b)); n++; }
+    logEv('expand', 'opened ' + n + ' collapsed sections');
+  }
+
+  /* ------------------------------------------------------------------ fuzz */
+  const KEYS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ' ', 'Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', '+', '-', '[', ']', '/', '.', ','];
+  const fuzzLog = [];
+  async function fuzzOne() {
+    const D = T.D; const pool = [...S.elements.values()].filter(r => r.el.isConnected && r.kind !== 'skip' && visible(r.el) && !isDisabled(r.el));
+    fuzzN++;
+    const roll = rnd(); let label, fn;
+    if (!pool.length || roll < 0.14) {
+      const k = KEYS[Math.floor(rnd() * KEYS.length)], mods = { shiftKey: rnd() < .15, ctrlKey: rnd() < .08, altKey: rnd() < .05 };
+      const tgt = rnd() < .5 ? D.body : (D.activeElement || D.body); label = 'key ' + (mods.ctrlKey ? 'Ctrl+' : '') + (mods.shiftKey ? 'Shift+' : '') + k;
+      if (mods.ctrlKey && /^[wntrWNTR]$/.test(k)) { return; }
+      fn = () => key(tgt, k, mods);
+    } else {
+      const r = pool[Math.floor(rnd() * pool.length)], el = r.el; label = r.kind + ' ' + r.label;
+      const p = rnd();
+      if (r.kind === 'range') fn = () => setValue(el, String(parseFloat(el.min || 0) + rnd() * (parseFloat(el.max || 100) - parseFloat(el.min || 0))));
+      else if (r.kind === 'number') fn = () => setValue(el, ['', '0', '-1', String(Math.round(rnd() * 1000) / 10), '999999'][Math.floor(rnd() * 5)]);
+      else if (r.kind === 'select') fn = () => { const o = el.options[Math.floor(rnd() * el.options.length)]; if (o) setValue(el, o.value); };
+      else if (r.kind === 'text' || r.kind === 'textarea') fn = () => { el.focus({ preventScroll: true }); setValue(el, PAYLOADS[Math.floor(rnd() * PAYLOADS.length)].slice(0, 400)); };
+      else if (r.kind === 'canvas') { const rc = el.getBoundingClientRect(); fn = async () => { const x = rc.left + rnd() * rc.width, y = rc.top + rnd() * rc.height; ptr(el, 'pointerdown', x, y); ptr(el, 'pointermove', x + 30, y + 20); ptr(el, 'pointerup', x + 30, y + 20); el.dispatchEvent(new T.W.WheelEvent('wheel', { deltaY: rnd() < .5 ? 120 : -120, clientX: x, clientY: y, bubbles: true })); }; }
+      else if (r.kind === 'link') fn = () => { };
+      else if (p < 0.7) fn = () => click(el);
+      else if (p < 0.8) fn = () => { click(el); click(el); };
+      else if (p < 0.9) fn = () => { el.focus({ preventScroll: true }); key(el, rnd() < .5 ? 'Enter' : ' '); };
+      else fn = async () => { for (let i = 0; i < 6; i++) click(el); };
+    }
+    fuzzLog.push(fuzzN + ': ' + label); if (fuzzLog.length > 40) fuzzLog.shift();
+    const a = await act('fuzz #' + fuzzN + ' ' + label, fn);
+    if (a.thrown || a.errs.length || a.unload) {
+      const m = a.thrown ? (a.thrown.message || String(a.thrown)) : a.unload ? 'tried to leave the page' : a.errs[0].msg;
+      const f = add(a.unload ? 'func.reload' : 'func.error', null, 'Fuzz action "' + label + '": ' + m, { key: 'fz' + m.slice(0, 50) });
+      f.replay = 'seed ' + S.seed + ', fuzz action ' + fuzzN + '; last actions: ' + fuzzLog.slice(-6).join(' | ');
+    }
+    if (a.dt > 400) { const f = add('func.slow', null, 'Fuzz action "' + label + '" blocked for ' + Math.round(a.dt) + ' ms', { key: 'fzslow' + label.slice(0, 30) }); f.replay = 'seed ' + S.seed + ', fuzz action ' + fuzzN; }
+    if (fuzzN % 25 === 0) key(D.body, 'Escape');
+  }
+
+  /* ------------------------------------------------------------------ visual snapshot and rules */
+  function parseColor(s) { const m = /rgba?\(([^)]+)\)/.exec(s || ''); if (!m) return null; const p = m[1].split(/[ ,\/]+/).filter(Boolean).map(parseFloat); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; }
+  const lum = c => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const over = (f, b) => ({ r: f.r * f.a + b.r * (1 - f.a), g: f.g * f.a + b.g * (1 - f.a), b: f.b * f.a + b.b * (1 - f.a), a: 1 });
+  function effBg(el) {
+    const W = T.W; const layers = []; let op = 1;
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const cs = W.getComputedStyle(n);
+      if (cs.backgroundImage !== 'none') return null;
+      const c = parseColor(cs.backgroundColor); if (c && c.a > 0) { layers.push(c); if (c.a >= 0.99) break; }
+    }
+    let base = { r: 255, g: 255, b: 255, a: 1 };
+    for (let i = layers.length - 1; i >= 0; i--) base = over(layers[i], base);
+    return base;
+  }
+  function opacityOf(el) { let o = 1; for (let n = el; n && n.nodeType === 1; n = n.parentElement) { o *= parseFloat(T.W.getComputedStyle(n).opacity); } return o; }
+  async function takeSnapshot() {
+    const W = T.W, D = T.D; const vw = W.innerWidth, vh = W.innerHeight;
+    const out = { vw, vh, entries: [], inter: [], text: [], touch: vw <= 820 || (W.matchMedia && W.matchMedia('(pointer: coarse)').matches), css: new Map() };
+    const els = D.body.getElementsByTagName('*'); let last = now();
+    const recSet = new Set([...S.elements.values()].map(r => r.el));
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml' && el.localName !== 'svg') continue;
+      if (/^(script|style|noscript|template|br|option|optgroup|datalist)$/.test(el.localName)) continue;
+      if (isIgnored(el)) continue;
+      if (now() - last > 8) { await macro(); last = now(); }
+      if (!visible(el)) continue;
+      const cs = W.getComputedStyle(el), r = el.getBoundingClientRect();
+      const e = { el, r, cs, inter: false, text: false };
+      e.inter = (recSet.has(el) || el.matches(CANDIDATES) || !!el.__uxClickable) && !(el.localName !== 'input' && nestedInCtl(el));
+      if (e.inter && el.localName === 'canvas') e.inter = true;
+      for (let n = el.firstChild; n; n = n.nextSibling) { if (n.nodeType === 3 && n.nodeValue.trim()) { e.text = true; break; } }
+      if (el.localName === 'input' && /^(button|submit|reset)$/.test(el.type)) e.text = true;
+      out.entries.push(e); if (e.inter) out.inter.push(e); if (e.text) out.text.push(e);
+    }
+    return out;
+  }
+  function nestedInCtl(el) { const p = el.parentElement; return !!(p && p.closest(CANDIDATES.replace(', [onclick]', ', [data-uxnone]'))); }
+  function isMono(f) { return /mono|consolas|courier|menlo|code/i.test(f); }
+  function firstFont(f) { return (f.split(',')[0] || '').replace(/["']/g, '').trim(); }
+  function clipInfo(e, snap) {
+    const W = T.W; const el = e.el; let r = e.r; let vis = { l: r.left, t: r.top, r: r.right, b: r.bottom }; let kind = ''; let by = null;
+    const fixed = e.cs.position === 'fixed';
+    for (let n = el.parentElement; n && n !== T.D.documentElement; n = n.parentElement) {
+      const cs = W.getComputedStyle(n); if (fixed) break;
+      const ox = cs.overflowX, oy = cs.overflowY;
+      if (ox === 'visible' && oy === 'visible') continue;
+      if (cs.display === 'contents') continue;
+      const pr = n.getBoundingClientRect();
+      const scrollX = /auto|scroll/.test(ox), scrollY = /auto|scroll/.test(oy);
+      if (scrollX && scrollY) return { frac: 1, kind: 'scroll' };
+      if (ox !== 'visible') { if (scrollX && (r.left < pr.left || r.right > pr.right)) return { frac: 1, kind: 'scroll' }; vis.l = Math.max(vis.l, pr.left); vis.r = Math.min(vis.r, pr.right); }
+      if (oy !== 'visible') { if (scrollY && (r.top < pr.top || r.bottom > pr.bottom)) return { frac: 1, kind: 'scroll' }; vis.t = Math.max(vis.t, pr.top); vis.b = Math.min(vis.b, pr.bottom); }
+      if (!by && ((ox !== 'visible' && !scrollX) || (oy !== 'visible' && !scrollY))) by = n;
+    }
+    const area = r.width * r.height; const w = Math.max(0, vis.r - vis.l), h = Math.max(0, vis.b - vis.t);
+    const fracC = area ? (w * h) / area : 1;
+    /* viewport */
+    const vw = snap.vw, vh = snap.vh;
+    const vv = { l: Math.max(vis.l, 0), t: Math.max(vis.t, 0), r: Math.min(vis.r, vw), b: Math.min(vis.b, vh) };
+    const fracV = area ? (Math.max(0, vv.r - vv.l) * Math.max(0, vv.b - vv.t)) / area : 1;
+    return { frac: fracC, fracV, kind: fracC < 0.98 && fracC > 0 ? 'container' : '', by };
+  }
+  const PAGE_SCROLLS = () => { const W = T.W; const o = [W.getComputedStyle(T.D.documentElement).overflowY, W.getComputedStyle(T.D.body).overflowY]; return !o.every(v => v === 'hidden' || v === 'clip'); };
+
+  const VISUAL = [];                                       /* [id, label, async fn(snap)] */
+  const vrule = (id, fn) => VISUAL.push({ id, fn });
+
+  vrule('layout.hscroll', async s => {
+    const D = T.D, de = D.documentElement; examine('layout.hscroll');
+    const over = Math.max(de.scrollWidth, D.body.scrollWidth) - de.clientWidth;
+    if (over > 1) {
+      let culprit = null, far = 0; for (const e of s.entries) { if (e.cs.position === 'fixed') continue; const ex = e.r.right - s.vw; if (ex > far && ex > 1) { far = ex; culprit = e.el; } }
+      add('layout.hscroll', culprit || D.body, 'Page is ' + Math.round(over) + ' px wider than the window at ' + s.vw + ' px (' + inch(over) + ')' + (culprit ? '; widest offender shown' : ''), { key: 'h' });
+    }
+  });
+  vrule('layout.viewport', async s => {
+    const scrolls = PAGE_SCROLLS();
+    for (const e of s.entries) {
+      if (!e.inter && !e.text) continue; if (e.r.width < 2) continue; if (e.el.localName === 'canvas') continue;
+      const c = clipInfo(e, s); examine('layout.clipped', e.el);
+      if (c.kind === 'container' && c.frac > 0.05) add('layout.clipped', e.el, Math.round((1 - c.frac) * 100) + '% of this ' + (e.inter ? 'control' : 'text') + ' is cut off by ' + (c.by ? '<' + c.by.localName + (c.by.id ? '#' + c.by.id : '') + '>' : 'its container'), { sev: e.inter ? 'major' : 'minor' });
+      if (c.kind !== 'scroll' && c.fracV < 0.98 && c.fracV > 0 && (c.kind !== 'container')) {
+        examine('layout.viewport', e.el);
+        add('layout.viewport', e.el, Math.round((1 - c.fracV) * 100) + '% of this ' + (e.inter ? 'control' : 'text') + ' is outside the ' + s.vw + ' x ' + s.vh + ' window' + (scrolls ? '' : ' and the page cannot scroll'), { sev: scrolls ? 'minor' : (e.inter ? 'major' : 'minor') });
+      }
+    }
+  });
+  vrule('layout.textclip', async s => {
+    for (const e of s.text) {
+      const el = e.el, cs = e.cs; if (cs.display === 'inline' || el.clientWidth === 0) continue;
+      examine('layout.textclip', el);
+      const hid = /hidden|clip/.test(cs.overflowX), hidY = /hidden|clip/.test(cs.overflowY);
+      if (hid && el.scrollWidth > el.clientWidth + 1) {
+        if (cs.textOverflow === 'ellipsis') {
+          examine('layout.truncated', el);
+          const full = el.getAttribute('title') || el.getAttribute('data-tip') || el.getAttribute('aria-label');
+          add('layout.truncated', el, 'Text is cut by an ellipsis (' + el.clientWidth + ' of ' + el.scrollWidth + ' px)' + (full ? '; a tooltip gives the full text' : '; no tooltip gives the full text'), { sev: full ? 'info' : (e.inter ? 'major' : 'minor') });
+        } else add('layout.textclip', el, 'Text is clipped: ' + el.scrollWidth + ' px of content in ' + el.clientWidth + ' px', { sev: e.inter ? 'major' : 'minor' });
+      } else if (hidY && el.scrollHeight > el.clientHeight + 2 && cs.webkitLineClamp === 'none' && el.clientHeight > 0) {
+        add('layout.textclip', el, 'Text is clipped vertically: ' + el.scrollHeight + ' px of content in ' + el.clientHeight + ' px', { sev: e.inter ? 'major' : 'minor' });
+      }
+    }
+  });
+  vrule('layout.spill', async s => {
+    const D = T.D; let last = now();
+    for (const e of s.text) {
+      const el = e.el; if (e.cs.display === 'inline' || !e.r.width) continue;
+      if (/hidden|clip/.test(e.cs.overflowX)) continue;
+      try { const rg = D.createRange(); rg.selectNodeContents(el); const rr = rg.getBoundingClientRect(); examine('layout.spill', el);
+        const pr = parseFloat(e.cs.paddingRight) || 0; const ex = rr.right - (e.r.right - 0);
+        if (ex > 2 && rr.width > 0 && e.cs.whiteSpace !== 'normal') add('layout.spill', el, 'Text runs ' + Math.round(ex) + ' px past the right edge of its box', { sev: e.inter ? 'major' : 'minor' });
+        else if (ex > 2 && rr.width > 0 && e.inter) add('layout.spill', el, 'Text runs ' + Math.round(ex) + ' px past the right edge of its box', { sev: 'major' });
+      } catch (err) {}
+      if (now() - last > 8) { await macro(); last = now(); }
+    }
+  });
+  vrule('layout.overlap', async s => {
+    const L = s.inter.filter(e => e.r.width > 1 && e.r.height > 1 && e.r.right > 0 && e.r.bottom > 0 && e.r.left < s.vw && e.r.top < s.vh && e.el.localName !== 'canvas' && e.cs.pointerEvents !== 'none').sort((a, b) => a.r.left - b.r.left);
+    let last = now(); const seen = new Set();
+    for (let i = 0; i < L.length; i++) {
+      const a = L[i]; examine('layout.overlap', a.el);
+      for (let j = i + 1; j < L.length; j++) {
+        const b = L[j]; if (b.r.left >= a.r.right) break;
+        if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+        const w = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left), h = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+        if (w <= 2 || h <= 2) continue;
+        const frac = (w * h) / Math.min(a.r.width * a.r.height, b.r.width * b.r.height);
+        if (frac > 0.2) {
+          const za = a.cs.position !== 'static' || b.cs.position !== 'static';
+          const k = cssPath(a.el) + '~' + cssPath(b.el); if (seen.has(k)) continue; seen.add(k);
+          add('layout.overlap', a.el, Math.round(frac * 100) + '% overlap with ' + rec(b.el).label + ' (' + rec(b.el).selector + ')', { key: rec(b.el).selector });
+        }
+      }
+      if (now() - last > 8) { await macro(); last = now(); }
+    }
+  });
+  vrule('layout.obscured', async s => {
+    const D = T.D; let last = now();
+    /* a modal overlay covering most of the window would flag everything: skip then */
+    const mid = D.elementFromPoint(s.vw / 2, s.vh / 2);
+    if (mid) for (let n = mid; n && n !== D.body; n = n.parentElement) { const cs = T.W.getComputedStyle(n); if ((cs.position === 'fixed') && n.getBoundingClientRect().width >= s.vw * 0.9 && n.getBoundingClientRect().height >= s.vh * 0.9 && cs.pointerEvents !== 'none' && n.id !== 'main-canvas') { S.notes.push('Skipped the covered-control check at ' + s.vw + 'x' + s.vh + ': a full-window overlay was open.'); return; } }
+    for (const e of s.inter) {
+      if (e.r.width < 4 || e.r.height < 4 || e.cs.pointerEvents === 'none') continue;
+      if (e.r.bottom < 0 || e.r.top > s.vh || e.r.right < 0 || e.r.left > s.vw) continue;
+      const pts = [[.5, .5], [.2, .2], [.8, .2], [.2, .8], [.8, .8]]; let covered = 0, by = null, n = 0;
+      for (const [fx, fy] of pts) {
+        const x = e.r.left + e.r.width * fx, y = e.r.top + e.r.height * fy; if (x < 0 || y < 0 || x > s.vw || y > s.vh) continue; n++;
+        const h = D.elementFromPoint(x, y); if (h && h !== e.el && !e.el.contains(h) && !h.contains(e.el)) { covered++; by = h; }
+      }
+      examine('layout.obscured', e.el);
+      if (n && covered / n >= 0.6) { const top = by.closest(CANDIDATES) || by; add('layout.obscured', e.el, Math.round(covered / n * 100) + ' % of this control is covered by ' + rec(top).label + ' (' + rec(top).selector + ')', { key: rec(top).selector }); }
+      if (now() - last > 8) { await macro(); last = now(); }
+    }
+  });
+  vrule('layout.tap', async s => {
+    for (const e of s.inter) {
+      if (e.el.localName === 'canvas' || e.cs.display === 'inline' && e.el.localName === 'a') continue;
+      const m = Math.min(e.r.width, e.r.height); examine('layout.tap', e.el);
+      const lim = s.touch ? 44 : 24;
+      if (m < lim - 0.5) add('layout.tap', e.el, 'Target is ' + Math.round(e.r.width) + ' x ' + Math.round(e.r.height) + ' px (' + inch(m) + ' short side); ' + (s.touch ? 'touch needs 44 px (' + inch(44) + ')' : 'minimum is 24 px (' + inch(24) + ')'), { sev: m < 24 ? (s.touch ? 'major' : 'minor') : 'minor', key: s.touch ? 'touch' : 'mouse' });
+    }
+  });
+  vrule('layout.align', async s => {
+    const groups = new Map();
+    for (const e of s.inter) { if (e.r.width < 8) continue; const p = e.el.parentElement; if (!p) continue; (groups.get(p) || groups.set(p, []).get(p)).push(e); }
+    for (const [p, list] of groups) {
+      if (list.length < 2) continue; examine('layout.align', list[0].el);
+      const rowCs = T.W.getComputedStyle(p); const horiz = /flex|grid/.test(rowCs.display) && rowCs.flexDirection !== 'column';
+      if (!horiz) continue;
+      const tops = list.map(e => e.r.top), mid = list.map(e => e.r.top + e.r.height / 2);
+      const base = pct(mid, 0.5);
+      for (const e of list) { const d = Math.abs(e.r.top + e.r.height / 2 - base); const hs = Math.abs(e.r.height - pct(list.map(x => x.r.height), 0.5)); if (d >= 1.5 && d <= 6 && hs < 8 && !/wrap/.test(rowCs.flexWrap) && rowCs.alignItems !== 'baseline') add('layout.align', e.el, 'Sits ' + d.toFixed(1) + ' px off the centre line of its row (siblings in ' + rec(p).selector + ')', { key: rec(p).selector }); }
+    }
+    for (const e of s.inter) {
+      if (!/^(button|a)$/.test(e.el.localName) && !e.el.getAttribute('role')) continue;
+      const ic = e.el.querySelector('i[class*="fa-"], svg'); if (!ic || visibleText(e.el)) continue;
+      const ir = ic.getBoundingClientRect(); if (!ir.width) continue; examine('layout.icon-center', e.el);
+      const dx = Math.abs(ir.left + ir.width / 2 - (e.r.left + e.r.width / 2)), dy = Math.abs(ir.top + ir.height / 2 - (e.r.top + e.r.height / 2));
+      if (dx > 2 || dy > 2) add('layout.icon-center', e.el, 'Icon is ' + dx.toFixed(1) + ' px off horizontally and ' + dy.toFixed(1) + ' px vertically from the button centre');
+    }
+  });
+  vrule('type.font', async s => {
+    const seenFam = new Map();
+    for (const e of s.text) {
+      const fam = e.cs.fontFamily; const f = firstFont(fam); examine('type.font', e.el);
+      if (/inter/i.test(f) || /font awesome|fontawesome/i.test(fam.split(',')[0])) continue;
+      if (e.el.closest('i[class*="fa-"]')) continue;
+      add('type.font', e.el, 'Uses "' + f + '" instead of Inter', { sev: isMono(fam) ? 'minor' : 'major', key: f });
+    }
+  });
+  vrule('type.size', async s => {
+    for (const e of s.text) { const fs = parseFloat(e.cs.fontSize); examine('type.size', e.el); if (fs < (s.touch ? 12 : 11) - 0.01 && !e.el.closest('i[class*="fa-"]')) add('type.size', e.el, 'Font size ' + fs + ' px (' + inch(fs) + ')', { sev: fs < 9 ? 'major' : 'minor', key: fs + (s.touch ? 't' : 'd') }); }
+  });
+  vrule('type.contrast', async s => {
+    let last = now();
+    for (const e of s.text) {
+      if (e.el.closest('i[class*="fa-"]') || (e.el.disabled)) continue;
+      const fg = parseColor(e.cs.color); if (!fg) continue; examine('type.contrast', e.el);
+      const bg = effBg(e.el); if (!bg) continue;
+      const op = opacityOf(e.el); const f = over({ r: fg.r, g: fg.g, b: fg.b, a: fg.a * op }, bg);
+      const fs = parseFloat(e.cs.fontSize), bold = parseInt(e.cs.fontWeight, 10) >= 700; const need = (fs >= 24 || (fs >= 18.66 && bold)) ? 3 : 4.5;
+      const cr = ratio(f, bg);
+      if (cr < need) add('type.contrast', e.el, 'Contrast ' + cr.toFixed(2) + ':1, needs ' + need + ':1', { sev: cr < 3 ? 'major' : 'minor', key: 'c' + Math.round(cr * 4) / 4 });
+      if (now() - last > 8) { await macro(); last = now(); }
+    }
+  });
+  const EMOJI = /\p{Emoji_Presentation}|\p{Extended_Pictographic}️|[\u{1F000}-\u{1FFFF}]/u;
+  const GLYPH = /[←-⇿⌀-⏿■-◿☀-➿⤀-⯿✓✔✕✖]/u;
+  vrule('style.emoji', async s => {
+    const D = T.D; const w = D.createTreeWalker(D.body, NodeFilter.SHOW_TEXT, { acceptNode: n => { const p = n.parentElement; return !p || /^(SCRIPT|STYLE|TEXTAREA|NOSCRIPT)$/.test(p.tagName) || isIgnored(p) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; } });
+    let last = now();
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const v = n.nodeValue; if (!v.trim()) continue; const p = n.parentElement; if (!visible(p)) continue;
+      examine('style.emoji', p);
+      if (EMOJI.test(v)) add('style.emoji', p, 'Emoji "' + (v.match(EMOJI) || [''])[0] + '" in "' + clip(v, 30) + '"', { key: 'e' + (v.match(EMOJI) || [''])[0] });
+      else if (GLYPH.test(v)) add('style.glyph', p, 'Glyph "' + (v.match(GLYPH) || [''])[0] + '" used in text; use a Font Awesome icon', { key: 'g' + (v.match(GLYPH) || [''])[0] });
+      if (now() - last > 8) { await macro(); last = now(); }
+    }
+    for (const e of s.entries) {
+      const t = e.el.localName;
+      if (t === 'img' && !isIgnored(e.el)) { examine('style.icon-font', e.el); if (e.r.width <= 64) add('style.icon-font', e.el, 'Raster image used as an icon (' + Math.round(e.r.width) + ' px)', { key: 'img' }); }
+      if (t === 'svg' && !(e.el.classList.contains('svg-inline--fa') || e.el.getAttribute('data-icon')) && e.r.width <= 64 && !e.el.closest('canvas')) { examine('style.icon-font', e.el); add('style.icon-font', e.el, 'Inline SVG icon that is not Font Awesome (' + Math.round(e.r.width) + ' px)', { key: 'svg' }); }
+    }
+  });
+  vrule('style.icon-color', async s => {
+    for (const e of s.entries) {
+      if (!/^i$/.test(e.el.localName) || !/(^|\s)fa(-|\s|$)/.test(e.el.className)) continue;
+      const c = parseColor(e.cs.color); if (!c) continue; examine('style.icon-color', e.el);
+      const chroma = Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b);
+      if (chroma > 40 && c.a > 0.3) add('style.icon-color', e.el, 'Icon colour rgb(' + [c.r, c.g, c.b].map(Math.round).join(', ') + ') is not black, white or grey', { key: [c.r, c.g, c.b].map(Math.round).join(',') });
+    }
+  });
+  const BTN = 'button, [role=button], [role=tab], input[type=button], input[type=submit], input[type=reset], .btn, a.btn';
+  function hasOutline(cs) {
+    for (const side of ['Top', 'Right', 'Bottom', 'Left']) { const w = parseFloat(cs['border' + side + 'Width']); const st = cs['border' + side + 'Style']; const c = parseColor(cs['border' + side + 'Color']); if (w >= 1 && st !== 'none' && c && c.a >= 0.2) return true; }
+    if (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0) { const c = parseColor(cs.outlineColor); if (c && c.a >= 0.2) return true; }
+    if (cs.boxShadow && cs.boxShadow !== 'none' && /\) 0px 0px 0px [1-9]|inset 0px 0px 0px [1-9]|0px 0px 0px [1-9]px/.test(cs.boxShadow)) return true;
+    return false;
+  }
+  vrule('style.fill', async s => {
+    for (const e of s.inter) {
+      if (!e.el.matches(BTN)) continue; if (e.r.width * e.r.height < 36) continue;
+      examine('style.outline', e.el);
+      if (!hasOutline(e.cs)) add('style.outline', e.el, 'Button has no border, outline or ring', { sev: e.el.matches('[role=tab]') ? 'minor' : 'major' });
+      examine('style.fill', e.el);
+      const bg = parseColor(e.cs.backgroundColor), hasGrad = e.cs.backgroundImage !== 'none' && /gradient/.test(e.cs.backgroundImage);
+      if (hasGrad) { add('style.fill', e.el, 'Button uses a gradient fill', { key: 'grad' }); continue; }
+      if (bg && bg.a >= 0.2) {
+        const par = e.el.parentElement ? effBg(e.el.parentElement) : null; if (!par) continue;
+        const own = over(bg, par); const cr = ratio(own, par);
+        if (cr >= 1.6) add('style.fill', e.el, 'Filled button: background rgb(' + [own.r, own.g, own.b].map(Math.round).join(', ') + ') is ' + cr.toFixed(2) + ':1 against its surroundings', { key: 'fill' });
+      }
+    }
+  });
+  vrule('a11y.name', async s => {
+    for (const e of s.inter) {
+      const el = e.el; if (el.localName === 'canvas' && !el.getAttribute('aria-label') && !el.getAttribute('role')) continue;
+      examine('a11y.name', el);
+      const a = accName(el); const iconOnly = !visibleText(el) && (el.matches(ICON_SEL) || el.querySelector(ICON_SEL));
+      if (/^(input|textarea|select)$/.test(el.localName) && !/^(button|submit|reset|hidden)$/.test(el.type || '')) {
+        examine('a11y.label', el); if (!a.name || a.src === 'placeholder') add('a11y.label', el, a.name ? 'Only a placeholder labels this field' : 'No label, aria-label or title', { sev: a.name ? 'minor' : 'major' });
+        continue;
+      }
+      if (!a.name) add('a11y.name', el, iconOnly ? 'Icon-only control with no aria-label, title or tooltip' : 'Control has no accessible name');
+      else if (iconOnly && (a.src === 'data-tip' || a.src === 'title')) add('a11y.tooltip-only', el, 'Icon-only control is named only by its ' + a.src + ' ("' + clip(a.name, 30) + '"); add aria-label');
+      if (el.__uxClickable || (!el.getAttribute('role') && !/^(button|a|input|select|textarea|summary|canvas)$/.test(el.localName))) {
+        if (el.__uxClickable) { examine('a11y.role', el); add('a11y.role', el, '<' + el.localName + '> is clickable but has no role or tabindex', { sev: 'minor' }); }
+      }
+    }
+    for (const e of s.entries) if (e.el.localName === 'img' && !e.el.hasAttribute('alt') && !e.el.getAttribute('aria-hidden')) { examine('a11y.img-alt', e.el); add('a11y.img-alt', e.el, 'Image has no alt attribute'); }
+  });
+  vrule('a11y.doc', async s => {
+    const D = T.D; examine('a11y.doc');
+    const ids = new Map(); for (const el of D.querySelectorAll('[id]')) { if (isIgnored(el)) continue; ids.set(el.id, (ids.get(el.id) || 0) + 1); }
+    for (const [id, n] of ids) if (n > 1) add('a11y.dup-id', D.getElementById(id), 'id "' + id + '" is used ' + n + ' times', { key: id });
+    if (!D.documentElement.lang) add('a11y.doc', D.documentElement, 'The page has no lang attribute', { key: 'lang' });
+    if (!D.title) add('a11y.doc', D.documentElement, 'The page has no title', { key: 'title' });
+    const vp = D.querySelector('meta[name=viewport]'); if (!vp) add('a11y.doc', D.documentElement, 'No viewport meta tag: phones show a zoomed-out desktop layout', { key: 'vp', sev: 'major' });
+    else if (/user-scalable\s*=\s*(no|0)|maximum-scale\s*=\s*1(\.0)?(\s|,|$)/.test(vp.content)) add('a11y.doc', D.documentElement, 'Pinch zoom is disabled by the viewport meta tag', { key: 'zoom' });
+    const inter = [...T.D.fonts].filter(f => /inter/i.test(f.family) && f.status === 'loaded').length;
+    examine('type.inter-loaded'); if (!inter) { try { if (!T.D.fonts.check('12px Inter')) add('type.inter-loaded', D.body, 'No Inter font face finished loading; text is drawn in a fallback', { key: 'inter' }); } catch (e) {} }
+  });
+  vrule('motion.none', async s => {
+    for (const e of s.inter) {
+      if (!e.el.matches(BTN + ', a, select, input')) continue; examine('motion.none', e.el);
+      const d = e.cs.transitionDuration.split(',').map(x => parseFloat(x) * (/ms/.test(x) ? 1 : 1000)); const props = e.cs.transitionProperty;
+      if (d.every(x => !x) ) add('motion.none', e.el, 'No transition, so hover, press and focus changes snap instead of easing', { key: 'none' });
+      else if (/(^|,)\s*(width|height|top|left|right|bottom|margin|padding)/.test(props)) add('motion.layout', e.el, 'Transition animates ' + props + ', which forces layout every frame', { key: props });
+    }
+  });
+
+  /* keyboard */
+  let focusRules = null;
+  function focusRuleList() {
+    if (focusRules) return focusRules; focusRules = [];
+    const walk = rules => { for (const r of rules) { try {
+      if (r.selectorText && /:focus/.test(r.selectorText)) {
+        const st = r.style; if (st && (st.outline || st.outlineStyle || st.boxShadow || st.borderColor || st.border || st.background || st.backgroundColor || st.color || st.filter || st.transform)) {
+          for (const part of r.selectorText.split(',')) if (/:focus/.test(part)) focusRules.push(part.replace(/:focus-visible|:focus-within|:focus/g, '').trim() || '*'); }
+      }
+      if (r.cssRules) walk(r.cssRules); } catch (e) {} } };
+    for (const sh of T.D.styleSheets) { try { walk(sh.cssRules); } catch (e) {} }
+    return focusRules;
+  }
+  async function keyboardBatch(list) {
+    const D = T.D, W = T.W; const rules = focusRuleList();
+    for (const e of list) {
+      const el = e.el; if (!el.isConnected || !visible(el) || isDisabled(el) || el.localName === 'canvas') continue;
+      examine('keyboard.reachable', el);
+      const ti = el.getAttribute('tabindex');
+      if (ti && parseInt(ti, 10) > 0) add('keyboard.tabindex', el, 'tabindex=' + ti + ' overrides the natural tab order');
+      try { el.focus({ preventScroll: true }); } catch (err) {}
+      if (D.activeElement !== el && !el.contains(D.activeElement)) { add('keyboard.reachable', el, 'Cannot take keyboard focus (add a native control or tabindex=0)'); continue; }
+      examine('keyboard.focus', el);
+      const cs = W.getComputedStyle(el); let ok = (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0);
+      if (!ok) ok = rules.some(sel => { try { return sel === '*' || el.matches(sel); } catch (err) { return false; } });
+      if (!ok && cs.boxShadow !== 'none') ok = true;
+      if (!ok) add('keyboard.focus', el, 'No outline, ring or style change was found for the focused state (outline: ' + cs.outlineStyle + ')');
+      try { el.blur(); } catch (err) {}
+    }
+  }
+
+  /* ------------------------------------------------------------------ scenarios */
+  const SAMPLE_PROGRAM = ['O0001', '(COOLANT TEST)', 'G21 G90 G54', 'T1 M06', 'S3000 M03', 'M07', 'G00 X0 Y0', 'G01 Z-1. F200.', 'G01 X10. Y10.', 'M09', 'M08', 'G01 X20.', 'M09', 'G00 Z25.', 'M05', 'M30'].join('\n');
+  function q(sel) { return T.D.querySelector(sel); }
+  async function pressButton(sel, label) { const b = q(sel); if (!b || !visible(b) || isDisabled(b)) return false; await act(label || sel, () => click(b)); return true; }
+  async function scenarioEditor() {
+    const ta = q(ADAPTER.editor); if (!ta) return 'editor not found';
+    const orig = ta.value; const W = T.W; let msg = '';
+    const a = await act('editor typing', async () => {
+      ta.focus({ preventScroll: true }); setValue(ta, ''); typeChars(ta, SAMPLE_PROGRAM.replace(/\n/g, ' '), 60); setValue(ta, SAMPLE_PROGRAM);
+      for (const k of ['Enter', 'Tab', 'Backspace', 'ArrowDown', 'ArrowUp']) key(ta, k);
+      setValue(ta, SAMPLE_PROGRAM + '\n' + 'G01 X' + '9'.repeat(300));            /* very long line */
+      setValue(ta, Array.from({ length: 3000 }, (_, i) => 'G01 X' + (i % 50) + '. Y' + (i % 30) + '.').join('\n'));   /* 3000 lines */
+    });
+    if (a.thrown || a.errs.length) msg += 'typing: ' + (a.thrown ? a.thrown.message : a.errs[0].msg) + '; ';
+    if (a.dt > 2500) msg += '3000 lines took ' + Math.round(a.dt) + ' ms; ';
+    setValue(ta, SAMPLE_PROGRAM);
+    /* find and replace */
+    const fb = await act('find and replace', async () => {
+      if (W.GcodeFind) { W.GcodeFind.open(); await raf(); }
+      const fi = q('#fb-find'); if (fi) { for (const t of ['M09', 'g0', 'nomatch', '[', '(', '\\', '.*', 'X']) { fi.focus(); setValue(fi, t); for (let i = 0; i < 3; i++) { W.GcodeFind && W.GcodeFind.next(); } W.GcodeFind && W.GcodeFind.prev(); await raf(); } setValue(fi, 'M09'); }
+      await pressButton('#fb-toggle-rep', 'toggle replace');
+      const ri = q('#fb-replace, #fb-rep, input[id*="rep"]'); if (ri) setValue(ri, 'M05');
+      await pressButton('#fb-case', 'match case'); await pressButton('#fb-rep1', 'replace one'); await pressButton('#fb-repall', 'replace all');
+      W.GcodeFind && W.GcodeFind.close();
+    });
+    if (fb.thrown || fb.errs.length) msg += 'find/replace: ' + (fb.thrown ? fb.thrown.message : fb.errs[0].msg) + '; ';
+    /* select all and clear */
+    const cl = await act('editor clear', async () => { ta.focus(); ta.select(); key(ta, 'a', { ctrlKey: true }); key(ta, 'Delete'); setValue(ta, ''); key(ta, 'z', { ctrlKey: true }); setValue(ta, ''); });
+    if (cl.thrown || cl.errs.length) msg += 'clear: ' + (cl.thrown ? cl.thrown.message : cl.errs[0].msg) + '; ';
+    setValue(ta, orig); return msg;
+  }
+  async function scenarioCoolant() {
+    const ta = q(ADAPTER.editor); if (!ta) return 'editor not found'; let msg = '';
+    const orig = ta.value;
+    for (const prog of [SAMPLE_PROGRAM, SAMPLE_PROGRAM.replace(/M07\n/, 'M08\n'), 'G00 X0\nM07\nM07\nM09\nM09\nM08\nM30', 'M07\nM30']) {
+      const a = await act('coolant program', async () => {
+        setValue(ta, prog); await raf();
+        await pressButton('#btn-sim-reset', 'reset');
+        await pressButton('#btn-sim-end', 'skip to end'); await sleep(120);
+        await pressButton('#btn-sim-reset', 'reset');
+        await pressButton('#btn-sim-play', 'play'); await sleep(400);
+        await pressButton('#btn-sim-next', 'next block'); await pressButton('#btn-sim-next', 'next block'); await pressButton('#btn-sim-prev', 'previous block');
+        await pressButton('#btn-sim-nextop', 'next op'); await pressButton('#btn-sim-lastop', 'last op');
+        await pressButton('#btn-sim-play', 'pause'); await pressButton('#btn-sim-reset', 'reset');
+      });
+      if (a.thrown || a.errs.length) msg += (a.thrown ? a.thrown.message : a.errs[0].msg) + '; ';
+    }
+    setValue(ta, orig); return msg;
+  }
+  async function scenarioSelects() {
+    let msg = '';
+    for (const sel of T.D.querySelectorAll('select')) {
+      if (!visible(sel) || isIgnored(sel)) continue;
+      const orig = sel.value;
+      for (const o of sel.options) { const a = await act('option ' + labelOf(sel) + '=' + o.value, () => setValue(sel, o.value)); await sleep(30); if (a.thrown || a.errs.length) msg += (sel.id || 'select') + '=' + o.value + ': ' + (a.thrown ? a.thrown.message : a.errs[0].msg) + '; '; }
+      setValue(sel, orig);
+    }
+    return msg;
+  }
+  async function scenarioResize() {
+    if (!T.frame) return 'resize needs the sandbox';
+    let msg = ''; const w0 = T.frame.offsetWidth, h0 = T.frame.offsetHeight; const e0 = H.errs.length;
+    const a = await act('resize sweep', async () => {
+      for (let w = 2560; w >= 320; w -= 120) { T.frame.style.width = w + 'px'; T.frame.style.height = Math.max(320, Math.round(w * 0.6)) + 'px'; await raf(); }
+      for (let w = 320; w <= 1920; w += 160) { T.frame.style.width = w + 'px'; T.frame.style.height = (w % 2 ? 900 : 480) + 'px'; await raf(); }
+      T.frame.style.width = '300px'; T.frame.style.height = '300px'; await raf(); T.frame.style.width = '3000px'; T.frame.style.height = '200px'; await raf();
+    });
+    T.frame.style.width = w0 + 'px'; T.frame.style.height = h0 + 'px'; await raf();
+    if (a.thrown || a.errs.length) msg += (a.thrown ? a.thrown.message : a.errs[0].msg);
+    return msg;
+  }
+  ADAPTER.scenarios = [
+    { id: 'editor', name: 'Editor: typing, find and replace, clear', run: scenarioEditor },
+    { id: 'coolant', name: 'Coolant M07, M08, M09 through playback', run: scenarioCoolant },
+    { id: 'selects', name: 'Material, blank, vise and every select option', run: scenarioSelects },
+    { id: 'resize', name: 'Window resize sweep', run: scenarioResize },
+  ];
+
+  /* ------------------------------------------------------------------ plan, scheduler */
+  function U(phase, name, fn) { return { phase, name, fn }; }
+  function buildPlan() {
+    const P = [];
+    P.push(U('functional', 'Find every control', async () => { const f = await discover(); logEv('discover', f.length + ' controls found'); }));
+    P.push(U('functional', 'Open collapsed sections', async () => { await expandAll(); const f = await discover(); logEv('discover', f.length + ' more controls after opening sections'); }));
+    P.push(U('functional', 'Plan control tests', async () => {
+      const list = [...S.elements.values()].filter(r => !r.queued);
+      for (const r of list) { r.queued = true; const rr = r; S.queue.splice(planInsertAt(), 0, U('functional', 'Exercise ' + rr.label, async () => { await exercise(rr); const nf = await discover(); if (nf.length) { for (const n of nf) { n.queued = true; S.queue.unshift(U('functional', 'Exercise ' + n.label, () => exercise(n))); S.total++; } } })); S.total++; }
+    }));
+    return P;
+  }
+  let planIdx = 0; function planInsertAt() { return planIdx++; }
+  function viewportUnits() {
+    const P = []; const vps = T.frame ? VIEWPORTS : [[T.W.innerWidth, T.W.innerHeight]];
+    vps.forEach(([w, h]) => {
+      P.push(U('visual', 'Resize to ' + w + ' x ' + h, async () => { if (T.frame) await setViewport(w, h); key(T.D.body, 'Escape'); S.viewport = vpTag(); S.matrix.set(vpTag(), { w: T.W.innerWidth, h: T.W.innerHeight, critical: 0, major: 0, minor: 0, info: 0, done: 0 }); snap = await takeSnapshot(); }));
+      VISUAL.forEach(v => P.push(U('visual', v.id + ' at ' + w + ' x ' + h, async () => { if (!snap || snap.vw !== T.W.innerWidth) snap = await takeSnapshot(); await v.fn(snap); const m = S.matrix.get(vpTag()); if (m) m.done++; })));
+    });
+    return P;
+  }
+  function keyboardUnits() {
+    const P = [];
+    P.push(U('keyboard', 'Keyboard: collect controls', async () => { snap = await takeSnapshot(); S.kbd = snap.inter.slice(); S.coverage.kbd = S.kbd.length; }));
+    P.push(U('keyboard', 'Keyboard: tab order', async () => { const t = [...T.D.querySelectorAll('[tabindex]')].filter(e => parseInt(e.getAttribute('tabindex'), 10) > 0 && !isIgnored(e)); examine('keyboard.tabindex', null, t.length); for (const e of t.slice(0, 40)) add('keyboard.tabindex', e, 'tabindex=' + e.getAttribute('tabindex') + ' overrides the natural tab order'); }));
+    for (let i = 0; i < 40; i++) P.push(U('keyboard', 'Keyboard: focus check ' + (i + 1), async () => { const b = (S.kbd || []).slice(i * 40, i * 40 + 40); if (b.length) await keyboardBatch(b); }));
+    return P;
+  }
+  function planAll() {
+    planIdx = 0; const P = [];
+    P.push(U('idle', 'Idle baseline (2 s)', async () => { cur = 'idle'; await sleep(2000); }));
+    P.push(...viewportUnits());
+    if (T.frame) P.push(U('visual', 'Restore window size', async () => { await setViewport(innerWidth, innerHeight); snap = null; }));
+    P.push(...keyboardUnits());
+    P.push(...buildPlan());
+    return P;
+  }
+  function tail() {
+    const P = []; const Z = {};
+    ADAPTER.scenarios.forEach(sc => P.push(U('functional', 'Scenario: ' + sc.name, async () => {
+      examine('func.scenario'); let m = ''; try { m = await sc.run(); } catch (e) { m = 'threw ' + (e.message || e); }
+      if (m) add('func.scenario', null, sc.name + ': ' + m, { key: sc.id }); })));
+    P.push(U('fuzz', 'Memory baseline', async () => { await sampleMem('fuzz-start'); }));
+    const n = Math.round(S.fuzzSecs * 10);
+    for (let i = 0; i < n; i++) P.push(U('fuzz', 'Fuzz ' + (i + 1) + ' of ' + n, fuzzOne));
+    P.push(U('fuzz', 'Memory check', async () => { await sampleMem('fuzz-end'); memVerdict(); }));
+    P.push(U('perf', 'Performance verdicts', async () => { perfVerdict(); }));
+    return P;
+  }
+  async function sampleMem(tag) {
+    const m = { tag, t: Math.round(now() - S.started), nodes: T.D.getElementsByTagName('*').length, heap: performance.memory ? performance.memory.usedJSHeapSize : null };
+    S.perf.mem.push(m); logEv('memory', tag + ' nodes ' + m.nodes + (m.heap ? ' heap ' + (m.heap / 1048576).toFixed(1) + ' MB' : ''));
+  }
+  function memVerdict() {
+    const a = S.perf.mem.find(m => m.tag === 'fuzz-start'), b = S.perf.mem.find(m => m.tag === 'fuzz-end'); examine('perf.memory'); if (!a || !b) return;
+    if (a.heap && b.heap && b.heap - a.heap > 40 * 1048576) add('perf.memory', null, 'JS heap grew ' + ((b.heap - a.heap) / 1048576).toFixed(0) + ' MB during fuzzing (' + (a.heap / 1048576).toFixed(0) + ' to ' + (b.heap / 1048576).toFixed(0) + ' MB)', { key: 'heap' });
+    if (b.nodes > a.nodes * 1.25 && b.nodes - a.nodes > 400) add('perf.memory', null, 'DOM grew from ' + a.nodes + ' to ' + b.nodes + ' nodes during fuzzing', { key: 'nodes' });
+  }
+  function phaseStats() {
+    const out = {};
+    for (const f of S.perf.frames) { (out[f.phase] || (out[f.phase] = { d: [], long: 0, longMax: 0 })).d.push(f.d); }
+    for (const l of S.perf.long) { const o = out[l.phase] || (out[l.phase] = { d: [], long: 0, longMax: 0 }); o.long++; o.longMax = Math.max(o.longMax, l.d); }
+    for (const k in out) { const o = out[k]; const n = o.d.length; const mean = n ? o.d.reduce((a, b) => a + b, 0) / n : 0; o.frames = n; o.fps = mean ? 1000 / mean : 0; o.p50 = pct(o.d, .5); o.p95 = pct(o.d, .95); o.p99 = pct(o.d, .99); o.max = n ? Math.max.apply(null, o.d) : 0; o.slow = o.d.filter(x => x > 20).length; o.slowPct = n ? o.slow / n * 100 : 0; delete o.d; }
+    return out;
+  }
+  function perfVerdict() {
+    const ps = phaseStats(); S.phaseStats = ps;
+    for (const k in ps) {
+      const o = ps[k]; if (o.frames < 30) continue; examine('perf.fps');
+      if (o.fps < 30) add('perf.fps', null, k + ': ' + o.fps.toFixed(0) + ' fps average (p95 frame ' + o.p95.toFixed(1) + ' ms)', { sev: 'critical', key: k });
+      else if (o.fps < 55) add('perf.fps', null, k + ': ' + o.fps.toFixed(0) + ' fps average (p95 frame ' + o.p95.toFixed(1) + ' ms)', { key: k });
+      else if (o.slowPct > 8) add('perf.frames', null, k + ': ' + o.slowPct.toFixed(1) + '% of frames took over 20 ms (worst ' + o.max.toFixed(0) + ' ms)', { key: k });
+      if (o.long) add('perf.long', null, k + ': ' + o.long + ' long task' + (o.long > 1 ? 's' : '') + ', longest ' + o.longMax + ' ms', { sev: o.longMax > 500 ? 'major' : 'minor', key: k });
+    }
+    const ints = []; for (let i = 1; i < S.ticks.length; i++) ints.push(S.ticks[i] - S.ticks[i - 1]);
+    S.cadence = { ticks: S.ticks.length, mean: ints.length ? ints.reduce((a, b) => a + b, 0) / ints.length : 0, p95: pct(ints, .95), overruns: S.overruns };
+    examine('perf.cadence'); if (S.cadence.mean > 125) add('perf.cadence', null, 'Mean interval ' + S.cadence.mean.toFixed(0) + ' ms instead of 100 ms: long units held the cadence back (' + S.overruns + ' ticks skipped)', { key: 'cad' });
+  }
+
+  async function loop(id) {
+    if (id !== runId || S.state !== 'running') return;
+    const t0 = now();
+    if (!busy && S.queue.length) {
+      busy = true; const u = S.queue.shift(); S.phase = u.phase; S.current = u.name; S.ticks.push(t0);
+      Promise.resolve().then(() => u.fn()).catch(e => { add('func.error', null, 'Test "' + u.name + '" crashed: ' + (e && e.message || e), { key: 'crash' + u.name.slice(0, 20) }); })
+        .then(() => { const ms = now() - t0; if (ms > 100) { S.unitMs.push({ name: u.name, ms: Math.round(ms) }); S.slowUnits = (S.slowUnits || 0) + 1; if (S.unitMs.length > 400) { S.unitMs.sort((a, b) => b.ms - a.ms); S.unitMs.length = 40; } } S.done++; busy = false; ui.dirty(); if (!S.queue.length && !busy) finish(id); });
+    } else if (busy) S.overruns++;
+    else if (!S.queue.length && !busy) { finish(id); return; }
+    due += TICK; const wait = Math.max(0, due - now()); if (wait === 0 && now() - due > 1000) due = now();
+    timer = setTimeout(() => loop(id), wait);
+    S.elapsed = now() - S.started;
+  }
+  async function finish(id) {
+    if (id !== runId || S.state === 'done') return;
+    for (const r of S.elements.values()) if (r.status === 'deferred') r.status = 'skip';
+    clearTimeout(timer); S.state = 'done'; S.finished = now(); S.elapsed = S.finished - S.started; S.phase = 'done'; S.current = '';
+    if (!S.phaseStats) perfVerdict();
+    logEv('done', 'run finished'); removeHooks(); const keep = T; ui.dirty(true);
+    if (keep && keep.frame && !S.watch) { /* keep the copy until the panel closes so a re-run is fast */ }
+  }
+  async function start() {
+    if (S.state === 'running' || S.state === 'booting') return;
+    runId++; const id = runId;
+    for (const R of Object.values(RULES)) { R.examined = 0; R.failed = 0; }
+    Object.assign(S, { queue: [], done: 0, total: 0, ticks: [], overruns: 0, findings: new Map(), elements: new Map(), log: [], notes: [], matrix: new Map(), sigs: new Set(), deferred: [], perParent: new Map(), unitMs: [], slowUnits: 0, phaseStats: null, cadence: null, kbd: null, current: '', discovered: 0, coverage: {} });
+    S.perf = { frames: [], long: [], mem: [], phases: {} }; fuzzN = 0; fuzzLog.length = 0; rnd = mulberry(S.seed); focusRules = null; snap = null;
+    S.state = 'booting'; S.phase = 'boot'; S.started = now(); ui.dirty(true);
+    if (T) { removeHooks(); destroyTarget(); }
+    await makeTarget(); if (id !== runId) return;
+    H = installHooks(T.W); focusRules = null;
+    S.queue = planAll(); S.total = S.queue.length;
+    const tl = tail(); S.queue.push(...tl); S.total += tl.length;
+    S.started = now(); S.state = 'running'; due = now() + TICK; logEv('start', 'target: ' + (T.self ? 'this page' : 'sandbox copy') + ', seed ' + S.seed);
+    ui.dirty(true); loop(id);
+  }
+  function pause() { if (S.state === 'running') { S.state = 'paused'; clearTimeout(timer); ui.dirty(true); } else if (S.state === 'paused') { S.state = 'running'; due = now() + TICK; loop(runId); ui.dirty(true); } }
+  function stop() {
+    if (S.state === 'idle') return; runId++; clearTimeout(timer); const wasRunning = S.state === 'running' || S.state === 'paused' || S.state === 'booting';
+    if (wasRunning) { S.state = 'stopped'; S.finished = now(); S.elapsed = S.finished - S.started; if (H) { try { perfVerdict(); } catch (e) {} } }
+    busy = false; removeHooks(); ui.dirty(true);
+  }
+
+  /* ------------------------------------------------------------------ report */
+  function report() {
+    const f = [...S.findings.values()].sort((a, b) => SEV[b.severity] - SEV[a.severity] || b.count - a.count);
+    const sev = { critical: 0, major: 0, minor: 0, info: 0 }; f.forEach(x => sev[x.severity]++);
+    const cats = {}; for (const R of Object.values(RULES)) { const c = cats[R.cat] || (cats[R.cat] = { label: CATS[R.cat], examined: 0, failed: 0, rules: {} }); c.examined += R.examined; c.failed += R.failed; if (R.examined || R.failed) c.rules[R.id] = { title: R.title, examined: R.examined, failed: R.failed }; }
+    return {
+      tool: 'UX Stress ' + VERSION, app: ADAPTER.name, url: location.origin + location.pathname, when: new Date().toISOString(), userAgent: navigator.userAgent,
+      target: T ? (T.self ? 'this page' : 'sandbox copy') : S.target, seed: S.seed, state: S.state, cadenceHz: 10,
+      window: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, widthIn: +(innerWidth / 96).toFixed(2), heightIn: +(innerHeight / 96).toFixed(2) },
+      durationMs: Math.round(S.elapsed), unitsRun: S.done, unitsPlanned: S.total, summary: { findings: f.length, bySeverity: sev, verdict: sev.critical || sev.major ? 'FAIL' : sev.minor ? 'PASS WITH NOTES' : 'PASS' },
+      categories: cats, notes: S.notes, cadence: S.cadence || null, performance: S.phaseStats || phaseStats(), memory: S.perf.mem,
+      matrix: [...S.matrix.entries()].map(([k, v]) => Object.assign({ viewport: k }, v)),
+      findings: f.map(x => ({ id: x.id, rule: x.rule, category: x.cat, title: x.title, severity: x.severity, selector: x.selector, label: x.label, message: x.message, occurrences: x.count, viewports: x.viewports, rect: x.rect, html: x.html, duringAction: x.action, replay: x.replay || undefined })),
+      elements: [...S.elements.values()].map(r => ({ selector: r.selector, label: r.label, tag: r.tag, kind: r.kind, status: r.status, note: r.note || undefined, checks: Object.fromEntries(Object.entries(r.checks).map(([k, v]) => [k, v.ok ? 'pass' : 'fail:' + v.sev])) })),
+      slowUnits: { count: S.slowUnits || 0, slowest: S.unitMs.slice().sort((a, b) => b.ms - a.ms).slice(0, 15) },
+      log: S.log.slice(-150),
+    };
+  }
+
+  /* ------------------------------------------------------------------ UI */
+  const ui = (function () {
+    let root = null, body = null, tab = 'summary', dirtyFlag = false, raf = 0, lastPaint = 0, selId = 0, filt = { sev: { critical: 1, major: 1, minor: 1, info: 0 }, cat: '', text: '', vp: '' }, open = {}, hl = null, hlTimer = 0, onlyFail = true;
+    const CSS_TEXT = `
+#ux-root{--bg:#0b0b0c;--bg2:#111113;--line:#2b2b30;--line2:#44444b;--tx:#ececee;--dim:#8d8d95;position:fixed;top:12px;right:12px;bottom:12px;width:min(520px,calc(100vw - 24px));z-index:2147483600;background:var(--bg);color:var(--tx);border:1px solid var(--line2);border-radius:8px;font:12px/1.45 Inter,system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden;transform:translateX(0);opacity:1;transition:transform .28s cubic-bezier(.2,.8,.2,1),opacity .2s ease;will-change:transform;-webkit-text-size-adjust:100%}
+#ux-root[hidden]{display:flex!important;transform:translateX(calc(100% + 24px));opacity:0;pointer-events:none;visibility:hidden;transition:transform .28s cubic-bezier(.2,.8,.2,1),opacity .2s ease,visibility 0s .28s}
+#ux-root.min{top:auto;height:46px;bottom:12px}
+#ux-root *{box-sizing:border-box;font-family:Inter,system-ui,sans-serif}
+#ux-root i.fa-solid,#ux-root i.fa-regular{font-family:"Font Awesome 6 Free"!important;font-style:normal;color:inherit}
+#ux-root .h{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);flex:0 0 auto}
+#ux-root .ttl{font-weight:700;letter-spacing:.02em;font-size:13px;display:flex;gap:8px;align-items:center;flex:1;min-width:0;white-space:nowrap}
+#ux-root .lamp{width:8px;height:8px;border-radius:50%;border:1px solid var(--tx);flex:0 0 auto;transition:background-color .2s}
+#ux-root[data-state=running] .lamp{background:var(--tx)}#ux-root[data-state=paused] .lamp{background:var(--dim)}
+#ux-root .hz{color:var(--dim);font-variant-numeric:tabular-nums}
+#ux-root button{appearance:none;background:transparent;color:var(--tx);border:1px solid var(--line2);border-radius:5px;padding:0 10px;height:30px;min-width:30px;font:600 11px Inter,system-ui,sans-serif;cursor:pointer;display:inline-flex;gap:6px;align-items:center;justify-content:center;white-space:nowrap;transition:border-color .15s ease,color .15s ease,transform .12s ease,opacity .15s ease}
+#ux-root button:hover{border-color:var(--tx)}#ux-root button:active{transform:scale(.97)}
+#ux-root button:focus-visible,#ux-root select:focus-visible,#ux-root input:focus-visible{outline:2px solid var(--tx);outline-offset:2px}
+#ux-root button[disabled]{opacity:.35;pointer-events:none}
+#ux-root button.on{border-color:var(--tx)}
+#ux-root .bar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);flex:0 0 auto}
+#ux-root .opts{display:flex;flex-wrap:wrap;gap:8px 12px;padding:8px 10px;border-bottom:1px solid var(--line);align-items:center;color:var(--dim);flex:0 0 auto}
+#ux-root .opts label{display:flex;align-items:center;gap:6px}
+#ux-root select,#ux-root input[type=text],#ux-root input[type=number]{background:transparent;color:var(--tx);border:1px solid var(--line2);border-radius:5px;height:28px;padding:0 8px;font:500 11px Inter,system-ui,sans-serif;transition:border-color .15s}
+#ux-root select option{background:#111;color:#eee}
+#ux-root select:hover,#ux-root input:hover{border-color:var(--tx)}
+#ux-root input[type=number]{width:96px}
+#ux-root .prog{height:3px;background:var(--line);flex:0 0 auto;position:relative;overflow:hidden}
+#ux-root .prog>i{position:absolute;inset:0;background:var(--tx);transform-origin:0 50%;transform:scaleX(0);transition:transform .2s linear}
+#ux-root .st{padding:6px 10px;color:var(--dim);border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 0 auto}
+#ux-root .tabs{display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid var(--line);overflow-x:auto;flex:0 0 auto;scrollbar-width:none}
+#ux-root .tabs::-webkit-scrollbar{display:none}
+#ux-root .tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;height:32px;color:var(--dim);flex:0 0 auto}
+#ux-root .tabs button:hover{color:var(--tx);border-color:var(--line2)}#ux-root .tabs button.on{color:var(--tx);border-bottom-color:var(--tx)}
+#ux-root .tabs button .n{font-weight:500;color:var(--dim);font-variant-numeric:tabular-nums}
+#ux-root .body{flex:1 1 auto;overflow:auto;padding:10px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;min-height:0}
+#ux-root .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px;margin-bottom:12px}
+#ux-root .card{border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+#ux-root .card b{display:block;font-size:20px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}
+#ux-root .card span{color:var(--dim)}
+#ux-root .verdict{font-size:15px;font-weight:700;display:flex;gap:8px;align-items:center;margin-bottom:10px}
+#ux-root table{width:100%;border-collapse:collapse}
+#ux-root th{text-align:left;color:var(--dim);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line);position:sticky;top:-10px;background:var(--bg)}
+#ux-root td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top;font-variant-numeric:tabular-nums}
+#ux-root tr.clk{cursor:pointer;transition:background-color .15s}#ux-root tr.clk:hover{background:var(--bg2)}
+#ux-root h4{margin:14px 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+#ux-root .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+#ux-root .chips button{height:26px}
+#ux-root .chips button[aria-pressed=false]{opacity:.5}#ux-root .chips button[aria-pressed=true]{opacity:1}
+#ux-root .grp{border:1px solid var(--line);border-radius:6px;margin-bottom:6px;content-visibility:auto;contain-intrinsic-size:auto 40px}
+#ux-root .gh{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;min-height:38px;transition:background-color .15s}
+#ux-root .gh:hover{background:var(--bg2)}
+#ux-root .gh .t{flex:1;min-width:0;font-weight:600}#ux-root .gh .c{color:var(--dim);font-size:11px}
+#ux-root .gh .chev{transition:transform .2s ease;color:var(--dim)}#ux-root .grp.open .chev{transform:rotate(90deg)}
+#ux-root .gb{display:none;border-top:1px solid var(--line)}#ux-root .grp.open .gb{display:block}
+#ux-root .it{padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer;transition:background-color .15s;min-height:44px}
+#ux-root .it:last-child{border-bottom:0}#ux-root .it:hover,#ux-root .it.sel{background:var(--bg2)}
+#ux-root .it .m{color:var(--tx);overflow-wrap:anywhere}#ux-root .it .s{color:var(--dim);font-size:11px;overflow-wrap:anywhere}
+#ux-root .sev{display:inline-flex;gap:5px;align-items:center;border:1px solid var(--line2);border-radius:4px;padding:0 6px;height:20px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;flex:0 0 auto}
+#ux-root .sev.critical{border-color:var(--tx);color:var(--tx)}#ux-root .sev.major{border-color:#bdbdc3;color:#d6d6da}#ux-root .sev.minor{color:var(--dim)}#ux-root .sev.info{color:var(--dim);border-color:var(--line)}
+#ux-root .vp{display:inline-block;border:1px solid var(--line);border-radius:3px;padding:0 4px;margin:2px 3px 0 0;font-size:10px;color:var(--dim)}
+#ux-root .ok{color:var(--tx)}#ux-root .no{color:var(--tx);font-weight:700}#ux-root .na{color:var(--line2)}
+#ux-root .detail{border-top:1px solid var(--line2);padding:10px;max-height:46%;overflow:auto;flex:0 0 auto;background:var(--bg2);animation:uxin .2s ease}
+#ux-root .detail[hidden]{display:none}
+#ux-root .detail code,#ux-root .code{font:11px/1.45 ui-monospace,Menlo,Consolas,monospace!important;color:#cfcfd4;overflow-wrap:anywhere;display:block;white-space:pre-wrap;margin:4px 0}
+#ux-root .loc{display:block;margin:8px 0;border:1px solid var(--line2);border-radius:4px;max-width:100%}
+#ux-root .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+#ux-root .bars{display:grid;grid-template-columns:110px 1fr 44px;gap:6px 8px;align-items:center}
+#ux-root .bars .b{height:6px;border:1px solid var(--line2);border-radius:3px;position:relative;overflow:hidden}
+#ux-root .bars .b>i{position:absolute;inset:0;background:var(--tx);transform-origin:0 50%;transition:transform .3s ease}
+#ux-root .note{border:1px dashed var(--line2);border-radius:5px;padding:6px 8px;margin-bottom:8px;color:var(--dim)}
+#ux-root .empty{color:var(--dim);padding:24px 0;text-align:center}
+#ux-root .more{margin:8px 0}
+#ux-root .log div{padding:2px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}#ux-root .log span{color:var(--dim);margin-right:6px;font-variant-numeric:tabular-nums}
+#ux-hl{position:fixed;z-index:2147483500;pointer-events:none;border:2px solid #fff;border-radius:3px;box-shadow:0 0 0 2px #000,0 0 0 9999px rgba(0,0,0,.45);transition:left .25s cubic-bezier(.2,.8,.2,1),top .25s cubic-bezier(.2,.8,.2,1),width .25s cubic-bezier(.2,.8,.2,1),height .25s cubic-bezier(.2,.8,.2,1),opacity .2s ease;animation:uxpulse 1.1s ease-in-out infinite alternate}
+#ux-hl b{position:absolute;left:-2px;top:-24px;background:#000;color:#fff;border:1px solid #fff;border-radius:3px;padding:1px 6px;font:600 10px Inter,system-ui,sans-serif;white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis}
+@keyframes uxpulse{from{opacity:1}to{opacity:.55}}
+@keyframes uxin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (max-width:820px){
+#ux-root{top:auto;left:0;right:0;bottom:0;width:100%;height:68vh;max-height:calc(100dvh - 16px);border-radius:12px 12px 0 0;border-left:0;border-right:0;border-bottom:0}
+#ux-root[hidden]{transform:translateY(105%)}
+#ux-root.min{height:50px;top:auto;bottom:0}
+#ux-root button{height:44px;min-width:44px;font-size:12px}#ux-root .tabs button{height:44px}#ux-root .chips button{height:36px}
+#ux-root select,#ux-root input[type=number],#ux-root input[type=text]{height:44px;font-size:16px;line-height:42px;padding:0 10px}
+#ux-root .opts label{flex:1 1 140px;flex-direction:column;align-items:stretch}
+#ux-root .cards{grid-template-columns:repeat(2,1fr)}
+#ux-root .it{min-height:52px}
+}
+@media (prefers-reduced-motion:reduce){#ux-root,#ux-root *{transition-duration:.01ms!important;animation-duration:.01ms!important}}`;
+    function el(h) { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstChild; }
+    function ic(n) { return '<i class="fa-solid ' + n + '" aria-hidden="true"></i>'; }
+    function build() {
+      const st = document.createElement('style'); st.id = 'ux-style'; st.textContent = CSS_TEXT; document.head.appendChild(st);
+      root = el(`<div id="ux-root" hidden data-state="idle" role="dialog" aria-label="UX stress test">
+<div class="h"><div class="ttl">${ic('fa-vial-circle-check')}<span>UX Stress</span><span class="lamp"></span><span class="hz" data-hz>0.0 Hz</span></div>
+<button type="button" data-a="min" aria-label="Minimise panel" title="Minimise">${ic('fa-minus')}</button><button type="button" data-a="close" aria-label="Close panel (backtick)" title="Close (\`)">${ic('fa-xmark')}</button></div>
+<div class="bar"><button type="button" data-a="start" aria-label="Start test run">${ic('fa-play')}<span>Run</span></button>
+<button type="button" data-a="pause" aria-label="Pause or resume">${ic('fa-pause')}<span>Pause</span></button>
+<button type="button" data-a="stop" aria-label="Stop test run">${ic('fa-stop')}<span>Stop</span></button>
+<button type="button" data-a="json" aria-label="Download JSON report">${ic('fa-download')}<span>JSON</span></button>
+<button type="button" data-a="copy" aria-label="Copy JSON report">${ic('fa-copy')}<span>Copy</span></button></div>
+<div class="opts"><label>Target<select data-o="target" aria-label="Test target"><option value="sandbox">Sandbox copy</option><option value="self">This page</option></select></label>
+<label>Fuzz<select data-o="fuzz" aria-label="Fuzz duration"><option value="0">Off</option><option value="15">15 s</option><option value="30" selected>30 s</option><option value="60">60 s</option><option value="120">120 s</option></select></label>
+<label>Seed<input type="number" data-o="seed" value="${S.seed}" aria-label="Random seed"></label>
+<label>Watch<select data-o="watch" aria-label="Show the sandbox"><option value="0">Hidden</option><option value="1">Visible</option></select></label></div>
+<div class="prog" aria-hidden="true"><i></i></div><div class="st" data-st role="status" aria-live="polite">Ready. 10 tests a second.</div>
+<nav class="tabs" role="tablist" aria-label="Report sections"></nav><div class="body" role="tabpanel" tabindex="0"></div><aside class="detail" hidden></aside></div>`);
+      document.body.appendChild(root); body = root.querySelector('.body');
+      const tabs = [['summary', 'Summary', 'fa-gauge'], ['findings', 'Findings', 'fa-bug'], ['elements', 'Elements', 'fa-table-cells'], ['matrix', 'Viewports', 'fa-mobile-screen'], ['perf', 'Performance', 'fa-bolt'], ['log', 'Log', 'fa-list']];
+      root.querySelector('.tabs').innerHTML = tabs.map(t => `<button type="button" role="tab" data-t="${t[0]}" aria-selected="false">${ic(t[2])}<span>${t[1]}</span><span class="n" data-n="${t[0]}"></span></button>`).join('');
+      root.addEventListener('click', onClick); root.addEventListener('change', onChange);
+      root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); } e.stopPropagation(); }, false);
+      root.addEventListener('keyup', e => e.stopPropagation()); root.addEventListener('keypress', e => e.stopPropagation());
+    }
+    function onChange(e) {
+      const o = e.target.dataset.o; if (!o) return;
+      if (o === 'target') S.target = e.target.value; if (o === 'fuzz') S.fuzzSecs = +e.target.value; if (o === 'seed') S.seed = (parseInt(e.target.value, 10) || 1) >>> 0;
+      if (o === 'watch') { S.watch = e.target.value === '1'; if (T && T.frame) T.frame.style.opacity = S.watch ? 1 : 0; }
+    }
+    function onClick(e) {
+      const b = e.target.closest('[data-a],[data-t],[data-f],[data-g],[data-i],[data-sev],[data-vp],[data-more],[data-hl],[data-cp],[data-only]'); if (!b || !root.contains(b)) return;
+      const d = b.dataset;
+      if (d.a === 'close') toggle(false); else if (d.a === 'min') { root.classList.toggle('min'); }
+      else if (d.a === 'start') { tab = 'summary'; start(); } else if (d.a === 'pause') pause(); else if (d.a === 'stop') stop();
+      else if (d.a === 'json') download(); else if (d.a === 'copy') copyJson(b);
+      else if (d.t) { tab = d.t; paint(true); }
+      else if (d.g) { open[d.g] = !open[d.g]; paint(true); }
+      else if (d.i) select(+d.i);
+      else if (d.sev) { filt.sev[d.sev] = filt.sev[d.sev] ? 0 : 1; paint(true); }
+      else if (d.f) { filt.cat = filt.cat === d.f ? '' : d.f; paint(true); }
+      else if (d.vp) { filt.vp = filt.vp === d.vp ? '' : d.vp; tab = 'findings'; paint(true); }
+      else if (d.more) { more[d.more] = (more[d.more] || 60) + 120; paint(true); }
+      else if (d.only) { onlyFail = !onlyFail; paint(true); }
+      else if (d.hl) highlight(d.hl);
+      else if (d.cp) { navigator.clipboard && navigator.clipboard.writeText(d.cp).catch(() => {}); }
+    }
+    const more = {};
+    function download() {
+      const blob = new Blob([JSON.stringify(report(), null, 2)], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); const n = new Date(); const p = x => String(x).padStart(2, '0');
+      a.download = 'ux-stress-report-' + n.getFullYear() + p(n.getMonth() + 1) + p(n.getDate()) + '-' + p(n.getHours()) + p(n.getMinutes()) + p(n.getSeconds()) + '.json';
+      a.style.display = 'none'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    }
+    function copyJson(b) { try { navigator.clipboard.writeText(JSON.stringify(report(), null, 2)).then(() => flash(b), () => {}); } catch (e) {} }
+    function flash(b) { const s = b.querySelector('span'); const t = s.textContent; s.textContent = 'Copied'; setTimeout(() => { s.textContent = t; }, 1200); }
+    /* highlight on the real page */
+    function highlight(sel) {
+      if (hl) { hl.remove(); hl = null; } clearTimeout(hlTimer);
+      let t = null; try { t = document.querySelector(sel); } catch (e) {}
+      const info = root.querySelector('.detail [data-hlinfo]');
+      if (!t || !t.getBoundingClientRect().width) { if (info) info.textContent = 'That element is not visible on this page right now. Open its section, then try again.'; return; }
+      try { t.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch (e) {}
+      if (matchMedia('(max-width:820px)').matches) root.classList.add('min');
+      hl = el('<div id="ux-hl"><b></b></div>'); hl.firstChild.textContent = sel; document.body.appendChild(hl);
+      const place = () => { if (!hl) return; const r = t.getBoundingClientRect(); hl.style.left = r.left - 3 + 'px'; hl.style.top = r.top - 3 + 'px'; hl.style.width = r.width + 6 + 'px'; hl.style.height = r.height + 6 + 'px'; if (r.top < 28) hl.firstChild.style.top = 'auto', hl.firstChild.style.bottom = '-24px'; };
+      place(); let n = 0; const tick = () => { if (!hl) return; place(); if (++n < 40) requestAnimationFrame(tick); }; requestAnimationFrame(tick);
+      hlTimer = setTimeout(() => { if (hl) { hl.style.opacity = '0'; setTimeout(() => { hl && hl.remove(); hl = null; }, 220); } }, 4500);
+    }
+    function locator(f) {
+      const r = f.rect; if (!r || !r.vw) return ''; const W = 220, sc = W / r.vw, H = Math.max(40, Math.min(160, r.vh * sc));
+      const k = H / r.vh; return `<svg class="loc" role="img" aria-label="Where the element sits in a ${r.vw} by ${r.vh} window" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" fill="none" stroke="#44444b"/><rect x="${r.x * sc}" y="${r.y * k}" width="${Math.max(2, r.w * sc)}" height="${Math.max(2, r.h * k)}" fill="rgba(255,255,255,.25)" stroke="#fff" stroke-width="1.5"/></svg>`;
+    }
+    function select(id) {
+      selId = id; const f = [...S.findings.values()].find(x => x.id === id); const dt = root.querySelector('.detail'); if (!f) return;
+      root.querySelectorAll('.it.sel').forEach(n => n.classList.remove('sel')); const row = root.querySelector('.it[data-i="' + id + '"]'); row && row.classList.add('sel');
+      dt.hidden = false;
+      dt.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="sev ${f.severity}">${ic(SEV_ICON[f.severity])}${f.severity}</span><b>${esc(f.title)}</b></div>
+<div style="margin:6px 0">${esc(f.message)}</div>${f.label ? '<div class="s" style="color:var(--dim)">' + esc(f.label) + '</div>' : ''}
+${f.selector ? '<code>' + esc(f.selector) + '</code>' : ''}${locator(f)}
+<div style="color:var(--dim)">Seen ${f.count} time${f.count > 1 ? 's' : ''}${f.viewports.length ? ' at ' + f.viewports.map(v => '<span class="vp">' + v.replace('x', ' x ') + '</span>').join('') : ''}${f.action ? '<br>During: ' + esc(f.action) : ''}</div>
+${f.replay ? '<code>Replay: ' + esc(f.replay) + '</code>' : ''}${f.html ? '<code>' + esc(f.html) + '</code>' : ''}
+<div data-hlinfo style="color:var(--dim)"></div>
+<div class="row">${f.selector ? `<button type="button" data-hl="${esc(f.selector)}">${ic('fa-crosshairs')}<span>Highlight on page</span></button><button type="button" data-cp="${esc(f.selector)}">${ic('fa-copy')}<span>Copy selector</span></button>` : ''}<button type="button" data-i="0" data-a="x" onclick="this.closest('.detail').hidden=true">${ic('fa-xmark')}<span>Close</span></button></div>`;
+      if (f.selector) highlight(f.selector);
+    }
+    function sevBadge(s) { return `<span class="sev ${s}">${ic(SEV_ICON[s])}${s}</span>`; }
+    function paintSummary(R) {
+      const sv = R.summary.bySeverity; const run = S.state;
+      let h = `<div class="verdict">${ic(R.summary.verdict === 'FAIL' ? 'fa-circle-xmark' : R.summary.verdict === 'PASS' ? 'fa-circle-check' : 'fa-triangle-exclamation')}<span>${run === 'idle' ? 'Not run yet' : (run === 'done' || run === 'stopped' ? R.summary.verdict : 'Running')}</span></div>`;
+      if (run === 'idle') h += '<div class="note">Press Run. The test opens a hidden copy of this page, finds every control, exercises each one, audits the layout at 14 window sizes, checks the keyboard, then fuzzes in random order. It runs 10 tests a second.</div>';
+      for (const n of S.notes) h += `<div class="note">${ic('fa-circle-info')} ${esc(n)}</div>`;
+      h += `<div class="cards"><div class="card"><b>${S.done}</b><span>of ${S.total} tests</span></div><div class="card"><b>${S.elements.size}</b><span>controls found</span></div><div class="card"><b>${R.summary.findings}</b><span>findings</span></div><div class="card"><b>${((S.elapsed || 0) / 1000).toFixed(0)}s</b><span>elapsed</span></div></div>`;
+      h += `<div class="chips">${['critical', 'major', 'minor', 'info'].map(s => `<span class="sev ${s}">${ic(SEV_ICON[s])}${s} ${sv[s]}</span>`).join('')}</div>`;
+      h += '<h4>Pass or fail by category</h4><table><tr><th>Category</th><th>Checked</th><th>Failed</th><th>Result</th></tr>';
+      for (const c of Object.keys(CATS)) { const k = R.categories[c]; if (!k) continue; const worst = [...S.findings.values()].filter(f => f.cat === c).reduce((m, f) => SEV[f.severity] > SEV[m] ? f.severity : m, 'info'); const nf = [...S.findings.values()].filter(f => f.cat === c && f.severity !== 'info').length;
+        h += `<tr class="clk" data-f="${c}"><td>${CATS[c]}</td><td>${k.examined}</td><td>${nf}</td><td>${!k.examined && !k.failed ? '<span class="na">not run</span>' : nf ? '<span class="no">' + ic('fa-xmark') + ' ' + worst + '</span>' : '<span class="ok">' + ic('fa-check') + ' pass</span>'}</td></tr>`; }
+      h += '</table>';
+      h += `<h4>Run</h4><div class="s" style="color:var(--dim)">${esc(ADAPTER.name)} - ${T ? (T.self ? 'this page' : 'sandbox copy') : S.target} - seed ${S.seed} - window ${innerWidth} x ${innerHeight} px (${inch(innerWidth).split(' ')[0]} x ${inch(innerHeight).split(' ')[0]} in)</div>`;
+      return h;
+    }
+    function filtered() {
+      return [...S.findings.values()].filter(f => filt.sev[f.severity] && (!filt.cat || f.cat === filt.cat) && (!filt.vp || f.viewports.indexOf(filt.vp) >= 0) && (!filt.text || (f.title + f.message + f.selector + f.label).toLowerCase().indexOf(filt.text) >= 0));
+    }
+    function paintFindings() {
+      let h = '<div class="chips">' + ['critical', 'major', 'minor', 'info'].map(s => `<button type="button" data-sev="${s}" class="${filt.sev[s] ? 'on' : ''}" aria-pressed="${!!filt.sev[s]}">${ic(SEV_ICON[s])}<span>${s}</span></button>`).join('') + '</div>';
+      h += '<div class="chips">' + Object.keys(CATS).map(c => `<button type="button" data-f="${c}" class="${filt.cat === c ? 'on' : ''}" aria-pressed="${filt.cat === c}"><span>${CATS[c]}</span></button>`).join('') + '</div>';
+      if (filt.vp) h += `<div class="note">Viewport filter: ${esc(filt.vp.replace('x', ' x '))} <button type="button" data-vp="${esc(filt.vp)}">${ic('fa-xmark')}<span>Clear</span></button></div>`;
+      const list = filtered(); const groups = new Map();
+      list.sort((a, b) => SEV[b.severity] - SEV[a.severity] || b.count - a.count).forEach(f => (groups.get(f.rule) || groups.set(f.rule, []).get(f.rule)).push(f));
+      if (!list.length) h += `<div class="empty">${S.findings.size ? 'No findings match these filters.' : 'No findings yet.'}</div>`;
+      const gs = [...groups.entries()].sort((a, b) => SEV[b[1][0].severity] - SEV[a[1][0].severity] || b[1].length - a[1].length);
+      for (const [rid, items] of gs) {
+        const R = RULES[rid], isOpen = !!open[rid], lim = more[rid] || 60;
+        h += `<div class="grp${isOpen ? ' open' : ''}"><div class="gh" data-g="${rid}" role="button" tabindex="0" aria-expanded="${isOpen}">${sevBadge(items[0].severity)}<span class="t">${esc(R.title)}</span><span class="c">${items.length}</span>${ic('fa-chevron-right chev')}</div><div class="gb">`;
+        if (isOpen) { for (const f of items.slice(0, lim)) h += `<div class="it${f.id === selId ? ' sel' : ''}" data-i="${f.id}">${f.label ? '<div class="m">' + esc(f.label) + '</div>' : ''}<div class="s">${esc(f.message)}</div>${f.viewports.length ? '<div>' + f.viewports.slice(0, 8).map(v => '<span class="vp">' + v.replace('x', ' x ') + '</span>').join('') + (f.viewports.length > 8 ? '<span class="vp">+' + (f.viewports.length - 8) + '</span>' : '') + '</div>' : ''}</div>`;
+          if (items.length > lim) h += `<div class="it"><button type="button" data-more="${rid}">${ic('fa-ellipsis')}<span>Show more (${items.length - lim})</span></button></div>`; }
+        h += '</div></div>';
+      }
+      return h;
+    }
+    function paintElements() {
+      const rows = [...S.elements.values()]; const cats = ['functional', 'layout', 'style', 'a11y', 'keyboard'];
+      const failing = r => r.status === 'fail' || Object.values(r.checks).some(c => !c.ok);
+      let list = onlyFail ? rows.filter(failing) : rows; const lim = more.elements || 60;
+      let h = `<div class="chips"><button type="button" data-only="1" class="${onlyFail ? 'on' : ''}" aria-pressed="${onlyFail}">${ic('fa-filter')}<span>Failing only</span></button><span class="s" style="color:var(--dim);align-self:center">${list.length} of ${rows.length} controls</span></div>`;
+      if (!rows.length) return h + '<div class="empty">No controls discovered yet.</div>';
+      h += '<table><tr><th>Control</th>' + cats.map(c => `<th title="${CATS[c]}">${CATS[c].slice(0, 4)}</th>`).join('') + '</tr>';
+      for (const r of list.slice(0, lim)) {
+        const f = [...S.findings.values()].find(x => x.selector === r.selector && x.severity !== 'info');
+        h += `<tr class="${f ? 'clk' : ''}" ${f ? 'data-i="' + f.id + '"' : ''}><td><div>${esc(r.label)}</div><div class="s" style="color:var(--dim);overflow-wrap:anywhere">${esc(r.kind || r.tag)}${r.note ? ' - ' + esc(r.note) : ''}</div></td>` + cats.map(c => {
+          if (c === 'functional') return '<td>' + (r.status === 'pass' ? '<span class="ok">' + ic('fa-check') + '</span>' : r.status === 'fail' ? '<span class="no">' + ic('fa-xmark') + '</span>' : r.status === 'noeffect' ? '<span class="no" title="no effect">' + ic('fa-minus') + '</span>' : '<span class="na" title="' + esc(r.note || r.status) + '">' + ic('fa-minus') + '</span>') + '</td>';
+          const k = r.checks[c]; return '<td>' + (!k ? '<span class="na">' + ic('fa-minus') + '</span>' : k.ok ? '<span class="ok">' + ic('fa-check') + '</span>' : '<span class="no" title="' + k.sev + '">' + ic('fa-xmark') + '</span>') + '</td>'; }).join('') + '</tr>';
+      }
+      h += '</table>'; if (list.length > lim) h += `<div class="more"><button type="button" data-more="elements">${ic('fa-ellipsis')}<span>Show more</span></button></div>`;
+      return h;
+    }
+    function paintMatrix() {
+      if (!S.matrix.size) return '<div class="empty">Viewport results appear once the run starts.</div>';
+      let h = '<div class="note">Each size is a real layout of the page. Click a row to list its findings.</div><table><tr><th>Window</th><th>Inches (mm)</th><th>Crit</th><th>Maj</th><th>Min</th><th>Done</th></tr>';
+      for (const [k, m] of S.matrix) h += `<tr class="clk" data-vp="${k}"><td>${m.w} x ${m.h}${m.w > m.h ? ' land.' : ''}</td><td>${(m.w / 96).toFixed(1)} x ${(m.h / 96).toFixed(1)} in (${Math.round(m.w * 25.4 / 96)} x ${Math.round(m.h * 25.4 / 96)} mm)</td><td>${m.critical}</td><td>${m.major}</td><td>${m.minor}</td><td>${m.done >= VISUAL.length ? ic('fa-check') : '<span class="na">' + m.done + '/' + VISUAL.length + '</span>'}</td></tr>`;
+      return h + '</table>';
+    }
+    function paintPerf() {
+      const ps = S.phaseStats || phaseStats(); const keys = Object.keys(ps); let h = '';
+      const cad = S.ticks.length > 1 ? (() => { const ints = []; for (let i = 1; i < S.ticks.length; i++) ints.push(S.ticks[i] - S.ticks[i - 1]); return { mean: ints.reduce((a, b) => a + b, 0) / ints.length, p95: pct(ints, .95) }; })() : null;
+      h += `<div class="cards"><div class="card"><b>${cad ? (1000 / cad.mean).toFixed(1) : '0.0'}</b><span>tests per second (target 10)</span></div><div class="card"><b>${S.overruns}</b><span>ticks skipped</span></div></div>`;
+      if (!keys.length) return h + '<div class="empty">Frame data appears once the run starts.</div>';
+      h += '<table><tr><th>Phase</th><th>fps</th><th>p95 ms</th><th>p99 ms</th><th>Slow %</th><th>Long</th></tr>';
+      for (const k of keys) { const o = ps[k]; h += `<tr><td>${esc(k)}</td><td>${o.fps.toFixed(0)}</td><td>${o.p95.toFixed(1)}</td><td>${o.p99.toFixed(1)}</td><td>${o.slowPct.toFixed(1)}</td><td>${o.long}${o.long ? ' (' + o.longMax + ' ms)' : ''}</td></tr>`; }
+      h += '</table><h4>Memory</h4>';
+      h += S.perf.mem.length ? '<table><tr><th>When</th><th>DOM nodes</th><th>JS heap</th></tr>' + S.perf.mem.map(m => `<tr><td>${esc(m.tag)}</td><td>${m.nodes}</td><td>${m.heap ? (m.heap / 1048576).toFixed(1) + ' MB' : 'n/a'}</td></tr>`).join('') + '</table>' : '<div class="s" style="color:var(--dim)">Sampled before and after fuzzing.</div>';
+      return h;
+    }
+    function paintLog() { return '<div class="log">' + (S.log.slice(-200).reverse().map(l => `<div><span>${(l.t / 1000).toFixed(1)}s</span>${esc(l.kind)}: ${esc(l.msg)}</div>`).join('') || '<div class="empty">Nothing yet.</div>') + '</div>'; }
+
+    function paint(force) {
+      if (!root || root.hidden) return; const R = report(); const t = now();
+      root.dataset.state = S.state;
+      const cad = S.ticks.length > 3 ? (() => { const a = S.ticks.slice(-20); return 1000 * (a.length - 1) / (a[a.length - 1] - a[0]); })() : 0;
+      root.querySelector('[data-hz]').textContent = (S.state === 'running' ? cad : 0).toFixed(1) + ' Hz';
+      root.querySelector('.prog>i').style.transform = 'scaleX(' + (S.total ? S.done / S.total : 0) + ')';
+      const stx = S.state === 'booting' ? 'Opening a sandbox copy of the page...' : S.state === 'running' ? S.phase + ': ' + (S.current || '') : S.state === 'paused' ? 'Paused' : S.state === 'done' ? 'Finished in ' + (S.elapsed / 1000).toFixed(0) + ' s. ' + R.summary.findings + ' findings.' : S.state === 'stopped' ? 'Stopped.' : 'Ready. 10 tests a second.';
+      root.querySelector('[data-st]').textContent = stx;
+      const act = a => root.querySelector('[data-a="' + a + '"]');
+      const live = S.state === 'running' || S.state === 'paused' || S.state === 'booting';
+      act('start').disabled = live; act('pause').disabled = !(S.state === 'running' || S.state === 'paused'); act('stop').disabled = !live; act('json').disabled = !S.findings.size && S.state === 'idle'; act('copy').disabled = act('json').disabled;
+      act('pause').querySelector('span').textContent = S.state === 'paused' ? 'Resume' : 'Pause';
+      root.querySelectorAll('.tabs button').forEach(b => { const on = b.dataset.t === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+      const nf = root.querySelector('[data-n="findings"]'); nf.textContent = S.findings.size ? S.findings.size : ''; root.querySelector('[data-n="elements"]').textContent = S.elements.size || '';
+      const sc = body.scrollTop;
+      if (open.__lock) return;
+      const html = tab === 'summary' ? paintSummary(R) : tab === 'findings' ? paintFindings() : tab === 'elements' ? paintElements() : tab === 'matrix' ? paintMatrix() : tab === 'perf' ? paintPerf() : paintLog();
+      if (force || html !== paint.last) { body.innerHTML = html; body.scrollTop = force && paint.tab !== tab ? 0 : sc; paint.last = html; paint.tab = tab; }
+      lastPaint = t;
+    }
+    function dirty(now_) { dirtyFlag = true; if (now_) { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { raf = 0; dirtyFlag = false; paint(false); }); return; } if (raf) return; raf = requestAnimationFrame(function f() { raf = 0; if (now() - lastPaint < 350) { raf = requestAnimationFrame(f); return; } dirtyFlag = false; paint(false); }); }
+    function toggle(force) {
+      if (!root) build(); const want = force == null ? root.hidden : force;
+      root.hidden = !want;
+      if (want) { root.classList.remove('min'); paint(true); setTimeout(() => { const b = root.querySelector('[data-a="start"]'); b && !b.disabled && b.focus({ preventScroll: true }); }, 50); }
+      else { if (hl) { hl.remove(); hl = null; } if (S.state !== 'idle' && S.state !== 'done' && S.state !== 'stopped') stop(); if (T && T.frame) { destroyTarget(); } if (S.state === 'done' || S.state === 'stopped') { removeHooks(); } }
+    }
+    return { toggle, dirty, isOpen: () => root && !root.hidden, root: () => root };
+  })();
+
+  window.addEventListener('keydown', e => {
+    if (e.key !== '`' || e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.isComposing) return;
+    const t = e.target; if (t && t.nodeType === 1 && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+    e.preventDefault(); e.stopPropagation(); ui.toggle();
+  }, true);
+})();
+</script>
 </body>
 </html>
