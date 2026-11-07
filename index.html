@@ -5227,6 +5227,17 @@ body.split-on:not(.hud-folded) #viewport-toolbar { top: 50px !important; }
   .intro-on-go .intro-logo{animation:introOut .5s ease 3.2s forwards}
   @keyframes introOut{to{opacity:0}}
   #boot-screen.now .intro-logo{animation-delay:0s}
+  /* "Getting everything ready": after the lockup fades, the same gradient carries the real progress of the load, as in Shop Tool Sim */
+  .stab-in{position:absolute;left:50%;top:50%;display:flex;flex-direction:column;align-items:center;gap:14px;width:min(320px,calc(100% - 48px));text-align:center;color:#c3c7ce;font-family:"Inter",system-ui,sans-serif;opacity:0;visibility:hidden;transform:translate(-50%,calc(-50% + 6px));transition:opacity .4s ease,transform .4s ease,visibility 0s linear .4s;will-change:opacity,transform}
+  #boot-screen.stab-show .stab-in{opacity:1;visibility:visible;transform:translate(-50%,-50%);transition:opacity .4s ease,transform .4s ease,visibility 0s}
+  .stab-i{width:22px;height:22px;fill:#e2e5eb;opacity:.9}
+  .stab-t{margin:0;font-size:14px;line-height:1.5;font-weight:500;color:#e2e5eb}
+  .stab-s{margin:0;min-height:1.4em;font-size:12px;line-height:1.4;color:#c3c7ce;opacity:.7;font-variant-numeric:tabular-nums;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stab-m{margin:0;font-size:12px;line-height:1.4;color:#e2e5eb;font-variant-numeric:tabular-nums;display:flex;gap:10px;justify-content:center}
+  .stab-m span+span{opacity:.7}
+  .stab-bar{width:100%;height:3px;border-radius:999px;background:rgba(195,199,206,.18);overflow:hidden}
+  #boot-fill{display:block;height:100%;width:0;background:#e2e5eb;border-radius:inherit;transition:width .5s cubic-bezier(.4,0,.2,1)}
+  @media (prefers-reduced-motion:reduce){.stab-in,#boot-fill{transition:none}}
   #boot-screen.now .iw{animation:none;opacity:1;transform:none}
   .intro-logo .ibx{position:absolute;pointer-events:none;overflow:visible;fill:none;stroke:#c3c7ce;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
   .intro-logo .ibx .brk path{opacity:0}
@@ -5245,12 +5256,15 @@ body.split-on:not(.hud-folded) #viewport-toolbar { top: 50px !important; }
 </head>
 <body>
 
-<div id="boot-screen" role="progressbar" aria-label="Loading CNC Mill Visualizer" aria-busy="true"><div class="intro-bg"></div><div class="intro-logo" id="introLogo"><span class="it"><span class="iw w1">CNC</span> <span class="iw w2">mill</span> <span class="iw w3">visualizer</span></span></div></div>
+<div id="boot-screen" role="status" aria-live="polite" aria-label="Loading CNC Mill Visualizer" aria-busy="true"><div class="intro-bg"></div><div class="intro-logo" id="introLogo"><span class="it"><span class="iw w1">CNC</span> <span class="iw w2">mill</span> <span class="iw w3">visualizer</span></span></div>
+  <div class="stab-in"><svg class="stab-i" viewBox="0 0 512 512" aria-hidden="true"><path d="M0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm320 96c0-26.9-16.5-49.9-40-59.3V88c0-13.3-10.7-24-24-24s-24 10.7-24 24V292.7c-23.5 9.5-40 32.5-40 59.3c0 35.3 28.7 64 64 64s64-28.7 64-64zM144 176a32 32 0 1 0 0-64 32 32 0 1 0 0 64zm-16 80a32 32 0 1 0 -64 0 32 32 0 1 0 64 0zm288 32a32 32 0 1 0 0-64 32 32 0 1 0 0 64zM400 144a32 32 0 1 0 -64 0 32 32 0 1 0 64 0z"/></svg><p class="stab-t">Getting everything ready…</p><p class="stab-s" id="boot-step">loading…</p>
+    <p class="stab-m"><span id="boot-pct">0%</span><span id="boot-eta">Estimating time left…</span></p>
+    <div class="stab-bar" id="boot-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Loading the visualizer"><i id="boot-fill"></i></div></div></div>
 <script>
 (function(){
   var root = document.documentElement, ov = document.getElementById('boot-screen'), logo = document.getElementById('introLogo');
   var started = false, over = false;
-  function finish(){ if (over) return; over = true; if (window.__bootReveal) window.__bootReveal(); }
+  function finish(){ if (over) return; over = true; if (!window.__bootReady) ov.classList.add('stab-show'); if (window.__bootReveal) window.__bootReveal(); }
   /* the broken brackets and the outline round the lockup, drawn to its measured size */
   function frame(){
     var W0 = logo.offsetWidth, H0 = logo.offsetHeight; if (!W0 || !H0) return;
@@ -17922,7 +17936,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
     if (shown >= 0.999)   left = 0;
     else                  left = estimate(t);
 
-    if (left === null) { etaEl.textContent = "estimating the time\u2026"; return; }
+    if (left === null) { etaEl.textContent = "Estimating time left\u2026"; return; }
 
     /* Smoothed by elapsed time and never allowed to race ahead of the wall
        clock: the figure may fall by about as much as time really passed, and
@@ -17941,8 +17955,8 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
        can say, so it never claims to be almost there early. */
     var floorS = prior ? 1.5 : 2.5;
     if (shown < 0.9 && s < floorS) s = floorS;
-    etaEl.textContent = shown >= 0.9 ? "finishing up\u2026"
-      : "about " + (s < 10 ? Math.ceil(s) : Math.round(s / 5) * 5) + "s left";
+    etaEl.textContent = shown >= 0.9 ? "Finishing up\u2026"
+      : "About " + (s < 10 ? Math.ceil(s) : Math.round(s / 5) * 5) + " s left";
   }
 
   /* How long the last load on this machine took to reach each 5% of the bar.
