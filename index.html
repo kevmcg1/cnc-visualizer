@@ -26340,7 +26340,9 @@ function loadComboTools() {
 function deferComboTools() { (window.requestIdleCallback || (f => setTimeout(f, 120)))(() => loadComboTools(), { timeout: 600 }); }
 
 (function() {
-  loadGCode(COMBO_GCODE);
+  /* Nothing is loaded at start: an empty editor and an empty run. A sample, a
+     file or a saved setup brings a program in. */
+  loadGCode('');
   updateHighlight();
 
   document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(() => {
@@ -26358,21 +26360,7 @@ function deferComboTools() { (window.requestIdleCallback || (f => setTimeout(f, 
       }
       if (typeof window.PartModels.sampleStock === 'function') {
         window.PartModels.sampleStock('fullPart');
-        deferComboTools();
         rewindSimToStart();
-        /* Later start-up work can re-read the program and put every cutter
-           back to a half-inch default; put the real ones back if it does. */
-        [700, 2000].forEach(ms => setTimeout(() => {
-          try {
-            const ed = document.getElementById('gcode-input');
-            if (ed && ed.value.trim() === COMBO_GCODE.trim() &&
-                !(Math.abs((toolTable.get(5) || 0) - 0.201) < 1e-6)) {
-              deferComboTools();
-              if (window.StockSim) StockSim.reset(false);
-              rewindSimToStart();
-            }
-          } catch (e) { /* leave it */ }
-        }, ms));
       }
     } catch (e) { console.warn('[Boot]', e); }
   }));
@@ -63611,7 +63599,6 @@ html body #fps-hud{position:absolute!important;transform:none!important;top:var(
 html body #cube-wrap{top:14px!important;right:14px!important}
 @media (max-width:1180px){html body #mouse-hints{display:none!important}}
 @media (max-height:720px){
-  html body #cube-wrap{transform:scale(.8);transform-origin:top right}
   html body #mouse-hints{display:none!important}
 }
 @media (max-width:640px){
@@ -63623,7 +63610,7 @@ html body #cube-wrap{top:14px!important;right:14px!important}
   html body #vp-mode-status{padding:6px 12px!important;min-height:0!important}
 }
 @media (max-height:800px){html:root,:root{--code-h:118px!important}}
-@media (max-width:800px){html body #fps-hud{display:none!important}html body #cube-wrap{transform:scale(.7);transform-origin:top right}}
+@media (max-width:800px){html body #fps-hud{display:none!important}}
 @media (min-width:801px) and (max-height:800px){html body #editor-panel{height:150px!important}}
 @media (min-width:801px) and (max-height:660px){html body #editor-panel{height:112px!important}}
 
@@ -63793,6 +63780,15 @@ html body #sidebar #btn-make-program .mkp-q{display:inline-flex;align-items:cent
 #wn-modal ul{margin:0 0 14px;padding-left:18px;color:#aeb4bc}#wn-modal li{margin:5px 0}
 #wn-modal button{height:32px;padding:0 14px;border-radius:8px;border:1px solid #2d3238;background:transparent;color:#e6e8eb;font:600 12px 'Inter',system-ui,sans-serif;cursor:pointer;transition:border-color .22s ease,background-color .22s ease}
 #wn-modal button:hover{border-color:#fff;background:rgba(255,255,255,.08)}
+
+/* ---- view cube: big and easy to hit, on every screen ---- */
+html body #cube-wrap{transform:scale(1.25);transform-origin:top right}
+@media (max-height:780px){html body #cube-wrap{transform:none}}
+html body #cube-wrap .vc-bar{bottom:-54px;gap:8px;padding:5px;background:rgba(14,15,17,.82);border:1px solid var(--ctl-line,#2d3238)}
+html body #cube-wrap .vc-bar button{width:40px!important;height:40px!important;font-size:16px!important;color:#e6e8eb!important;border:1px solid transparent!important;background:transparent!important}
+html body #cube-wrap .vc-bar button:hover{border-color:#fff!important;background:rgba(255,255,255,.1)!important;color:#fff!important;transform:none}
+html body #cube-wrap .vc-bar button:active{transform:scale(.94)}
+@media (max-width:800px){html body #cube-wrap{transform:scale(.62);transform-origin:top right}html body #cube-wrap .vc-bar{bottom:auto;top:10px;left:-66px;transform:none;flex-direction:column;gap:6px}html body #cube-wrap .vc-bar button{width:56px!important;height:56px!important;font-size:22px!important}}
 /* toggle outline pulse: a ring blooms outward from the control when it flips on */
 @keyframes ctlRing{0%{outline-color:color-mix(in srgb,var(--accent) 85%,transparent);outline-offset:0}100%{outline-color:color-mix(in srgb,var(--accent) 0%,transparent);outline-offset:6px}}
 html body .ctl-ring{outline:2px solid transparent;animation:ctlRing .45s cubic-bezier(.22,.61,.36,1) 1}
@@ -65671,6 +65667,23 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
   b.addEventListener("click",function(){m.classList.add("on")});
   m.addEventListener("click",function(e){if(e.target===m||e.target.tagName==="BUTTON")close()});
   addEventListener("keydown",function(e){if(e.key==="Escape")close()});
+})();
+</script>
+<script>
+/* Space plays and pauses, unless you are typing somewhere. */
+(function(){
+  addEventListener("keydown",function(e){
+    if(e.code!=="Space"&&e.key!==" ")return;
+    if(e.ctrlKey||e.metaKey||e.altKey||e.shiftKey||e.defaultPrevented||e.repeat)return;
+    var t=e.target,tag=t&&t.tagName;
+    if(tag==="TEXTAREA"||tag==="INPUT"&&!/^(checkbox|radio|button|range)$/.test(t.type)||tag==="SELECT"||(t&&t.isContentEditable))return;
+    if(t&&t.closest&&t.closest(".modal-overlay.on,#collision-modal.on,#tour-root.on,#wn-modal.on,[role=dialog]"))return;
+    if(document.body.classList.contains("cinematic"))return;   /* cinematic mode has its own */
+    var b=document.getElementById("btn-sim-play");
+    if(!b||b.offsetParent===null)return;
+    e.preventDefault();
+    b.click();
+  },true);
 })();
 </script>
 <script>
