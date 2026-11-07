@@ -27091,6 +27091,7 @@ function stepNextOp() {
   }
   const st = stops[at];
   simSeekToTime(st.tEnd);
+  simPlaying = true;                 /* Next op carries on running from the stop */
   const what = st.tool && st.up ? 'rapid up + tool change' : st.tool ? 'tool change' : 'rapid up';
   const tool = st.tool ? (st.from != null ? ' \u00B7 T' + st.from + ' \u2192 T' + st.to : (st.to != null ? ' \u00B7 T' + st.to : '')) : '';
   showToast('Next op ' + (at + 1) + ' of ' + stops.length,
