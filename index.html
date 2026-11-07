@@ -18924,11 +18924,11 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </div>
       <div class="sec-body">
         <div class="sub-head">Legend</div>
-        <div style="display:flex; align-items:center; margin-bottom:6px; gap:6px;">
-          <div style="width:14px; flex-shrink:0;"></div>
-          <div style="flex:1;"></div>
-          <div class="legend-col-hdr" style="width:28px;">VIS</div>
-          <div class="legend-col-hdr" style="width:28px;">SKIP</div>
+        <div class="legend-head">
+          <div></div>
+          <div></div>
+          <div class="legend-col-hdr">VIS</div>
+          <div class="legend-col-hdr">SKIP</div>
         </div>
         <div id="legend-rows"></div>
 
@@ -23324,7 +23324,6 @@ function renderLegend() {
     const swatch = document.createElement('div');
     swatch.className = 'legend-swatch';
     swatch.style.background = color;
-    swatch.style.width = '14px';
 
     const lbl = document.createElement('span');
     lbl.className = 'legend-label';
@@ -23335,7 +23334,6 @@ function renderLegend() {
     visCb.className = 'legend-cb';
     visCb.checked = pathVisibility[key] !== false;
     visCb.title = 'Toggle visibility';
-    visCb.style.width = '28px';
     visCb.addEventListener('change', () => {
       pathVisibility[key] = visCb.checked;
       lbl.style.opacity = visCb.checked ? '1' : '0.35';
@@ -23347,7 +23345,6 @@ function renderLegend() {
     skipBtn.className = 'legend-skip-btn';
     skipBtn.textContent = 'SKIP';
     skipBtn.title = 'Skip this path type in simulation timing';
-    skipBtn.style.width = '28px';
     if (pathSkip[key]) skipBtn.classList.add('skip-active');
     skipBtn.addEventListener('click', () => {
       pathSkip[key] = !pathSkip[key];
@@ -64185,6 +64182,19 @@ html body .hlcard input[type=checkbox]{margin:1px 0 0}
 html body input[type=checkbox]{width:18px!important;height:18px!important;accent-color:initial}
 html body .legend-cb{width:16px!important;height:16px!important}
 
+/* toggle outline pulse: a ring blooms outward from the control when it flips on */
+@keyframes ctlRing{0%{outline-color:color-mix(in srgb,var(--accent) 85%,transparent);outline-offset:0}100%{outline-color:color-mix(in srgb,var(--accent) 0%,transparent);outline-offset:6px}}
+html body .ctl-ring{outline:2px solid transparent;animation:ctlRing .45s cubic-bezier(.22,.61,.36,1) 1}
+@media (prefers-reduced-motion: reduce){html body .ctl-ring{animation:none}}
+/* legend grid: swatch | label | VIS | SKIP, header and rows share the same tracks */
+#sidebar .legend-head,#sidebar .legend-row{display:grid!important;grid-template-columns:14px minmax(0,1fr) 40px 52px;column-gap:8px;align-items:center;margin:0 0 8px}
+#sidebar .legend-head{margin-bottom:6px}
+#sidebar .legend-row .legend-swatch{width:14px!important}
+#sidebar .legend-row .legend-label{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
+#sidebar .legend-row .legend-cb{justify-self:center;margin:0!important;width:16px!important;height:16px!important}
+#sidebar .legend-col-hdr{text-align:center;line-height:1}
+html body #sidebar .legend-row .legend-skip-btn{justify-self:center;box-sizing:border-box;width:52px!important;height:26px;padding:0!important;display:flex;align-items:center;justify-content:center;font-size:10px!important;letter-spacing:.04em;line-height:1}
+
 html body #editor-hint{display:none!important}
 html body #editor-header-left{flex-wrap:nowrap;min-width:0}
 html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
@@ -65870,6 +65880,40 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
 
   api.vols = volumes; api.touches = touches; api.check = check; api.refresh = refresh; api.scan = scan; api.open = open; api.close = close;
   window.SetupAware = api;
+})();
+</script>
+<script>
+/* pulse an outline ring on any button/toggle that flips state */
+(function(){
+  var SEL='button,.toggle-row,.toggle-track,.pt-chip,.tp-toggle,[role="button"]';
+  var ON=/(^|\s)(on|active|skip-active|open)(\s|$)/;
+  var state=new WeakMap();
+  function isOn(el){return el.getAttribute('aria-pressed')==='true'||ON.test(el.className&&el.className.baseVal===undefined?el.className:'');}
+  function pulse(el){
+    el.classList.remove('ctl-ring');
+    void el.offsetWidth;
+    el.classList.add('ctl-ring');
+    setTimeout(function(){el.classList.remove('ctl-ring');},500);
+  }
+  var queue=new Set(),raf=0;
+  function flush(){raf=0;queue.forEach(function(el){
+    var on=isOn(el);
+    if(state.has(el)&&state.get(el)!==on&&el.offsetParent!==null)pulse(el);
+    state.set(el,on);
+  });queue.clear();}
+  new MutationObserver(function(ms){
+    for(var i=0;i<ms.length;i++){
+      var t=ms[i].target;
+      if(!t.matches||!t.matches(SEL))continue;
+      if(!state.has(t)){
+        var prev=ms[i].oldValue||'';
+        var was=ms[i].attributeName==='aria-pressed'?prev==='true':ON.test(prev);
+        state.set(t,was);
+      }
+      queue.add(t);
+    }
+    if(!raf)raf=requestAnimationFrame(flush);
+  }).observe(document.body,{subtree:true,attributes:true,attributeFilter:['class','aria-pressed'],attributeOldValue:true});
 })();
 </script>
 </body>
