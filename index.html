@@ -19882,8 +19882,29 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
         <div id="editor-header-left">
           <span id="editor-title">GCode Editor</span>
           <span id="editor-status">ready</span>
+          <button type="button" id="editor-find-btn" title="Find and replace (Ctrl/Cmd+F, Ctrl/Cmd+H)" aria-label="Find and replace"><i class="fa-solid fa-magnifying-glass"></i></button>
         </div>
         <span id="editor-hint">Drop a file anywhere on the page — .nc .gcode .tap .step .stp .txt</span>
+      </div>
+
+      <div id="find-bar" role="search" aria-label="Find and replace in G-code">
+        <div class="fb-row">
+          <button type="button" class="fb-toggle-rep" id="fb-toggle-rep" title="Toggle replace (Ctrl/Cmd+H)" aria-label="Toggle replace"><i class="fa-solid fa-angle-right"></i></button>
+          <div class="fb-field"><input type="text" id="fb-find" placeholder="Find" spellcheck="false" autocomplete="off" aria-label="Find"></div>
+          <span class="fb-count" id="fb-count" aria-live="polite"></span>
+          <button type="button" class="tog" id="fb-case" title="Match case" aria-pressed="false">Aa</button>
+          <button type="button" class="tog" id="fb-word" title="Whole word" aria-pressed="false"><i class="fa-solid fa-text-width"></i></button>
+          <button type="button" id="fb-prev" title="Previous match (Shift+Enter)" aria-label="Previous match"><i class="fa-solid fa-chevron-up"></i></button>
+          <button type="button" id="fb-next" title="Next match (Enter)" aria-label="Next match"><i class="fa-solid fa-chevron-down"></i></button>
+          <span class="fb-sp"></span>
+          <button type="button" id="fb-close" title="Close (Esc)" aria-label="Close find"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="fb-row rep">
+          <span style="width:24px"></span>
+          <div class="fb-field"><input type="text" id="fb-repl" placeholder="Replace" spellcheck="false" autocomplete="off" aria-label="Replace with"></div>
+          <button type="button" id="fb-rep1" title="Replace this match (Enter)"><i class="fa-solid fa-arrow-right-arrow-left"></i><span class="lbl">Replace</span></button>
+          <button type="button" id="fb-repall" title="Replace all matches (Ctrl/Cmd+Alt+Enter)"><i class="fa-solid fa-list"></i><span class="lbl">Replace all</span></button>
+        </div>
       </div>
 
       <div id="editor-split">
@@ -66155,9 +66176,293 @@ html body #mouse-hints .mh-key{font:400 10px/1 'Inter',system-ui,sans-serif;colo
   html body #viewport{min-height:30dvh!important;flex:1 1 30dvh!important}
   html body #play-bar{max-height:26dvh!important;overflow-y:auto}
   html body #editor-panel{height:24dvh!important;max-height:24dvh!important;min-height:0!important}
+  html body #editor-panel{overflow-y:auto!important;overscroll-behavior:contain}
+  html body #editor-panel>#editor-main{flex:0 0 auto!important;max-height:12dvh;min-height:0;overflow:hidden}
+  html body #editor-panel>#hud-side{flex:0 0 auto!important;overflow:visible!important}
   html body #sidebar{flex-basis:20dvh!important;max-height:20dvh!important;min-height:0!important}
   html body #play-bar :is(#op-row,#progress-row){grid-template-columns:48px minmax(0,1fr) 104px!important;column-gap:8px!important;font-size:10px}
 }
 </style>
+<style>
+/* ---------- editor find / replace ---------- */
+#editor-find-btn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; padding:0; background:transparent; color:var(--text-dim,#888); border:1px solid #333; border-radius:6px; cursor:pointer; font-size:10px; transition:color .18s ease, border-color .18s ease, background-color .18s ease; }
+#editor-find-btn:hover, #editor-find-btn.on { color:#e8e8e8; border-color:#6a6a6a; }
+#find-bar { display:none; flex-direction:column; gap:6px; padding:6px 14px; background:#1b1b1b; border-bottom:1px solid #333; flex-shrink:0; font-family:'Inter',system-ui,sans-serif; }
+#find-bar.on { display:flex; animation:findIn .16s ease both; }
+@keyframes findIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+#find-bar .fb-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0; }
+#find-bar .fb-row.rep { display:none; }
+#find-bar.replace .fb-row.rep { display:flex; }
+#find-bar .fb-field { position:relative; flex:1 1 100px; min-width:80px; max-width:320px; }
+#find-bar input { width:100%; height:24px; box-sizing:border-box; background:#141414; color:#e4e4e4; border:1px solid #333; border-radius:6px; padding:0 8px; font:400 11px 'Inter',system-ui,sans-serif; outline:none; transition:border-color .18s ease, background-color .18s ease; }
+#find-bar input:hover { border-color:#434343; }
+#find-bar input:focus { border-color:var(--accent,#5b93ea); }
+#find-bar input.none { border-color:#7a3a3a; }
+#find-bar button { display:inline-flex; align-items:center; justify-content:center; gap:5px; min-width:24px; height:24px; padding:0 6px; box-sizing:border-box; background:transparent; color:#bdbdbd; border:1px solid #333; border-radius:6px; cursor:pointer; font:500 10px 'Inter',system-ui,sans-serif; white-space:nowrap; transition:color .18s ease, border-color .18s ease, background-color .18s ease; }
+#find-bar button:hover { color:#fff; border-color:#6a6a6a; }
+#find-bar button:active { background:rgba(255,255,255,.06); }
+#find-bar button.tog.on { color:#fff; border-color:var(--accent,#5b93ea); background:rgba(91,147,234,.12); }
+#find-bar button:disabled { opacity:.4; cursor:default; border-color:#333; color:#bdbdbd; }
+#find-bar .fb-count { font:500 10px 'Inter',system-ui,sans-serif; color:#8a8a8a; min-width:0; white-space:nowrap; }
+#find-bar .fb-count.none { color:#d27070; }
+#find-bar .fb-sp { flex:0 0 0; }
+#find-bar .fb-toggle-rep { padding:0; width:24px; }
+#find-bar .fb-toggle-rep i { transition:transform .18s ease; }
+#find-bar.replace .fb-toggle-rep i { transform:rotate(90deg); }
+#gcode-find-layer { position:absolute; inset:0; overflow:hidden; pointer-events:none; color:transparent; z-index:1; white-space:pre-wrap; word-wrap:break-word; }
+#gcode-find-layer .fl-line { display:block; }
+#gcode-find-layer mark { background:rgba(255,200,60,.28); color:transparent; border-radius:2px; box-shadow:0 0 0 1px rgba(255,200,60,.35); }
+#gcode-find-layer mark.cur { background:rgba(255,150,40,.55); box-shadow:0 0 0 1px rgba(255,170,60,.9); }
+@media (max-width:700px) {
+  #find-bar { padding:6px 10px; }
+  #find-bar .fb-field { flex:1 1 90px; min-width:90px; max-width:none; }
+  #find-bar .fb-count { min-width:0; }
+  #find-bar .fb-sp { display:none; }
+  #find-bar button .lbl { display:none; }
+  #find-bar button { min-width:28px; height:28px; }
+  #find-bar input { height:28px; font-size:13px; }
+}
+@media (prefers-reduced-motion:reduce) { #find-bar.on { animation:none; } }
+/* phones: the editor was squeezed to a sliver beside the controls column; stack them so the editor (and find bar) is usable */
+@media (max-width:800px) {
+  html body #editor-panel { flex-direction:column !important; height:clamp(380px,66vh,560px) !important; }
+  html body #editor-main { flex:1 1 62% !important; min-height:240px; min-width:0; }
+  html body #hud-side { flex:1 1 40% !important; min-height:0; border-left:0; border-top:1px solid var(--border); }
+}
+</style>
+<script>
+/* Find and replace for the G-code editor.
+   Matches are painted on their own layer under the caret so the syntax
+   colours are untouched; replacing goes through the browser's own text
+   insertion so Ctrl/Cmd+Z undoes it like any other edit. */
+(function () {
+  var ta = document.getElementById('gcode-input');
+  var hl = document.getElementById('gcode-highlight');
+  var wrap = document.getElementById('gcode-editor-wrap');
+  var bar = document.getElementById('find-bar');
+  var fIn = document.getElementById('fb-find'), rIn = document.getElementById('fb-repl');
+  var cnt = document.getElementById('fb-count');
+  var bCase = document.getElementById('fb-case'), bWord = document.getElementById('fb-word');
+  var bPrev = document.getElementById('fb-prev'), bNext = document.getElementById('fb-next');
+  var bRep = document.getElementById('fb-rep1'), bAll = document.getElementById('fb-repall');
+  var bTog = document.getElementById('fb-toggle-rep'), bClose = document.getElementById('fb-close');
+  var hdrBtn = document.getElementById('editor-find-btn');
+  if (!ta || !hl || !wrap || !bar || !fIn) return;
+
+  var layer = document.createElement('div');
+  layer.id = 'gcode-find-layer'; layer.setAttribute('aria-hidden', 'true');
+  hl.insertAdjacentElement('afterend', layer);
+
+  var MAX = 5000;
+  var matches = [], cur = -1, lastText = null, lastKey = '', raf = 0;
+  var caseSens = false, whole = false;
+
+  function isOpen() { return bar.classList.contains('on'); }
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function buildRe(q) {
+    var p = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (whole) p = '(?<![A-Za-z0-9_.])' + p + '(?![A-Za-z0-9_.])';
+    return new RegExp(p, caseSens ? 'g' : 'gi');
+  }
+  function syncStyle() {
+    var cs = getComputedStyle(hl);
+    ['fontFamily', 'fontSize', 'lineHeight', 'padding', 'letterSpacing', 'tabSize', 'whiteSpace', 'wordBreak', 'overflowWrap'].forEach(function (k) { layer.style[k] = cs[k]; });
+    layer.style.width = ta.clientWidth ? ta.clientWidth + 'px' : '';
+  }
+
+  function compute() {
+    var q = fIn.value, text = ta.value;
+    matches = [];
+    if (q) {
+      var re;
+      try { re = buildRe(q); } catch (e) { re = null; }
+      var m;
+      while (re && (m = re.exec(text)) && matches.length < MAX) {
+        matches.push(m.index);
+        if (m[0].length === 0) re.lastIndex++;
+      }
+    }
+    lastText = text; lastKey = q + '|' + caseSens + '|' + whole;
+  }
+
+  function paint() {
+    var q = fIn.value, text = ta.value;
+    if (!isOpen() || !q || !matches.length) { layer.innerHTML = ''; return; }
+    syncStyle();
+    var len = q.length, out = '', pos = 0, lineStart = 0, mi = 0;
+    var lines = text.split('\n');
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li], lineEnd = lineStart + line.length, html = '', p = 0;
+      while (mi < matches.length && matches[mi] < lineEnd + 1) {
+        var s = matches[mi] - lineStart;
+        if (s < 0) { mi++; continue; }
+        var e = Math.min(s + len, line.length);
+        html += esc(line.slice(p, s)) + '<mark' + (mi === cur ? ' class="cur"' : '') + '>' + esc(line.slice(s, e)) + '</mark>';
+        p = e; mi++;
+      }
+      html += esc(line.slice(p));
+      out += '<span class="fl-line">' + (html || '&nbsp;') + '</span>';
+      lineStart = lineEnd + 1;
+    }
+    layer.innerHTML = out + '\n';
+    layer.scrollTop = ta.scrollTop; layer.scrollLeft = ta.scrollLeft;
+  }
+
+  function updateCount() {
+    var has = !!fIn.value;
+    if (!has) cnt.textContent = '';
+    else if (!matches.length) cnt.textContent = 'No results';
+    else cnt.textContent = (cur >= 0 ? cur + 1 : 0) + ' of ' + matches.length + (matches.length >= MAX ? '+' : '');
+    cnt.classList.toggle('none', has && !matches.length);
+    fIn.classList.toggle('none', has && !matches.length);
+    var dis = !matches.length;
+    bPrev.disabled = bNext.disabled = dis;
+    bRep.disabled = bAll.disabled = dis;
+  }
+
+  function reveal() {
+    var mk = layer.querySelector('mark.cur');
+    if (!mk) return;
+    var top = mk.offsetTop, h = mk.offsetHeight || 18, vh = ta.clientHeight;
+    if (top < ta.scrollTop + 4 || top + h > ta.scrollTop + vh - 4) ta.scrollTop = Math.max(0, top - vh / 2 + h / 2);
+    var left = mk.offsetLeft, vw = ta.clientWidth;
+    if (left < ta.scrollLeft || left + mk.offsetWidth > ta.scrollLeft + vw) ta.scrollLeft = Math.max(0, left - 40);
+    layer.scrollTop = ta.scrollTop; layer.scrollLeft = ta.scrollLeft;
+  }
+
+  function select() {
+    if (cur < 0 || !matches.length) return;
+    try { ta.setSelectionRange(matches[cur], matches[cur] + fIn.value.length); } catch (e) {}
+  }
+
+  /* fromCaret: pick the first match at/after the caret rather than the first one */
+  function refresh(fromCaret, jump) {
+    compute();
+    if (!matches.length) cur = -1;
+    else if (fromCaret) {
+      var c = ta.selectionStart || 0; cur = 0;
+      for (var i = 0; i < matches.length; i++) { if (matches[i] >= c) { cur = i; break; } if (i === matches.length - 1) cur = 0; }
+    } else if (cur < 0 || cur >= matches.length) cur = 0;
+    paint(); updateCount();
+    if (jump && cur >= 0) { reveal(); select(); }
+  }
+
+  function step(dir) {
+    if (!matches.length) return;
+    cur = (cur + dir + matches.length) % matches.length;
+    paint(); updateCount(); reveal(); select();
+  }
+
+  function insert(text) {
+    ta.focus();
+    var ok = false;
+    try { ok = document.execCommand('insertText', false, text); } catch (e) {}
+    if (!ok) {
+      var s = ta.selectionStart, e2 = ta.selectionEnd;
+      ta.value = ta.value.slice(0, s) + text + ta.value.slice(e2);
+      ta.setSelectionRange(s + text.length, s + text.length);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  function replaceOne() {
+    if (!matches.length) return;
+    if (cur < 0) cur = 0;
+    var at = matches[cur], len = fIn.value.length, r = rIn.value;
+    ta.setSelectionRange(at, at + len);
+    insert(r);
+    ta.setSelectionRange(at + r.length, at + r.length);
+    /* the edit triggers a refresh; continue from just after the replacement */
+    refresh(true, true);
+    fIn.focus();
+  }
+
+  function replaceAll() {
+    if (!matches.length) return;
+    var q = fIn.value, r = rIn.value, n = 0, re = buildRe(q);
+    var before = ta.value;
+    var after = before.replace(re, function () { n++; return r; });
+    if (after === before) return;
+    ta.setSelectionRange(0, before.length);
+    insert(after);
+    refresh(false, false);
+    cnt.textContent = n + (n === 1 ? ' replaced' : ' replaced');
+    fIn.focus();
+  }
+
+  function open(withReplace) {
+    var selTxt = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+    bar.classList.add('on'); hdrBtn && hdrBtn.classList.add('on');
+    if (withReplace) bar.classList.add('replace');
+    if (selTxt && selTxt.indexOf('\n') < 0 && selTxt.length < 120) fIn.value = selTxt;
+    refresh(true, !!fIn.value);
+    (withReplace && fIn.value ? rIn : fIn).focus();
+    if (!(withReplace && fIn.value)) fIn.select();
+  }
+  function close() {
+    if (!isOpen()) return;
+    bar.classList.remove('on'); hdrBtn && hdrBtn.classList.remove('on');
+    layer.innerHTML = '';
+    ta.focus();
+  }
+  function setReplace(on) { bar.classList.toggle('replace', on); }
+
+  fIn.addEventListener('input', function () { cur = -1; refresh(true, true); });
+  [bCase, bWord].forEach(function (b) {
+    b.addEventListener('click', function () {
+      var on = !b.classList.contains('on'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+      caseSens = bCase.classList.contains('on'); whole = bWord.classList.contains('on');
+      cur = -1; refresh(true, true); fIn.focus();
+    });
+  });
+  bNext.addEventListener('click', function () { step(1); });
+  bPrev.addEventListener('click', function () { step(-1); });
+  bRep.addEventListener('click', replaceOne);
+  bAll.addEventListener('click', replaceAll);
+  bClose.addEventListener('click', close);
+  bTog.addEventListener('click', function () { setReplace(!bar.classList.contains('replace')); });
+  if (hdrBtn) hdrBtn.addEventListener('click', function () { isOpen() ? close() : open(false); });
+
+  fIn.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); if ((e.ctrlKey || e.metaKey) && e.altKey) replaceAll(); else step(e.shiftKey ? -1 : 1); }
+  });
+  rIn.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); if ((e.ctrlKey || e.metaKey) && e.altKey) replaceAll(); else replaceOne(); }
+  });
+  bar.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    var mod = e.ctrlKey || e.metaKey;
+    var k = (e.key || '').toLowerCase();
+    var inEditor = e.target === ta || bar.contains(e.target);
+    if (mod && !e.altKey && !e.shiftKey && (k === 'f' || k === 'h') && inEditor) {
+      e.preventDefault(); e.stopPropagation();
+      if (isOpen()) { setReplace(k === 'h' ? true : bar.classList.contains('replace')); (k === 'h' ? rIn : fIn).focus(); if (k === 'f') fIn.select(); }
+      else open(k === 'h');
+    } else if (e.key === 'F3' && isOpen() && inEditor) { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
+    else if (mod && k === 'g' && isOpen() && inEditor) { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
+  }, true);
+
+  ta.addEventListener('scroll', function () { layer.scrollTop = ta.scrollTop; layer.scrollLeft = ta.scrollLeft; });
+
+  /* Stay in step with the program when it is edited or replaced from elsewhere. */
+  function schedule() {
+    if (raf || !isOpen()) return;
+    raf = requestAnimationFrame(function () {
+      raf = 0;
+      if (!isOpen()) return;
+      if (ta.value !== lastText) refresh(false, false); else paint();
+    });
+  }
+  new MutationObserver(schedule).observe(hl, { childList: true });
+  ta.addEventListener('input', schedule);
+  window.addEventListener('resize', schedule);
+  if (window.ResizeObserver) new ResizeObserver(schedule).observe(wrap);
+
+  window.GcodeFind = { open: open, close: close, next: function () { step(1); }, prev: function () { step(-1); }, matches: function () { return matches.length; } };
+})();
+</script>
 </body>
 </html>
