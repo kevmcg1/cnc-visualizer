@@ -19670,12 +19670,20 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             </button>
           </div>
           <span class="tp-right-pair">
+            <button class="tp-btn tp-op" id="btn-sim-lastop" data-tip="Last op&#10;Back to the start of this op, or, if you are already at its start, the start of the op before it.">
+              <i class="fa-solid fa-angles-down"></i><span>Last op</span>
+            </button>
             <button class="tp-btn tp-op" id="btn-sim-nextop" data-tip="Next op&#10;Jumps to the next rapid up or tool change, whichever the program reaches first. A rapid up and the tool change that follows it count as one stop.">
               <i class="fa-solid fa-angles-up"></i><span>Next op</span>
             </button>
             <button class="tp-btn tp-toggle active" id="btn-optional-stop" title="Optional stop: when on, an M01 in the program pauses the run the way the button on the machine does. When off, M01 is ignored.">M01 Stop</button>
             <button class="tp-btn tp-toggle" id="btn-single-block" title="Single Block: step every line one at a time">Single Block</button>
           </span>
+        </div>
+        <div id="op-row" aria-label="This op">
+          <span class="progress-label progress-time" id="op-name">OP 1/1</span>
+          <input type="range" id="op-progress-slider" min="0" max="1000" value="0" step="1" aria-label="Position within this op">
+          <span class="progress-label progress-time progress-time-total" id="op-time">0:00.0 / 0:00.0</span>
         </div>
         <div id="progress-row">
           <span class="progress-label progress-time" id="viewport-progress-val">0:00.0</span>
@@ -21875,7 +21883,21 @@ const TOOL_CHANGE_SECS = 3.2;
    Every line the parser sees is then numbered against the expanded text;
    this puts the line numbers back onto the lines of the editor — a line
    that came out of a subprogram points at the line that called it. */
+/* Programs pasted from a web page arrive with things a control never sees:
+   a true minus sign (U+2212) or an en dash for the hyphen, zero-width spaces,
+   a byte-order mark, non-breaking spaces, carriage returns. They are put right
+   for the parser only; the editor keeps the text as it was typed, and no line
+   is added or removed, so every line number still lines up. */
+function cleanProgramText(t) {
+  return String(t)
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+    .replace(/\u00A0|\u2007|\u202F/g, ' ')
+    .replace(/[\u2212\u2013\u2012]/g, '-')
+    .replace(/\r/g, '');
+}
+
 function parseGCodeWithComp(rawText) {
+  rawText = cleanProgramText(rawText);
   const exp = (window.Subprograms && window.Subprograms.expand) ? window.Subprograms.expand(rawText) : null;
   if (!exp || !exp.changed || !exp.map) return parseGCodeWithCompInner(rawText);
 
@@ -22329,7 +22351,7 @@ function parseGCode(text) {
     if (toks.includes('G20')) localUnitMode = 'inch';
     if (toks.includes('G21')) localUnitMode = 'mm';
 
-    const gcodes = toks.filter(t => /^G\d/.test(t)).map(t => parseInt(t.slice(1)));
+    const gcodes = toks.filter(t => /^G\d+$/.test(t)).map(t => parseInt(t.slice(1)));
 
     /* Everything on a line that is a change of machine state rather than a
        move is read here, before the early exits further down.
@@ -22410,6 +22432,21 @@ function parseGCode(text) {
       cannedZ = null; cannedR = null; cannedFeed = null;
       cannedDwell = 0; cannedPeckQ = 0;
       cannedI = null; cannedJ = null; cannedK = null;
+    }
+
+    /* G10 (set an offset), G50 / G51 (scale), G52 (local shift), G68 / G69
+       (rotate), G92 and G187 take X Y Z R as parameters, not as a move. G28 / G30
+       send an axis home through a point, which the sim does not know the machine
+       position of, so it draws no travel either. */
+    if (gcodes.some(g => g === 10 || g === 50 || g === 51 || g === 52 || g === 68 || g === 69 || g === 92 || g === 187)) {
+      continue;
+    }
+    if (gcodes.includes(28) || gcodes.includes(30)) {
+      const wCur = toWorld(x, y, z);
+      segs.push({ start: wCur.clone(), end: wCur.clone(), type: 'rapid', lineIdx: li,
+        feedRate: 0, feedIsIPM: false, feedLabel: 'G' + (gcodes.includes(28) ? '28 Return to Home' : '30 Return to Reference') + ' (suppressed)',
+        length: 0, duration: 0.001, isMarker: true });
+      continue;
     }
 
     if (gcodes.includes(53)) {
@@ -26853,6 +26890,22 @@ function opStops() {
   return stops;
 }
 
+/* The op the run is in: from where the last stop landed to the next one. */
+function currentOp(t) {
+  const stops = opStops();
+  const total = simTotalTime;
+  let idx = stops.findIndex(s => s.tEnd > t + 1e-6);
+  let trailing = false;
+  if (idx < 0) { idx = stops.length; trailing = true; }
+  let start = idx === 0 ? 0 : stops[idx - 1].tEnd;
+  let end = trailing ? total : stops[idx].tEnd;
+  let count = stops.length + (stops.length && total - stops[stops.length - 1].tEnd < 0.05 ? 0 : 1);
+  if (trailing && end - start < 0.05 && idx > 0) {          /* nothing after the last stop: it belongs to the op before */
+    idx -= 1; end = start; start = idx === 0 ? 0 : stops[idx - 1].tEnd; trailing = false;
+  }
+  return { idx, start, end, count: Math.max(1, count) };
+}
+
 function stepNextOp() {
   if (!segTimeline.length) return;
   const stops = opStops();
@@ -26863,18 +26916,83 @@ function stepNextOp() {
   hideProgramComplete();
   if (at < 0) {
     simSeekToTime(simTotalTime);
-    showToast('Next op', stops.length ? 'No more rapid ups or tool changes — this is the end of the program.'
+    showToast('Next op', stops.length ? 'No more rapid ups or tool changes \u2014 this is the end of the program.'
                                        : 'This program has no rapid up or tool change in it, so Next op goes to the end.');
     return;
   }
   const st = stops[at];
   simSeekToTime(st.tEnd);
   const what = st.tool && st.up ? 'rapid up + tool change' : st.tool ? 'tool change' : 'rapid up';
-  const tool = st.tool ? (st.from != null ? ' · T' + st.from + ' → T' + st.to : (st.to != null ? ' · T' + st.to : '')) : '';
+  const tool = st.tool ? (st.from != null ? ' \u00B7 T' + st.from + ' \u2192 T' + st.to : (st.to != null ? ' \u00B7 T' + st.to : '')) : '';
   showToast('Next op ' + (at + 1) + ' of ' + stops.length,
-    what + tool + ' · line ' + (st.line + 1));
+    what + tool + ' \u00B7 line ' + (st.line + 1));
   if (typeof PlaybackUI !== 'undefined' && PlaybackUI.refresh) PlaybackUI.refresh();
 }
+
+function stepLastOp() {
+  if (!segTimeline.length) return;
+  const stops = opStops();
+  const cur = currentOp(simTime);
+  let to = cur.start, label;
+  if (simTime - cur.start <= 0.3 && cur.idx > 0) {          /* already at its start: the one before */
+    to = cur.idx === 1 ? 0 : stops[cur.idx - 2].tEnd;
+    label = 'Start of op ' + cur.idx;
+  } else {
+    label = 'Start of op ' + (cur.idx + 1);
+  }
+  simPlaying = false;
+  simActive = true;
+  singleBlockTargetTime = null;
+  hideProgramComplete();
+  simSeekToTime(to);
+  showToast('Last op', label + ' of ' + cur.count + (to === 0 ? ' \u00B7 the top of the program' : ''));
+  if (typeof PlaybackUI !== 'undefined' && PlaybackUI.refresh) PlaybackUI.refresh();
+}
+document.getElementById('btn-sim-lastop').addEventListener('click', () => {
+  stepLastOp();
+  if (singleBlockMode) singleBlockCurrentSourceLine = getLineIdxAtTime(simTime);
+});
+document.getElementById('btn-sim-lastop').addEventListener('mousedown', flushAllDiameterInputs);
+
+/* The bar above the long one covers this op alone: its left end is where the
+   op began and its right end the rapid up or tool change that finishes it. */
+(function opBar() {
+  const slider = document.getElementById('op-progress-slider');
+  const nameEl = document.getElementById('op-name'), timeEl = document.getElementById('op-time');
+  const fmt = (t) => { t = Math.max(0, t); const m = Math.floor(t / 60); return m + ':' + (t - m * 60).toFixed(1).padStart(4, '0'); };
+  let dragging = false, lastKey = '';
+  slider.addEventListener('pointerdown', () => { dragging = true; });
+  window.addEventListener('pointerup', () => { dragging = false; });
+  slider.addEventListener('input', () => {
+    const op = currentOp(dragging ? lastOp.start + 1e-6 : simTime);
+    const t = op.start + (parseFloat(slider.value) / 1000) * (op.end - op.start);
+    simPlaying = false;
+    simActive = true;
+    singleBlockTargetTime = null;
+    singleBlockCurrentSourceLine = -1;
+    slider.style.setProperty('--progress', (parseFloat(slider.value) / 10).toFixed(1) + '%');
+    simSeekToTime(t);
+  });
+  let lastOp = { start: 0, end: 0, idx: 0, count: 1 };
+  function paint() {
+    if (typeof segTimeline !== 'undefined' && segTimeline.length) {
+      const op = dragging ? lastOp : currentOp(simTime);
+      lastOp = op;
+      const span = Math.max(op.end - op.start, 1e-6);
+      const frac = Math.min(1, Math.max(0, (simTime - op.start) / span));
+      const key = op.idx + '|' + op.count + '|' + simTime.toFixed(2) + '|' + op.end.toFixed(2);
+      if (key !== lastKey) {
+        lastKey = key;
+        if (!dragging) slider.value = Math.round(frac * 1000);
+        slider.style.setProperty('--progress', (frac * 100).toFixed(1) + '%');
+        nameEl.textContent = 'OP ' + (op.idx + 1) + '/' + op.count;
+        timeEl.textContent = fmt(Math.min(span, Math.max(0, simTime - op.start))) + ' / ' + fmt(span);
+      }
+    }
+    requestAnimationFrame(paint);
+  }
+  requestAnimationFrame(paint);
+})();
 document.getElementById('btn-sim-nextop').addEventListener('click', () => {
   stepNextOp();
   /* single block carries on from wherever the jump landed */
@@ -44393,7 +44511,7 @@ window.JawClear = (function () {
     const s = src.replace(/\s+/g, "").toUpperCase();
     const peek = () => s[i];
     function num() {
-      const m = s.slice(i).match(/^\d*\.?\d+(?:E[+-]?\d+)?|^\d+\.?/);
+      const m = s.slice(i).match(/^\d+\.\d*(?:E[+-]?\d+)?|^\.\d+(?:E[+-]?\d+)?|^\d+(?:E[+-]?\d+)?/);
       if (!m) throw new Error("number expected in " + src);
       i += m[0].length; return parseFloat(m[0]);
     }
@@ -44426,11 +44544,25 @@ window.JawClear = (function () {
         else return v;
       }
     }
-    function expr() {
+    function sum() {
       let v = term();
       for (;;) {
         if (peek() === "+") { i++; v += term(); }
         else if (peek() === "-") { i++; v -= term(); }
+        else return v;
+      }
+    }
+    /* EQ NE GT LT GE LE: 1 for true, 0 for false, loosest of all */
+    function expr() {
+      let v = sum();
+      for (;;) {
+        const op = s.slice(i, i + 2);
+        if (op === "EQ") { i += 2; v = (Math.abs(v - sum()) < 1e-9) ? 1 : 0; }
+        else if (op === "NE") { i += 2; v = (Math.abs(v - sum()) >= 1e-9) ? 1 : 0; }
+        else if (op === "GT") { i += 2; v = (v > sum()) ? 1 : 0; }
+        else if (op === "LT") { i += 2; v = (v < sum()) ? 1 : 0; }
+        else if (op === "GE") { i += 2; v = (v >= sum() - 1e-9) ? 1 : 0; }
+        else if (op === "LE") { i += 2; v = (v <= sum() + 1e-9) ? 1 : 0; }
         else return v;
       }
     }
@@ -44513,10 +44645,62 @@ window.JawClear = (function () {
         const getVar = n => (n >= 1 && n <= 33) ? (locals[n] || 0) : (globals[n] || 0);
         const setVar = (n, v) => { if (n >= 1 && n <= 33) locals[n] = v; else globals[n] = v; };
 
-        /* control flow is not run */
-        if (/\b(IF|WHILE|GOTO|DO\d|END\d)\b/.test(code.replace(/\bG\d+/g, ""))) {
-          if (/\b(IF|WHILE|GOTO)\b/.test(code)) notes.push("Line " + (orig + 1) + ": IF / WHILE / GOTO are not run.");
-          out.push(line); map.push(orig); continue;
+        /* a leading "/" is a block-delete mark; the switch is off, so the block runs */
+        if (/^\s*\//.test(line)) { line = line.replace(/^(\s*)\//, "$1"); code = codeOf(line); }
+
+        /* Macro control flow: GOTO, IF .. GOTO, IF .. THEN, WHILE .. DOn / ENDn. */
+        {
+          const bare = code.replace(/^\s*N\d+\s*/, "").trim();
+          const label = n => lines.findIndex(l => new RegExp("^\\s*\\/?\\s*N0*" + n + "(?!\\d)", "i").test(l));
+          let m;
+          if ((m = bare.match(/^IF\s*(\[.*\])\s*GOTO\s*(\d+)\s*$/))) {
+            let v = 0;
+            try { v = evalExpr(m[1], getVar); } catch (e) { notes.push("Line " + (orig + 1) + ": " + e.message); }
+            did = true;
+            if (v) {
+              const at = label(m[2]);
+              if (at < 0) notes.push("Line " + (orig + 1) + ": no N" + m[2] + " to go to.");
+              else i = at - 1;
+            }
+            out.push(""); map.push(orig); continue;
+          }
+          if ((m = bare.match(/^GOTO\s*(\d+)\s*$/))) {
+            const at = label(m[1]);
+            did = true;
+            if (at < 0) notes.push("Line " + (orig + 1) + ": no N" + m[1] + " to go to.");
+            else i = at - 1;
+            out.push(""); map.push(orig); continue;
+          }
+          if ((m = bare.match(/^IF\s*(\[.*\])\s*THEN\s*#(\d+)\s*=\s*(.+)$/))) {
+            try {
+              if (evalExpr(m[1], getVar)) setVar(parseInt(m[2], 10), evalExpr(m[3], getVar));
+            } catch (e) { notes.push("Line " + (orig + 1) + ": " + e.message); }
+            did = true; out.push(""); map.push(orig); continue;
+          }
+          if ((m = bare.match(/^WHILE\s*(\[.*\])\s*DO\s*(\d+)\s*$/))) {
+            let v = 0;
+            try { v = evalExpr(m[1], getVar); } catch (e) { notes.push("Line " + (orig + 1) + ": " + e.message); }
+            did = true;
+            if (!v) {
+              let j = i + 1;
+              while (j < lines.length && !new RegExp("^\\s*(?:N\\d+\\s*)?END\\s*" + m[2] + "\\s*$", "i").test(codeOf(lines[j]))) j++;
+              if (j >= lines.length) notes.push("Line " + (orig + 1) + ": WHILE has no END" + m[2] + ".");
+              else i = j;
+            }
+            out.push(""); map.push(orig); continue;
+          }
+          if ((m = bare.match(/^END\s*(\d+)\s*$/))) {
+            let j = i - 1;
+            while (j >= 0 && !new RegExp("^\\s*(?:N\\d+\\s*)?WHILE\\s*\\[.*\\]\\s*DO\\s*" + m[1] + "\\s*$", "i").test(codeOf(lines[j]))) j--;
+            did = true;
+            if (j < 0) notes.push("Line " + (orig + 1) + ": END" + m[1] + " has no WHILE.");
+            else i = j - 1;
+            out.push(""); map.push(orig); continue;
+          }
+          if (/\b(IF|WHILE|GOTO|DO\d|END\d)\b/.test(bare.replace(/\bG\d+/g, ""))) {
+            notes.push("Line " + (orig + 1) + ": this form of IF / WHILE / GOTO is not understood.");
+            out.push(line); map.push(orig); continue;
+          }
         }
 
         /* #n = expression */
@@ -63216,8 +63400,25 @@ html body #cube-wrap{top:14px!important;right:14px!important}
 @media (max-width:800px){html body #fps-hud{display:none!important}html body #cube-wrap{transform:scale(.6);transform-origin:top right}}
 @media (min-width:801px) and (max-height:800px){html body #editor-panel{height:150px!important}}
 @media (min-width:801px) and (max-height:660px){html body #editor-panel{height:112px!important}}
-html body #vp-dock{align-items:stretch}
-html body #vp-dock > *{width:100%;box-sizing:border-box}
+
+#op-row{display:flex;align-items:center;gap:10px;padding:0 2px}
+#op-row .progress-label{font-size:10px;font-weight:600;letter-spacing:.06em;min-width:64px;color:var(--text-dim)!important}
+#op-row #op-name{color:var(--accent)!important;text-align:left}
+#op-row #op-time{text-align:right;min-width:92px}
+#op-row #op-progress-slider{flex:1;min-width:0;margin:0;height:4px;border-radius:2px;
+  background:linear-gradient(to right,var(--accent) 0%,var(--accent) var(--progress,0%),#2a2d31 var(--progress,0%),#2a2d31 100%)}
+#op-row #op-progress-slider::-webkit-slider-thumb{width:12px;height:12px;box-shadow:0 0 0 3px rgba(91,147,234,.18),0 1px 3px rgba(0,0,0,.4)}
+#op-row #op-progress-slider::-moz-range-thumb{width:12px;height:12px;box-shadow:0 0 0 3px rgba(91,147,234,.18),0 1px 3px rgba(0,0,0,.4)}
+/* both bars share their label widths so the two tracks line up end to end */
+#op-row #op-name,#progress-row #viewport-progress-val{min-width:56px;width:56px;text-align:left}
+#op-row #op-time,#progress-row #viewport-progress-total{min-width:104px;width:104px;text-align:right}
+@media (max-height:820px),(max-width:800px){html body #transport-bar{gap:5px!important;padding:7px 12px!important}html body #transport-row{row-gap:5px}}
+@media (max-width:800px) and (max-height:720px){
+  html body #sidebar{flex-basis:22dvh!important;max-height:22dvh!important}
+  html body #editor-panel{height:13dvh!important;max-height:13dvh!important}
+  html body #vp-mode-status{display:none!important}
+  html body #cube-wrap{display:none!important}
+}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}}
 
 </style>
