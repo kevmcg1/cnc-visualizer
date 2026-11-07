@@ -65084,6 +65084,31 @@ const HaasSamples = (function () {
   window.ToolDetector = { detect, detectSetup, describe, build, apply };
 })();
 </script>
+<script id="boot-reveal">
+/* The page builds its scene in stages: the blank first, then it slides into the vise, then the cutters and holders fill in.
+   Showing the stages looks broken (a bare white cutter over a blank floating by the vise), so the 3D view fades in once the
+   scene is assembled: tools built, blank seated. A hard limit shows it anyway, so a setup that never completes is not hidden. */
+(function () {
+  "use strict";
+  if (typeof mainRenderer === "undefined") return;
+  const c = mainRenderer.domElement, t0 = performance.now();
+  let okSince = 0;
+  c.style.opacity = "0";
+  const show = () => { c.style.transition = "opacity .5s ease"; c.style.opacity = ""; setTimeout(() => { c.style.transition = ""; }, 700); };
+  const ready = now => {
+    const late = now - t0 > 3500;
+    let tools = false, seated = false;
+    try { const r = window.ToolModels && ToolModels.root && ToolModels.root(); tools = !!(r && r.children.length > 0); } catch (e) { /* none yet */ }
+    try { const m = JawClear.measure(); seated = m.ok ? m.proud > -0.5 : (now - t0 > 2500); } catch (e) { seated = late; }
+    return (tools || late) && (seated || late);
+  };
+  const iv = setInterval(() => {
+    const now = performance.now();
+    okSince = ready(now) ? (okSince || now) : 0;
+    if ((okSince && now - okSince > 450) || now - t0 > 8000) { clearInterval(iv); show(); }
+  }, 120);
+})();
+</script>
 <script id="setup-aware">
 /* setup-aware.js — everything on the machine knows about everything else.
  *
