@@ -5168,7 +5168,7 @@ input[type="checkbox"]:checked, input[type="radio"]:checked { animation: ctl-pop
   color: var(--accent); background: rgba(18, 20, 24, .78); border: 1px solid var(--accent-line); border-radius: 99px;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
 }
-#hud-reveal[hidden] { display: none; }
+#hud-reveal { display: none !important; }
 #hud-reveal:hover { background: var(--accent-soft); color: #fff; }
 #hud-reveal:active { transform: translateX(-50%) scale(.965); }
 
@@ -61134,36 +61134,14 @@ window.HAAS_LATHE_CODES = {
   const viewport = document.getElementById("viewport");
   if (!viewport) return;
 
-  const btn = document.createElement("button");
-  btn.id = "hud-reveal";
-  btn.type = "button";
-  btn.hidden = true;
-  btn.innerHTML = '<i class="fa-solid fa-sliders"></i><span>Show controls</span>';
-  viewport.appendChild(btn);
-
-  let folded = false, lastLayout = "single";
-
-  function paint() {
-    document.body.classList.toggle("hud-folded", folded);
-    document.body.classList.toggle("split-on", lastLayout !== "single");
-    btn.querySelector("span").textContent = folded ? "Show controls" : "Hide controls";
-    btn.querySelector("i").className = "fa-solid " + (folded ? "fa-sliders" : "fa-eye-slash");
-    btn.setAttribute("aria-pressed", folded ? "false" : "true");
-    if (window.HudGuard) setTimeout(() => window.HudGuard.run(), 350);
-  }
-
-  btn.addEventListener("click", () => { folded = !folded; paint(); });
-
+  /* The controls live in the panel beside the editor, so a split view never folds them away and there
+     is no Show controls button. Only the split flag is kept, for the styles that still read it. */
+  let lastLayout = "single";
   function check() {
     const layout = window.MultiCam ? window.MultiCam.layout : "single";
-    const split = layout !== "single";
-    if (split !== (lastLayout !== "single") || layout !== lastLayout) {
-      if (split && lastLayout === "single") folded = true;     /* going into split: fold */
-      if (!split) folded = false;                              /* back to one view: show */
-      lastLayout = layout;
-      btn.hidden = !split;
-      paint();
-    }
+    if (layout !== lastLayout) { lastLayout = layout; }
+    document.body.classList.remove("hud-folded");
+    document.body.classList.toggle("split-on", lastLayout !== "single");
   }
   setInterval(check, 200);
   check();
