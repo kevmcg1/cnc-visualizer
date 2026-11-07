@@ -23,6 +23,16 @@ A single-file G-code simulator for a Haas-style mill. Open `index.html` in a bro
 - Tooltips are drawn on one page-level card that never overlaps its control or leaves the window.
 - One design language throughout (Inter, outlined controls, flat dark HUD cards).
 
+## Page-wide UX stress test (backtick)
+
+Press the backtick key (`) to open or close the **UX Stress** panel. That key is the only way in: no address parameter, no global function and no button on the page, and while it is closed the page pays for one keydown listener. The key is ignored while you type in a field.
+
+- **Fixed 10 Hz**: one test unit starts every 100 ms, long work is sliced so the page stays smooth, and the Performance tab shows the cadence actually reached.
+- **Sandbox copy**: it runs against a hidden copy of the page (an iframe), so your own work is untouched. If the browser blocks that (a `file://` page), choose it or fall back to *This page*, which changes the page's state; reload afterwards.
+- **Functional**: finds every button, toggle, slider, number and text field, select, tab, canvas and clickable element, exercises each one (rapid clicks, double clicks, Enter and Space, extreme and hostile values, canvas orbit, pan and zoom), opens hidden panels as they appear, then scenarios (editor typing, find and replace, clear, coolant M07/M08/M09 playback, every select option, a resize sweep) and a seeded random-order fuzz. Thrown errors, console errors and warnings, unhandled rejections, failed resources, controls that do nothing, NaN or undefined on screen and DOM growth are reported.
+- **Visual and UX**, at 14 window sizes from 320 px to 2560 px, portrait and landscape: horizontal scroll, text and controls cut off, spilled or truncated labels, overlap, covered controls, tap targets under 44 px (0.46 in, 11.6 mm), contrast, fonts other than Inter, emoji, glyph or non-Font-Awesome icons, filled or outline-less buttons, near-miss alignment, missing names and labels, duplicate ids, keyboard reach and focus visibility, transitions, frame time, long tasks and memory.
+- **Report**: Summary (pass or fail per category), Findings (grouped by rule, click one to highlight the element on the page and see where it sits in the window), Elements (pass or fail per control), Viewports, Performance and Log. *JSON* downloads the whole report; *Copy* puts it on the clipboard. The seed is shown, so a fuzz failure can be replayed.
+
 ## Stress test, headless
 
 `DevStress.batch(n)` runs `n` cases of each kind and returns `{ cases, passed, failed }`. The same seed always builds the same programs, so a failing seed can be reproduced from the panel.
