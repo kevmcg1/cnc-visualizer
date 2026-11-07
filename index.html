@@ -39754,9 +39754,38 @@ const MakeProgram = (() => {
     slide: cfg.slide,
   });
 
+  /* The job, as a program's own comments describe it: blank size and metal, where the vise holds
+     it, how far it stands above the jaws, and which point of the blank is work zero. */
+  function applySetup(o) {
+    o = o || {};
+    cfg.stockRec = false;
+    const st = Object.assign({}, REC_STOCK(), cfg.stock);
+    if (o.shape === "cyl" && o.dia && o.len) Object.assign(st, { shape: "cyl", dia: o.dia * IN * (o.mm ? 1 / IN : 1), len: o.len * IN * (o.mm ? 1 / IN : 1) });
+    else if (o.dims) { const k = o.mm ? 1 : IN; Object.assign(st, { shape: "block", sx: o.dims[0] * k, sy: o.dims[1] * k, sz: o.dims[2] * k }); }
+    if (o.metal) st.metal = o.metal;
+    cfg.stock = st;
+    if (o.slide) cfg.slide = o.slide;
+    liveStock();
+    const p = Gizmo.findStock && Gizmo.findStock();
+    if (p && p.stock && o.zero) {
+      const h = Stock.halfOf(p.stock), cyl = p.stock.shape === "cyl";
+      const x = cyl || o.zero.x === "center" ? 0 : (o.zero.x === "right" ? h[0] : -h[0]);
+      const y = cyl || o.zero.y === "center" ? 0 : (o.zero.y === "far" ? h[1] : -h[1]);
+      const z = o.zero.z === "bottom" ? 0 : h[2] * 2;
+      p.base.set(x, y, z); p.zero.copy(p.base);
+      const where = (cyl || (o.zero.x === "center" && o.zero.y === "center")) ? "center" : ((o.zero.y === "far" ? "far-" : "near-") + (o.zero.x === "right" ? "right" : "left") + " corner");
+      p.baseNote = p.zeroNote = (o.zero.z === "bottom" ? "bottom " : "top ") + where;
+      Store.apply(p); Store.markReference(p);
+    }
+    if (o.slide) reseat(true);
+    if (o.proud != null && window.JawClear && JawClear.setProud) { try { JawClear.setProud(o.proud, "stock", true); } catch (e) { /* leave it */ } }
+    Panel.refresh(); paint();
+    return true;
+  }
+
   return { bind, paint, paintOrigin, enter, exit, isOn: () => on,
            bootDefault, hasSaved: () => !!stored(), forget,
-           setVise, setParallels, autoParallels, slide, state };
+           setVise, setParallels, autoParallels, slide, state, applySetup };
 })();
 
 window.addEventListener("drop", e => {
@@ -39803,6 +39832,7 @@ window.PartModels = {
   sample: key => { const g = Samples.build(key); return g ? Store.add(g, key) : null; },
 
   sampleStock: key => Panel.sampleStock(key),
+  applySetup: o => MakeProgram.applySetup(o),
 
   bootDefault: () => MakeProgram.bootDefault(),
   hasSavedDefault: () => MakeProgram.hasSaved(),
@@ -63706,6 +63736,9 @@ html body .hlcard input[type=checkbox]{margin:1px 0 0}
 html body input[type=checkbox]{width:18px!important;height:18px!important;accent-color:initial}
 html body .legend-cb{width:16px!important;height:16px!important}
 
+html body #editor-hint{display:none!important}
+html body #editor-header-left{flex-wrap:nowrap;min-width:0}
+html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}}
 
 </style>
@@ -64209,6 +64242,275 @@ const HaasSamples = (function () {
     window.loadGCode = loadGCode = function (text) { return original.call(this, upperComments(text)); };
   }
   if (ta && ta.value) { const u = upperComments(ta.value); if (u !== ta.value) { ta.value = u; if (typeof updateHighlight === 'function') updateHighlight(); } }
+})();
+</script>
+<script id="tool-detector">
+/* Tool detector: reads the tools out of the program's comments.
+ *
+ * A comment that opens with a tool number, like (T2 .500 ENDMILL OUTSIDE CONTOUR) or
+ * (T5 NUMBER 7 DRILL FOR 1/4-20 TAP), says what T2 or T5 is. With "Detect tools from comments"
+ * ticked, each one is read - kind, size, flutes, thread - and the tool in the sim for that
+ * number is replaced with a matching cutter in a suitable holder. Only comments that start
+ * with a T number are read, so ordinary remarks are left alone. */
+(function () {
+  const IN = 25.4;
+  const NUMBER_DRILLS = { 1: .228, 2: .221, 3: .213, 4: .209, 5: .2055, 6: .204, 7: .201, 8: .199, 9: .196, 10: .1935, 11: .191, 12: .189, 13: .185, 14: .182, 15: .18,
+    16: .177, 17: .173, 18: .1695, 19: .166, 20: .161, 21: .159, 22: .157, 23: .154, 24: .152, 25: .1495, 26: .147, 27: .144, 28: .1405, 29: .136, 30: .1285, 31: .12, 32: .116,
+    33: .113, 34: .111, 35: .11, 36: .1065, 37: .104, 38: .1015, 39: .0995, 40: .098, 41: .096, 42: .0935, 43: .089, 44: .086, 45: .082, 46: .081, 47: .0785, 48: .076, 49: .073, 50: .07 };
+  const LETTER_DRILLS = { A: .234, B: .238, C: .242, D: .246, E: .25, F: .257, G: .261, H: .266, I: .272, J: .277, K: .281, L: .29, M: .295, N: .302, O: .316, P: .323, Q: .332,
+    R: .339, S: .348, T: .358, U: .368, V: .377, W: .386, X: .397, Y: .404, Z: .413 };
+  const CENTER = { 1: [.125, .047], 2: [.1875, .078], 3: [.25, .109], 4: [.3125, .125], 5: [.4375, .1875] };   /* body, pilot */
+  const THREAD_DIA = { 0: .06, 1: .073, 2: .086, 3: .099, 4: .112, 5: .125, 6: .138, 8: .164, 10: .19, 12: .216 };
+
+  const frac = t => { const m = String(t).match(/^(\d+)\/(\d+)$/); return m ? (+m[1]) / (+m[2]) : parseFloat(t); };
+  const holderFor = (dia) => dia <= .2756 ? 'er11' : dia <= .39 ? 'er16' : dia <= .51 ? 'er20' : dia <= .63 ? 'er25' : dia <= .79 ? 'er32' : 'weldon';
+  const fmt = v => (Math.round(v * 10000) / 10000).toString().replace(/^0\./, '.');
+
+  /* "T5 NUMBER 7 DRILL FOR 1/4-20 TAP" -> { tool: 5, ... } or null */
+  function describe(text) {
+    const m = String(text).toUpperCase().match(/^\s*T0*(\d+)\b(?:\s*[:\-=,]\s*|\s+)?(.*)$/);
+    if (!m) return null;
+    const tool = parseInt(m[1], 10);
+    let d = m[2].replace(/\bFOR\b.*$/, '').replace(/\bUSED\s+(FOR|TO)\b.*$/, '').replace(/[()]/g, ' ').trim();
+    const full = m[2];
+    if (!d) return null;
+    let kind = null;
+    const has = re => re.test(d);
+    if (has(/CENTER\s*-?\s*DRILL|CTR\s*DRILL/)) kind = 'center';
+    else if (has(/SPOT/)) kind = 'spot';
+    else if (has(/REAM/)) kind = 'reamer';
+    else if (has(/THREAD\s*MILL|THREADMILL/)) kind = 'threadmill';
+    else if (has(/\bTAP\b|\bTAP$/)) kind = 'tap';
+    else if (has(/FACE\s*MILL|FACEMILL|SHELL\s*MILL|FLY\s*CUT/)) kind = 'face';
+    else if (has(/CHAMFER|ENGRAV|V-?BIT|DEBURR/)) kind = 'chamfer';
+    else if (has(/BALL/)) kind = 'ball';
+    else if (has(/BORING|BORE\s*BAR|BORE\b/)) kind = 'reamer';
+    else if (has(/DRILL/)) kind = 'drill';
+    else if (has(/PROBE/)) kind = 'probe';
+    else if (has(/END\s*MILL|ENDMILL|\bEM\b|BULL|ROUGHER|MILL\b/)) kind = 'end';
+    if (!kind) return null;
+
+    const flutes = (d.match(/(\d)\s*-?\s*(?:FL\b|FLUTE)/) || [])[1];
+    let dia = null, pitchMm = null, thread = null, metric = false;
+
+    if (kind === 'tap' || kind === 'threadmill') {
+      let t = d.match(/M\s*(\d+(?:\.\d+)?)\s*[xX*]\s*(\d+(?:\.\d+)?)/);
+      if (t) { metric = true; dia = (+t[1]) / IN; pitchMm = +t[2]; thread = 'M' + t[1] + 'x' + t[2]; }
+      else if ((t = d.match(/(\d+\/\d+|#\s*\d+|\d+(?:\.\d+)?)\s*-\s*(\d+)/))) {
+        const nm = t[1].replace(/#\s*/, '');
+        dia = /^\d+\/\d+$/.test(nm) ? frac(nm) : (t[1].indexOf('#') >= 0 || (+nm) <= 12 && nm.indexOf('.') < 0) ? (THREAD_DIA[+nm] || (+nm * .013 + .06)) : parseFloat(nm);
+        pitchMm = IN / (+t[2]); thread = t[1].replace(/\s/g, '') + '-' + t[2];
+      }
+    }
+    if (dia == null) {
+      let t;
+      if ((t = d.match(/(?:#|NO\.?\s*|NUMBER\s*|NUM\s*)(\d+)\b/)) && kind !== 'center') dia = NUMBER_DRILLS[+t[1]] || null;
+      if (dia == null && (t = d.match(/LETTER\s*([A-Z])\b/))) dia = LETTER_DRILLS[t[1]] || null;
+      if (dia == null && kind === 'center' && (t = d.match(/(?:#|NO\.?\s*|NUMBER\s*)?(\d)\b/)) && CENTER[+t[1]]) dia = CENTER[+t[1]][0];
+      if (dia == null && (t = d.match(/(\d+(?:\.\d+)?)\s*MM\b/))) { dia = (+t[1]) / IN; metric = true; }
+      if (dia == null && (t = d.match(/\u00D8\s*(\d*\.?\d+)|DIA\.?\s*(\d*\.?\d+)/))) dia = parseFloat(t[1] || t[2]);
+      if (dia == null && (t = d.match(/(\d+)\s*\/\s*(\d+)/))) dia = (+t[1]) / (+t[2]);
+      if (dia == null && (t = d.match(/(\d*\.\d+|\d+\.)/))) dia = parseFloat(t[1]);
+      if (dia == null && (t = d.match(/\b(\d+)\s*(?:IN|")/))) dia = +t[1];
+    }
+    const DEFAULT = { end: .5, ball: .25, drill: .25, spot: .375, center: .1875, reamer: .25, tap: .25, face: 2, chamfer: .5, threadmill: .25, probe: .2362 };
+    if (dia == null || !isFinite(dia) || dia <= 0) dia = DEFAULT[kind] || .5;
+    if (kind === 'face' && dia < 1) dia = 2;
+    return { tool, kind, dia, flutes: flutes ? +flutes : null, pitchMm, thread, metric, text: full.trim() };
+  }
+
+  function build(c) {
+    const D = c.dia, mm = D * IN, fl = c.flutes;
+    const name = (kind, extra) => '\u00D8' + fmt(D) + ' ' + extra;
+    let shape = 'flat', model;
+    const H = holderFor(D);
+    switch (c.kind) {
+      case 'face':
+        shape = 'flat';
+        model = { category: 'facemill', inserts: 5, bodyH: Math.round(mm * 0.75), boreDia: Math.round(mm * 0.38), insertSize: 11, holder: true, name: '\u00D8' + fmt(D) + ' 5-insert face mill' };
+        break;
+      case 'ball':
+        shape = 'ball';
+        model = { category: 'endmill', endType: 'ball', flutes: fl || 2, loc: +(mm * 2).toFixed(1), oal: +(mm * 5 + 24).toFixed(1), holder: H, name: name('', (fl || 2) + 'FL ball end mill') };
+        break;
+      case 'drill':
+        shape = 'drill';
+        model = { category: 'drill', pointAngle: 118, flutes: 2, helix: 30, loc: +(mm * 6).toFixed(1), oal: +(mm * 9 + 25).toFixed(1), holder: D > .5 ? 'drillchuck' : H, name: name('', 'jobber drill') };
+        break;
+      case 'spot':
+        shape = 'drill';
+        model = { category: 'spotdrill', pointAngle: /120/.test(c.text) ? 120 : 90, flutes: 2, loc: 16, oal: 66, holder: H, name: name('', (/120/.test(c.text) ? '120' : '90') + '\u00B0 spot drill') };
+        break;
+      case 'center': {
+        shape = 'drill';
+        const no = Object.keys(CENTER).find(k => Math.abs(CENTER[k][0] - D) < 1e-4) || '2';
+        model = { category: 'spotdrill', pointAngle: 60, flutes: 2, helix: 20, shankDia: +(CENTER[no][0] * IN).toFixed(3), loc: 11, oal: 50.8, holder: holderFor(CENTER[no][0]), name: '#' + no + ' center drill (60\u00B0)' };
+        c.dia = CENTER[no][0];
+        break;
+      }
+      case 'reamer':
+        shape = 'drill';
+        model = { category: 'reamer', flutes: 6, loc: +(mm * 3).toFixed(1), oal: +(mm * 7 + 30).toFixed(1), holder: H, name: name('', 'chucking reamer') };
+        break;
+      case 'tap':
+        shape = 'tap';
+        model = { category: 'tap', tapType: 'spiralpoint', threadSize: c.thread || '', pitch: +(c.pitchMm || IN / 20).toFixed(3), flutes: 3, loc: +(mm * 4).toFixed(1), oal: +(mm * 8 + 20).toFixed(1), holder: holderFor(D), name: (c.thread || fmt(D)) + ' spiral point tap' };
+        break;
+      case 'threadmill':
+        shape = 'flat';
+        model = { category: 'threadmill', threadRows: 4, threadSize: c.thread || '', pitch: +(c.pitchMm || IN / 20).toFixed(3), shankDia: +(mm * 1.25).toFixed(2), oal: +(mm * 6 + 20).toFixed(1), holder: H, name: (c.thread || fmt(D)) + ' thread mill' };
+        break;
+      case 'chamfer':
+        shape = 'chamfer';
+        model = { category: 'chamfer', coneAngle: /60/.test(c.text) ? 60 : /120/.test(c.text) ? 120 : 90, tipDia: +(mm * 0.12).toFixed(2), oal: +(mm * 5 + 12).toFixed(1), holder: H, name: name('', '90\u00B0 chamfer mill') };
+        break;
+      case 'probe':
+        shape = 'probe';
+        model = { category: 'probe', styDia: 3, styLen: 50, bodyDia: 40, shankDia: 20, oal: 150, holder: 'weldon', name: '\u00D86 mm ruby ball touch probe' };
+        break;
+      default: {
+        shape = 'flat';
+        const f = fl || (D > .3 ? 4 : D > .15 ? 3 : 2);
+        model = { category: 'endmill', flutes: f, loc: +(mm * 2.2).toFixed(1), oal: +(mm * 5 + 24).toFixed(1), holder: H, helix: 35, name: name('', f + 'FL end mill') };
+      }
+    }
+    return { num: c.tool, dia: c.dia, shape, model };
+  }
+
+  /* every (T... ) comment in the program, last one for a number wins */
+  function detect(text) {
+    const found = new Map();
+    String(text).split('\n').forEach((ln, i) => {
+      const re = /\(([^)]*)\)/g; let m;
+      while ((m = re.exec(ln))) { const c = describe(m[1]); if (c) { c.line = i; found.set(c.tool, c); } }
+      const sc = ln.indexOf(';'); if (sc >= 0) { const c = describe(ln.slice(sc + 1)); if (c) { c.line = i; found.set(c.tool, c); } }
+    });
+    return Array.from(found.values()).sort((a, b) => a.tool - b.tool);
+  }
+
+  /* ---- the job: blank, metal, work zero, vise position ---- */
+  function detectSetup(text) {
+    const comments = [];
+    String(text).split('\n').forEach(ln => {
+      const re = /\(([^)]*)\)/g; let m;
+      while ((m = re.exec(ln))) comments.push(m[1].toUpperCase());
+      const sc = ln.indexOf(';'); if (sc >= 0) comments.push(ln.slice(sc + 1).toUpperCase());
+    });
+    const o = {}, found = [];
+    const mmProgram = /\bG21\b/.test(String(text).replace(/\([^)]*\)/g, ''));
+    const num = '(\\d*\\.?\\d+)';
+    for (const c of comments) {
+      /* the blank: three sizes after STOCK / BLANK / BILLET ..., or a round bar */
+      if (/STOCK|BLANK|BILLET|RAW|MATERIAL|BAR\b|SIZE/.test(c) && !o.dims && !o.shape) {
+        const d = c.match(new RegExp(num + '\\s*"?\\s*[X\u00D7*]\\s*' + num + '\\s*"?\\s*[X\u00D7*]\\s*' + num));
+        const r = c.match(new RegExp(num + '\\s*(?:DIA|DIAMETER|ROUND|\u00D8)[^0-9.]*[X\u00D7*]\\s*' + num)) || c.match(new RegExp('\u00D8\\s*' + num + '[^0-9.]*[X\u00D7*]\\s*' + num));
+        const mm = /\bMM\b/.test(c) || (mmProgram && !/\bIN\b|"/.test(c));
+        if (d) { o.dims = [parseFloat(d[1]), parseFloat(d[2]), parseFloat(d[3])]; o.mm = mm; found.push('stock'); }
+        else if (r) { o.shape = 'cyl'; o.dia = parseFloat(r[1]); o.len = parseFloat(r[2]); o.mm = mm; found.push('stock'); }
+      }
+      if (!o.metal) {
+        if (/ALUMIN|\b6061\b|\b7075\b|\b2024\b|\bAL\b/.test(c)) o.metal = 'aluminum';
+        else if (/BRASS|\bC360\b|BRONZE|COPPER/.test(c)) o.metal = 'brass';
+        else if (/STAINLESS|\b30[34]\b|\b316\b|\bSS\b/.test(c)) o.metal = 'stainless';
+        else if (/STEEL|\b1018\b|\b1045\b|\b4140\b|\bA36\b|\bMILD\b/.test(c)) o.metal = 'mild';
+        if (o.metal) found.push('metal');
+      }
+      /* work zero */
+      if (!o.zero && /G5[4-9]|G154|ZERO|ORIGIN|DATUM|WORK\s*OFFSET|X0\s*Y0/.test(c) && /CENT|CORNER|LEFT|RIGHT|NEAR|FRONT|FAR|BACK|REAR|UPPER|LOWER|\bTOP\b|BOTTOM/.test(c)) {
+        const z = { x: 'left', y: 'near', z: 'top' };
+        if (/CENT(?:ER|RE)|MIDDLE/.test(c)) { z.x = 'center'; z.y = 'center'; }
+        else {
+          if (/RIGHT/.test(c)) z.x = 'right'; else if (/LEFT/.test(c)) z.x = 'left';
+          if (/\bFAR\b|BACK|REAR|UPPER|TOP\s*RIGHT|TOP\s*LEFT/.test(c.replace(/Z0?\s*TOP|TOP\s*FACE|TOP\s*OF/g, ''))) z.y = 'far'; else if (/NEAR|FRONT|LOWER/.test(c)) z.y = 'near';
+        }
+        z.z = /Z0?\s*(?:AT\s*)?BOTTOM|BOTTOM\s*(?:OF|FACE)|TABLE|BASE/.test(c) ? 'bottom' : 'top';
+        o.zero = z; found.push('zero');
+      }
+      const wo = c.match(/\bG(5[4-9])\b|\bG154\s*P(\d+)/);
+      if (wo && !o.offset) o.offset = wo[1] ? 'G' + wo[1] : 'G154 P' + wo[2];
+      /* where the vise holds it */
+      if (!o.slide && /VISE|JAW|PARALLEL|FIXED/.test(c)) {
+        if (/CENT(?:ER|RE)/.test(c)) o.slide = 'center';
+        else if (/\bLEFT\b/.test(c)) o.slide = 'left';
+        else if (/\bRIGHT\b/.test(c)) o.slide = 'right';
+        if (o.slide) found.push('vise');
+      }
+      const pr = c.match(new RegExp('(?:PROUD|ABOVE\\s*(?:THE\\s*)?JAWS?|STICK\\s*-?\\s*OUT)[^0-9.]*' + num)) || c.match(new RegExp(num + '\\s*(?:IN\\.?|")?\\s*(?:PROUD|ABOVE\\s*(?:THE\\s*)?JAWS?)'));
+      if (pr && o.proud == null) { o.proud = parseFloat(pr[1]); found.push('proud'); }
+    }
+    /* a G54 line with nothing said about where zero is: the blank's top centre, which is where a G54 X0 Y0 sits when the part is centred */
+    if (o.offset && !o.zero && o.dims) { o.zero = { x: 'center', y: 'center', z: 'top' }; found.push('zero'); }
+    o.found = found;
+    return (o.dims || o.shape || o.metal || o.zero || o.slide || o.proud != null) ? o : null;
+  }
+
+  /* ---- the checkbox, in the editor's header ---- */
+  const KEY = 'cnc.toolDetect.v1';
+  let on = true;
+  try { on = localStorage.getItem(KEY) !== 'off'; } catch (e) {  }
+  const left = document.getElementById('editor-header-left');
+  const ta = document.getElementById('gcode-input');
+  if (!left || !ta) return;
+  const wrap = document.createElement('label');
+  wrap.className = 'td-wrap'; wrap.id = 'td-wrap';
+  wrap.innerHTML = '<input type="checkbox" id="td-on"><span>Detect tools and setup from comments</span><b id="td-n"></b>';
+  left.appendChild(wrap);
+  const cb = wrap.querySelector('#td-on'), nEl = wrap.querySelector('#td-n');
+  cb.checked = on;
+  const css = document.createElement('style');
+  css.textContent = '#td-wrap{display:inline-flex;align-items:center;gap:7px;margin-left:12px;font:600 11px/1 "Inter",system-ui,sans-serif;letter-spacing:.02em;color:var(--text-dim);cursor:pointer;white-space:nowrap}' +
+    '#td-wrap:hover{color:var(--text)}#td-wrap input{width:15px!important;height:15px!important}' +
+    '#td-n{font-weight:600;color:var(--accent);min-width:0}';
+  document.head.appendChild(css);
+
+  let last = '', timer = 0, current = [];
+  function apply(force) {
+    const list = detect(ta.value);
+    const setup = detectSetup(ta.value);
+    current = list;
+    const bits = [];
+    if (list.length) bits.push(list.length + ' tool' + (list.length > 1 ? 's' : ''));
+    if (setup) bits.push('setup');
+    nEl.textContent = bits.length ? bits.join(' \u00B7 ') : '';
+    const lines = [];
+    if (setup) {
+      if (setup.dims) lines.push('Stock ' + setup.dims.map(v => fmt(v)).join(' \u00D7 ') + (setup.mm ? ' mm' : ' in'));
+      if (setup.shape === 'cyl') lines.push('Round bar \u00D8' + fmt(setup.dia) + ' \u00D7 ' + fmt(setup.len));
+      if (setup.metal) lines.push('Metal: ' + setup.metal);
+      if (setup.offset) lines.push('Work offset ' + setup.offset);
+      if (setup.zero) lines.push('Zero: ' + setup.zero.z + ' ' + (setup.zero.x === 'center' ? 'centre' : setup.zero.y + '-' + setup.zero.x));
+      if (setup.slide) lines.push('In the vise: ' + setup.slide);
+      if (setup.proud != null) lines.push('Stands ' + fmt(setup.proud) + ' above the jaws');
+    }
+    wrap.setAttribute('data-tip', (list.length || setup)
+      ? 'Detected from comments\n' + list.map(c => 'T' + c.tool + ' \u00B7 ' + c.kind + ' \u00B7 \u00D8' + fmt(c.dia) + (c.thread ? ' \u00B7 ' + c.thread : '')).concat(lines).join('\n')
+      : 'Detect tools and setup from comments\nA comment that starts with a tool number, like (T2 .500 ENDMILL), tells the sim what T2 is. Comments such as (STOCK 4.5 X 4.5 X .75), (G54 X0 Y0 CENTER Z0 TOP) and (6061 ALUMINUM) set the blank, work zero and metal. None found in this program.');
+    if (!cb.checked) return;
+    const sig = JSON.stringify([list.map(c => [c.tool, c.kind, c.dia, c.flutes, c.thread]), setup]);
+    if (!force && sig === last) return;
+    last = sig;
+    if (setup && window.PartModels && PartModels.applySetup) { try { PartModels.applySetup(setup); } catch (e) { console.warn('[setup detector]', e); } }
+    list.forEach(c => {
+      const t = build(c);
+      try { if (typeof setSampleTool === 'function') setSampleTool(t.num, t.dia, t.shape, t.model); } catch (e) { console.warn('[tool detector]', e); }
+    });
+    if (list.length && typeof updateToolTableUI === 'function') updateToolTableUI();
+  }
+  const soon = (ms) => { clearTimeout(timer); timer = setTimeout(() => apply(false), ms || 700); };
+  cb.addEventListener('change', () => {
+    try { localStorage.setItem(KEY, cb.checked ? 'on' : 'off'); } catch (e) {  }
+    last = ''; apply(true);
+    if (typeof showToast === 'function') showToast(cb.checked ? 'Tools detected from comments' : 'Tool detection off',
+      cb.checked ? (nEl.textContent ? 'Set from the program\u2019s comments: ' + nEl.textContent + '.' : 'Nothing in this program\u2019s comments to read.') : 'The tools and the setup in the sim are left as they are.');
+  });
+  ta.addEventListener('input', () => soon(900));
+  /* programs loaded from a sample, a file or a drop */
+  if (typeof loadGCode === 'function') {
+    const prev = loadGCode;
+    window.loadGCode = loadGCode = function (text) { const r = prev.apply(this, arguments); last = ''; soon(500); return r; };
+  }
+  soon(2500);
+  window.ToolDetector = { detect, detectSetup, describe, build, apply };
 })();
 </script>
 </body>
