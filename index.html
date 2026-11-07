@@ -65309,6 +65309,92 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
   html body :is(#toast, #program-complete-banner, #stop-hud, #vp-mode-status, #fit-note)::before, .sc-ico, #stop-hud::after, #vp-mode-status .vms-dot::before, #fit-note::after { animation: none !important; }
 }
 </style>
+<script id="tool-table-sync">
+/* Tools in the program: filled in by itself.
+ *
+ * Whenever a program arrives (a sample, a file, a paste, the code the page opens with) and whenever a tool changes, the table lists every
+ * T number the program calls with its diameter, drops the rows of tools the program no longer uses, and the "type any tool" box is
+ * written out in plain words, one tool per line, in the same words the box reads back. It never writes into the box while you are
+ * typing in it, and leaves it alone once you have edited it until the next program arrives. */
+(function () {
+  "use strict";
+  const box = () => document.getElementById("tool-table-type");
+  const prog = () => { const t = document.getElementById("gcode-input"); return t ? t.value : ""; };
+  let lastProg = null, edited = false, lastSig = "";
+
+  const FR = [2, 4, 8, 16, 32, 64];
+  function inchText(d) {
+    const whole = Math.floor(d + 1e-9), rest = d - whole;
+    for (const den of FR) {
+      const n = Math.round(rest * den);
+      if (Math.abs(rest * den - n) < 0.004 && n > 0 && n < den) {
+        let a = n, b = den; while (a % 2 === 0 && b % 2 === 0) { a /= 2; b /= 2; }
+        return (whole ? whole + " " : "") + a + "/" + b;
+      }
+    }
+    if (Math.abs(rest) < 0.0005) return String(whole || d);
+    return (+d.toFixed(4)).toString().replace(/^0\./, ".");
+  }
+
+  function lineFor(n) {
+    let rec = null, p = null;
+    try { rec = window.ToolModels && ToolModels.get(n); p = rec && ToolModel.normalize(rec.params); } catch (e) { /* none */ }
+    const nativeDia = typeof toolTable !== "undefined" ? toolTable.get(n) : null;
+    if (!p) return "T" + n + " " + (nativeDia ? inchText(nativeDia) + " " : "") + "endmill";
+    const d = p.dia / 25.4, HN = { drillchuck: "drill chuck", shrink: "shrink fit", weldon: "weldon", hydraulic: "hydraulic", arbor: "arbor" };
+    const holder = p.holder && p.holder !== "none" ? " in " + (HN[p.holder] || String(p.holder).toUpperCase()) : "";
+    /* a thread is named from the pitch the tool really has: 25.4 / 1.27 is 20 threads per inch, so 1/4-20; otherwise it is metric */
+    const thread = () => { if (!(p.pitch > 0)) return p.threadSize || inchText(d); const tpi = 25.4 / p.pitch; return Math.abs(tpi - Math.round(tpi)) < 0.15 ? inchText(d) + "-" + Math.round(tpi) : "M" + Math.round(p.dia) + "x" + (+p.pitch.toFixed(3)); };
+    const fl = p.flutes ? " " + p.flutes + " flute" : "";
+    switch (p.category) {
+      case "endmill": return "T" + n + " " + inchText(d) + (p.endType === "ball" ? " ball nose" : "") + " endmill" + fl + holder;
+      case "drill": return "T" + n + " " + inchText(d) + " drill" + holder;
+      case "spotdrill": return "T" + n + " " + inchText(d) + (p.pointAngle === 60 ? " center drill" : " spot drill") + holder;
+      case "tap": return "T" + n + " " + thread() + " tap" + holder;
+      case "chamfer": return "T" + n + " " + inchText(d) + " chamfer mill" + holder;
+      case "facemill": return "T" + n + " " + inchText(d) + " face mill" + holder;
+      case "reamer": return "T" + n + " " + inchText(d) + " reamer" + holder;
+      case "threadmill": return "T" + n + " " + thread() + " thread mill" + holder;
+      case "probe": return "T" + n + " probe";
+      default: return "T" + n + " " + inchText(d) + " endmill" + holder;
+    }
+  }
+
+  function used() {
+    const s = new Set();
+    try { toolChanges.forEach(t => { if (t && +t.tool >= 1) s.add(+t.tool); }); } catch (e) { /* no program yet */ }
+    return s;
+  }
+
+  function sync() {
+    if (typeof toolTable === "undefined") return;
+    const u = used(), text = prog(), changed = text !== lastProg;
+    if (!u.size) { if (changed) lastProg = text; return; }
+    let touched = false;
+    if (changed) {
+      lastProg = text; edited = false;
+      Array.from(toolTable.keys()).forEach(n => { if (!u.has(n)) { toolTable.delete(n); touched = true; } });
+    }
+    u.forEach(n => { if (!toolTable.has(n)) { toolTable.set(n, 0.5); touched = true; } });
+    if (touched && typeof updateToolTableUI === "function") { try { updateToolTableUI(); } catch (e) { /* the table repaints next time */ } }
+    const nums = Array.from(u).sort((a, b) => a - b);
+    const sig = nums.map(n => { let r = ""; try { const m = ToolModels.get(n); r = m ? JSON.stringify(m.params) : ""; } catch (e) { /* none */ } return n + ":" + toolTable.get(n) + ":" + r; }).join(";");
+    const b = box();
+    if (!b || document.activeElement === b || edited) { lastSig = sig; return; }
+    if (sig !== lastSig || changed) { b.value = nums.map(lineFor).join("\n"); b.rows = Math.min(8, Math.max(2, nums.length)); }
+    lastSig = sig;
+  }
+
+  document.addEventListener("input", e => { if (e.target && e.target.id === "tool-table-type") edited = true; }, true);
+  setInterval(sync, 500);
+  if (typeof loadGCode === "function") {
+    const prev = loadGCode;
+    window.loadGCode = loadGCode = function () { const r = prev.apply(this, arguments); setTimeout(sync, 250); return r; };
+  }
+  setTimeout(sync, 600);
+  window.ToolTableSync = { sync, lineFor };
+})();
+</script>
 <script id="boot-reveal">
 /* The page builds its scene in stages: the blank first, then it slides into the vise, then the cutters and holders fill in.
    Showing the stages looks broken (a bare white cutter over a blank floating by the vise), so the 3D view fades in once the
