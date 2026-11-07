@@ -4691,7 +4691,25 @@ body.cinematic #app { background: #000; }
   transition: opacity .35s var(--ease), background .15s var(--ease);
 }
 #cin-ui .cin-exit:hover { background: rgba(255, 255, 255, .18); }
-#cin-ui.is-idle .cin-play, #cin-ui.is-idle .cin-exit { opacity: 0; pointer-events: none; }
+#cin-ui .cin-cams {
+  position: absolute; top: 18px; left: 50%; transform: translateX(-50%); z-index: 40;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: calc(100% - 150px);
+  padding: 6px; border-radius: 14px;
+  background: rgba(20, 20, 20, .5); border: 1px solid rgba(255, 255, 255, .18);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  transition: opacity .35s var(--ease);
+}
+#cin-ui .cin-cams .cin-sep { width: 1px; background: rgba(255, 255, 255, .18); margin: 2px 2px; }
+#cin-ui .cin-cams button {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 7px 11px; border-radius: 99px; background: transparent;
+  font: 600 11px/1 var(--font-ui); letter-spacing: .04em; color: rgba(255, 255, 255, .8);
+  border: 1px solid rgba(255, 255, 255, .22);
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+#cin-ui .cin-cams button:hover { background: rgba(255, 255, 255, .14); color: #fff; }
+#cin-ui .cin-cams button.on { color: #fff; border-color: rgba(255, 255, 255, .85); }
+#cin-ui.is-idle .cin-play, #cin-ui.is-idle .cin-exit, #cin-ui.is-idle .cin-cams { opacity: 0; pointer-events: none; }
 body.cinematic.cin-idle #main-canvas { cursor: none; }
 
 /* viewport toolbar button that starts it */
@@ -60361,6 +60379,28 @@ window.HAAS_LATHE_CODES = {
     "</button>" +
     '<button class="cin-exit" type="button" title="Leave cinematic mode (Esc)">Exit</button>';
 
+  /* Camera choice while the panels are away: how many views, and which camera the first one uses. */
+  const cams = document.createElement("div");
+  cams.className = "cin-cams";
+  ui.appendChild(cams);
+  function paintCams() {
+    const M = window.MultiCam;
+    if (!M) { cams.style.display = "none"; return; }
+    const keys = M.state.assign[M.layout] || M.layouts[M.layout].cams;
+    cams.innerHTML =
+      M.layoutOrder.map(k => '<button type="button" data-layout="' + k + '" class="' + (k === M.layout ? "on" : "") + '" title="' + M.layouts[k].name + ' layout"><i class="fa-solid ' + M.layouts[k].icon + '"></i></button>').join("") +
+      '<span class="cin-sep"></span>' +
+      M.order.map(k => '<button type="button" data-cam="' + k + '" class="' + (k === keys[0] ? "on" : "") + '" title="' + M.cams[k].name + ' camera"><i class="fa-solid ' + M.cams[k].icon + '"></i>' + M.cams[k].name + '</button>').join("");
+  }
+  cams.addEventListener("click", e => {
+    const b = e.target.closest("button"), M = window.MultiCam;
+    if (!b || !M) return;
+    e.stopPropagation();
+    if (b.dataset.layout) M.setLayout(b.dataset.layout);
+    else if (b.dataset.cam) M.setCamera(0, b.dataset.cam);
+    paintCams(); wake();
+  });
+
   const playing = () => (typeof simPlaying !== "undefined") && simPlaying;
 
   function sync() { ui.classList.toggle("is-playing", !!playing()); }
@@ -60391,7 +60431,7 @@ window.HAAS_LATHE_CODES = {
     on = next;
     document.body.classList.toggle("cinematic", on);
     if (on) {
-      sync();
+      sync(); paintCams();
       poll = setInterval(sync, 150);
       wake();
     } else {
