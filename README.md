@@ -14,6 +14,9 @@ A single-file G-code simulator for a Haas-style mill. Open `index.html` in a bro
 - Orbit and Close-up cameras start a lot closer.
 - **Collision by real contact**: the Setup check tests the cutter's body against the actual fixed jaw, moving jaw, vise bed and parallels, each with its own thickness and height. Passing over a jaw, or beside it, is fine; only touching it is flagged.
 - **Coolant** is drawn as a jet and spray only (no nozzle or hose). Beads left on the blank let go when a cut takes their metal away, all of it clears on a rewind or seek, and it stops at M30 or the end of the program.
+- **M07 mist coolant** is a separate simulation from M08 flood: a small air-flow grid rides with the cutter (a nozzle blows air, the spinning cutter drags it round, the tool and holder are solid, and the flow is projected to be divergence-free), and a fog of atomised water droplets is carried by that air, bounces off the cutter and wets the work. M07 turns it on, M09 (or M30) turns it off.
+- **View controls** (view toggles, isolate and section, graphics, path types, camera, layout, coolant) are one icon-only strip between the 3D view and the panel below it.
+- **Loading screen** is the Shop Tool Sim opening: the lockup writes itself, broken brackets glitch in and join up, an arc runs round it, then it fades once the page is built.
 - **Bottom panel**: the mode banner and playback sit in a fixed left column and the view controls scroll on their own on the right, so scrolling one never moves the other. The footer plate is flush with the bottom of the window, with no empty band under it.
 - **Status cards** (toasts, program complete, stop banner, mode banner, fit note) share one look: a flat dark card, a bright arc that travels round the outline, and a leading icon that dances.
 - Text engraving sweeps a real V-groove at the cutter's point angle (a 60 degree center drill cuts a thin line), instead of stamping a round pit at the start of each stroke.
