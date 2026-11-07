@@ -39130,7 +39130,15 @@ const MakeProgram = (() => {
     if (!p) return null;
 
     const h = Stock.halfOf(p.stock);
-    if (p.stock.shape === "cyl") {
+    const zs = cfg.zeroSpec;
+    if (zs) {
+      const cyl = p.stock.shape === "cyl";
+      const x = cyl || zs.x === "center" ? 0 : (zs.x === "right" ? h[0] : -h[0]);
+      const y = cyl || zs.y === "center" ? 0 : (zs.y === "far" ? h[1] : -h[1]);
+      p.base.set(x, y, zs.z === "bottom" ? 0 : h[2] * 2);
+      const where = (cyl || (zs.x === "center" && zs.y === "center")) ? "center" : ((zs.y === "far" ? "far-" : "near-") + (zs.x === "right" ? "right" : "left") + " corner");
+      p.baseNote = p.zeroNote = (zs.z === "bottom" ? "bottom " : "top ") + where;
+    } else if (p.stock.shape === "cyl") {
       p.base.set(0, 0, h[2] * 2);
       p.baseNote = p.zeroNote = "center of the top face";
     } else {
@@ -39765,19 +39773,11 @@ const MakeProgram = (() => {
     if (o.metal) st.metal = o.metal;
     cfg.stock = st;
     if (o.slide) cfg.slide = o.slide;
-    liveStock();
-    const p = Gizmo.findStock && Gizmo.findStock();
-    if (p && p.stock && o.zero) {
-      const h = Stock.halfOf(p.stock), cyl = p.stock.shape === "cyl";
-      const x = cyl || o.zero.x === "center" ? 0 : (o.zero.x === "right" ? h[0] : -h[0]);
-      const y = cyl || o.zero.y === "center" ? 0 : (o.zero.y === "far" ? h[1] : -h[1]);
-      const z = o.zero.z === "bottom" ? 0 : h[2] * 2;
-      p.base.set(x, y, z); p.zero.copy(p.base);
-      const where = (cyl || (o.zero.x === "center" && o.zero.y === "center")) ? "center" : ((o.zero.y === "far" ? "far-" : "near-") + (o.zero.x === "right" ? "right" : "left") + " corner");
-      p.baseNote = p.zeroNote = (o.zero.z === "bottom" ? "bottom " : "top ") + where;
-      Store.apply(p); Store.markReference(p);
-    }
-    /* the zero moved on the blank, which moves the blank unless it is seated again: always put it back in the vise */
+    /* Built from scratch rather than adjusted: a fresh blank is stood with its work zero on the world origin and
+       marked as the reference the program is drawn against, then slid into the vise, so the toolpath, the cuts
+       and the tool all follow the zero the program asked for. */
+    cfg.zeroSpec = o.zero || null;
+    buildStock(true);
     reseat(true);
     if (o.proud != null && window.JawClear && JawClear.setProud) { try { JawClear.setProud(o.proud, "stock", true); } catch (e) { /* leave it */ } }
     Panel.refresh(); paint();
@@ -64490,7 +64490,19 @@ const HaasSamples = (function () {
     const sig = JSON.stringify([list.map(c => [c.tool, c.kind, c.dia, c.flutes, c.thread]), setup]);
     if (!force && sig === last) return;
     last = sig;
-    if (setup && window.PartModels && PartModels.applySetup) { try { PartModels.applySetup(setup); } catch (e) { console.warn('[setup detector]', e); } }
+    if (setup && window.PartModels && PartModels.applySetup) {
+      try { PartModels.applySetup(setup); } catch (e) { console.warn('[setup detector]', e); }
+      /* the toolpath, the cuts and the tool follow the work zero through a frame that is only refreshed
+         when the sim is next read, so read it again now and once more when the blank has finished sliding into the vise */
+      const refresh = () => {
+        try {
+          if (typeof updateProgramFrame === 'function') updateProgramFrame();
+          if (window.StockSim && StockSim.reset) StockSim.reset(false);
+          if (typeof rewindSimToStart === 'function') rewindSimToStart();
+        } catch (e) { console.warn('[setup detector]', e); }
+      };
+      refresh(); setTimeout(refresh, 250); setTimeout(refresh, 900);
+    }
     list.forEach(c => {
       const t = build(c);
       try { if (typeof setSampleTool === 'function') setSampleTool(t.num, t.dia, t.shape, t.model); } catch (e) { console.warn('[tool detector]', e); }
