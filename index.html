@@ -39777,7 +39777,8 @@ const MakeProgram = (() => {
       p.baseNote = p.zeroNote = (o.zero.z === "bottom" ? "bottom " : "top ") + where;
       Store.apply(p); Store.markReference(p);
     }
-    if (o.slide) reseat(true);
+    /* the zero moved on the blank, which moves the blank unless it is seated again: always put it back in the vise */
+    reseat(true);
     if (o.proud != null && window.JawClear && JawClear.setProud) { try { JawClear.setProud(o.proud, "stock", true); } catch (e) { /* leave it */ } }
     Panel.refresh(); paint();
     return true;
