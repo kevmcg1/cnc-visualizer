@@ -551,7 +551,9 @@
   @keyframes banner-in { from { opacity:0; transform: translateX(-50%) translateY(6px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
 
   #editor-resize-handle { height: 5px; background: var(--border); cursor: ns-resize; flex-shrink: 0; transition: background 0.15s; }
-  #editor-resize-handle:hover { background: var(--accent); }
+  #editor-resize-handle { position: relative; }
+  #editor-resize-handle::before { content: ''; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px; }
+  #editor-resize-handle:hover, #editor-resize-handle.dragging { background: var(--accent); }
 
   #editor-panel { height: 230px; display: flex; flex-direction: column; background: var(--panel); flex-shrink: 0; border-top: 1px solid var(--border); }
 
@@ -4024,7 +4026,14 @@ body.mkp-on #sidebar #sb-setup { display: none; }
   flex-shrink: 0;
 }
 #sidebar .sb-cat-head i { font-size: 12px; width: 14px; text-align: center; }
-#sidebar .sb-cat-head span { flex: 1; }
+#sidebar .sb-cat-head span { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+#sidebar #sb-setup:not(:has(#pm-model-tools:not([hidden]))) .sb-setup-head { display: none; }
+html body #sidebar .sb-cat-head strong { font-weight: 800; font-size: 12px; letter-spacing: .08em; color: var(--cat); }
+html body #sidebar .sb-cat-head small { color: #9da3ad; }
+#sidebar .sb-cat-head small { font-size: 10.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-dim, #8a8f98); line-height: 1.35; white-space: normal; }
+#sidebar .sec-head { flex-wrap: wrap; }
+#sidebar .sec-help { flex: 0 0 100%; order: 9; padding: 5px 0 0; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; line-height: 1.4; color: var(--text-dim, #8a8f98); }
+
 #sidebar .sb-cat-head em {
   font-style: normal; font-size: 9px; font-weight: 700; letter-spacing: 0;
   padding: 1px 7px; border-radius: 9px;
@@ -18063,7 +18072,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
     </div>
 
     <div id="sb-setup">
-      <div class="sb-setup-head">Setup</div>
+      <div class="sb-setup-head">Arrange parts</div>
 
       <!-- Sim / Model lives on the switch in the viewport now. -->
       <div id="vp-mode" hidden>
@@ -19394,6 +19403,29 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 1.5h4v7l-2 4-2-4z"/><path d="M5 5.5h4"/></svg>
             Tool
           </button>
+        </div>
+
+        <div class="vt-iso" id="vt-iso">
+          <div class="vt-iso-head">Isolate and section</div>
+          <div class="vt-grid">
+            <button class="vt-btn vt-toggle" id="btn-iso" type="button" data-tip="Isolate&#10;Hides the machine, vise, parallels, toolpaths and grid. Only the tool, its holder and the part of the blank around the cut stay on screen.">
+              <i class="fa-solid fa-bullseye"></i> Isolate
+            </button>
+            <button class="vt-btn vt-toggle" id="btn-section" type="button" data-tip="Section view&#10;Slices the blank through the cutter, on the side facing you, so you can see how deep each cut goes. The cut face is hatched.">
+              <i class="fa-solid fa-scissors"></i> Section
+            </button>
+          </div>
+          <div class="vt-row vt-iso-axes" id="vt-iso-axes" data-tip="Which way the section slices&#10;X cuts across the width, Y along the length, Z flat, like a horizontal slice.">
+            <span class="vt-slider-label">Slice</span>
+            <button class="vt-btn vt-toggle" data-axis="x" type="button">X</button>
+            <button class="vt-btn vt-toggle on" data-axis="y" type="button">Y</button>
+            <button class="vt-btn vt-toggle" data-axis="z" type="button">Z</button>
+          </div>
+          <div class="vt-slider" id="vt-iso-size">
+            <span class="vt-slider-label">Around cut</span>
+            <input type="range" id="vt-iso-radius" min="0.5" max="4" step="0.1" value="1.5" data-tip="How much of the blank stays visible around the cutter">
+            <span class="vt-slider-val" id="vt-iso-radius-val">1.5 in</span>
+          </div>
         </div>
 
         <div class="vt-slider" id="vt-tool-op-wrap">
@@ -23282,7 +23314,7 @@ function renderLegend() {
       pathVisibility[key] = visCb.checked;
       lbl.style.opacity = visCb.checked ? '1' : '0.35';
       swatch.style.opacity = visCb.checked ? '1' : '0.25';
-      simSeekToTime(simTime);
+      fadePathType(key, visCb.checked, 1800);
     });
 
     const skipBtn = document.createElement('button');
@@ -23471,6 +23503,17 @@ function compDimAhead() {
 
 /* One batch of segments. In feed mode the batch carries a color per vertex,
    so a single draw call still covers the whole ramp. */
+/* How much of each path type is showing while it dissolves in or out (1 = fully there). */
+const typeFade = {};
+const typeFadeOf = t => (typeof typeFade[t] === 'number') ? typeFade[t] : 1;
+function tagPathMesh(mesh, type, o) {
+  const base = (o && typeof o.opacity === 'number') ? o.opacity : 1;
+  mesh.userData.pathType = type; mesh.userData.baseOpacity = base;
+  const k = typeFadeOf(type);
+  if (k < 1) { mesh.material.transparent = true; mesh.material.opacity = base * k; }
+  return mesh;
+}
+
 function pathMesh(pts, segs, type, opts) {
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
   geo.setAttribute('aSeq', pathSeqAttr(segs));
@@ -23493,12 +23536,12 @@ function pathMesh(pts, segs, type, opts) {
     const fl = new THREE.LineSegments(geo, fadeLineMaterial(
       new THREE.LineBasicMaterial(Object.assign({ vertexColors: true }, o))));
     if (type === 'tap') fl.renderOrder = 60;
-    return fl;
+    return tagPathMesh(fl, type, o);
   }
   const lines = new THREE.LineSegments(geo, fadeLineMaterial(
     new THREE.LineBasicMaterial(Object.assign({ color: COLORS[type] || COLORS.cut }, o))));
   if (type === 'tap') lines.renderOrder = 60;
-  return lines;
+  return tagPathMesh(lines, type, o);
 }
 
 const compOverlayGroup = new THREE.Group();
@@ -23880,8 +23923,9 @@ function buildToolpathMesh(segs, completedCount, partialSeg, partialEnd, activeT
   /* Stamp program order once so every batch can carry it per vertex. */
   for (let i = 0; i < segs.length; i++) segs[i]._seq = i;
 
-  const vis    = segs.slice(0, count).filter(s => pathVisibility[s.type] !== false);
-  const future = segs.slice(count).filter(s => pathVisibility[s.type] !== false);
+  const shownType = ty => pathVisibility[ty] !== false || typeFadeOf(ty) > 0.001;   /* a type that is dissolving away is still drawn */
+  const vis    = segs.slice(0, count).filter(s => shownType(s.type));
+  const future = segs.slice(count).filter(s => shownType(s.type));
 
   if (showAllPaths && future.length) {
     const ghostBy = {};
@@ -23907,7 +23951,7 @@ function buildToolpathMesh(segs, completedCount, partialSeg, partialEnd, activeT
       if (!byLine.has(s.lineIdx)) byLine.set(s.lineIdx, []);
       byLine.get(s.lineIdx).push(s);
     });
-    if (partialSeg && partialEnd && pathVisibility[partialSeg.type] !== false) {
+    if (partialSeg && partialEnd && shownType(partialSeg.type)) {
       const li = partialSeg.lineIdx;
       if (!byLine.has(li)) byLine.set(li, []);
       byLine.get(li).push({ ...partialSeg, end: partialEnd, _partial: true, _src: partialSeg });
@@ -23925,7 +23969,7 @@ function buildToolpathMesh(segs, completedCount, partialSeg, partialEnd, activeT
     const by = {};
     PATH_TYPES.forEach(t => { by[t.key] = []; });
     vis.forEach(s => { if (by[s.type]) by[s.type].push(s); });
-    if (partialSeg && partialEnd && pathVisibility[partialSeg.type] !== false) {
+    if (partialSeg && partialEnd && shownType(partialSeg.type)) {
       const clipped = { ...partialSeg, end: partialEnd, _src: partialSeg };
       if (by[partialSeg.type]) by[partialSeg.type].push(clipped);
     }
@@ -24708,6 +24752,34 @@ function setPathsVisible(on, ms) {
   })(t0);
 
   if (!want) syncViewToggles();
+}
+
+/* One path type dissolves away, or comes back, slowly, rather than blinking off. */
+const _typeFadeRaf = {};
+function fadePathType(key, on, ms) {
+  if (_typeFadeRaf[key]) cancelAnimationFrame(_typeFadeRaf[key]);
+  const from = typeFadeOf(key), to = on ? 1 : 0;
+  if (from === to) { delete _typeFadeRaf[key]; simSeekToTime(simTime); return; }
+  typeFade[key] = from;
+  simSeekToTime(simTime);                       /* build the lines this type needs for the dissolve */
+  const MS = Math.max(200, (ms || 1800) * Math.abs(to - from));
+  const t0 = performance.now(), ease = t => t * t * (3 - 2 * t);
+  if (window.VPBusy) window.VPBusy.hold('typeFade' + key);
+  (function step(now) {
+    const raw = Math.min((now - t0) / MS, 1);
+    typeFade[key] = from + (to - from) * ease(raw);
+    toolpathGroup.children.forEach(m => {
+      if (m.userData && m.userData.pathType === key && m.material) {
+        m.material.transparent = true;
+        m.material.opacity = (m.userData.baseOpacity == null ? 1 : m.userData.baseOpacity) * typeFade[key];
+      }
+    });
+    if (raw < 1) { _typeFadeRaf[key] = requestAnimationFrame(step); return; }
+    delete _typeFadeRaf[key];
+    typeFade[key] = to;
+    if (window.VPBusy) window.VPBusy.release('typeFade' + key);
+    simSeekToTime(simTime);                     /* a hidden type is dropped; a shown one goes back to solid lines */
+  })(t0);
 }
 
 function setAxesVisible(on) {
@@ -27346,18 +27418,47 @@ gcodeInput.addEventListener('paste', () => {
   setTimeout(flushParseNow, 0);
 });
 
-let rDrag=false,rStartY=0,rStartH=0;
-resizeHandle.addEventListener('mousedown',e=>{rDrag=true;rStartY=e.clientY;rStartH=editorPanel.offsetHeight;e.preventDefault();});
-window.addEventListener('mousemove',e=>{
-  if(!rDrag)return;
-  const delta=rStartY-e.clientY;
-  editorPanel.style.height=Math.max(80,Math.min(window.innerHeight*0.7,rStartH+delta))+'px';
-
-  mainRenderer.setSize(viewport.clientWidth,viewport.clientHeight);
-  updateFrustum();
-  mainRenderer.render(mainScene,mainCam);
-});
-window.addEventListener('mouseup',()=>{rDrag=false;});
+/* The divider between the 3D view and the editor panel. The panel's height is fixed by stylesheet rules
+   marked !important, so the drag sets its own height the same way (an inline !important wins), and it
+   follows the pointer on mouse, pen and touch alike, one resize per frame. */
+(function () {
+  let drag = false, startY = 0, startH = 0, want = 0, raf = 0, pid = null;
+  const clampH = h => Math.round(Math.max(110, Math.min(window.innerHeight * 0.78, h)));
+  const apply = () => {
+    raf = 0;
+    editorPanel.style.setProperty('height', want + 'px', 'important');
+    editorPanel.style.setProperty('max-height', 'none', 'important');
+    mainRenderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    updateFrustum();
+    mainRenderer.render(mainScene, mainCam);
+  };
+  resizeHandle.style.touchAction = 'none';
+  resizeHandle.addEventListener('pointerdown', e => {
+    drag = true; pid = e.pointerId; startY = e.clientY; startH = editorPanel.offsetHeight; want = startH;
+    try { resizeHandle.setPointerCapture(pid); } catch (x) { /* fine without it */ }
+    resizeHandle.classList.add('dragging'); document.body.style.userSelect = 'none'; document.body.style.cursor = 'ns-resize';
+    e.preventDefault();
+  });
+  resizeHandle.addEventListener('pointermove', e => {
+    if (!drag) return;
+    want = clampH(startH + (startY - e.clientY));
+    if (!raf) raf = requestAnimationFrame(apply);
+  });
+  const end = () => {
+    if (!drag) return;
+    drag = false; resizeHandle.classList.remove('dragging'); document.body.style.userSelect = ''; document.body.style.cursor = '';
+    try { resizeHandle.releasePointerCapture(pid); } catch (x) { /* already released */ }
+  };
+  resizeHandle.addEventListener('pointerup', end);
+  resizeHandle.addEventListener('pointercancel', end);
+  resizeHandle.addEventListener('lostpointercapture', end);
+  /* a double click puts the panel back to its usual height */
+  resizeHandle.addEventListener('dblclick', () => {
+    editorPanel.style.removeProperty('height'); editorPanel.style.removeProperty('max-height');
+    requestAnimationFrame(() => { mainRenderer.setSize(viewport.clientWidth, viewport.clientHeight); updateFrustum(); mainRenderer.render(mainScene, mainCam); });
+  });
+  window.addEventListener('resize', () => { if (editorPanel.style.height) { want = clampH(editorPanel.offsetHeight); if (!raf) raf = requestAnimationFrame(apply); } });
+})();
 
 </script>
 <script>
@@ -28478,7 +28579,7 @@ const PARAM_KEYS = [
    end of a name that is already saying what the cutter is. */
 const HOLDER_LABELS = {
   er11:"ER11", er16:"ER16", er20:"ER20", er25:"ER25", er32:"ER32", er40:"ER40",
-  shrink:"Shrink Fit", weldon:"Weldon", hydraulic:"Hydraulic", drillchuck:"Drill Chuck",
+  shrink:"Shrink Fit", weldon:"Weldon", hydraulic:"Hydraulic", drillchuck:"Drill Chuck", arbor:"Arbor",
 };
 
 const TYPE_LABELS = {
@@ -29962,6 +30063,8 @@ const HOLDERS = {
   weldon:     { label:"end mill holder",     kind:"weldon", body:44, grip:32, cap:25, bodyLen:62 },
   hydraulic:  { label:"hydraulic chuck",     kind:"hyd",    body:46, grip:36, cap:20, bodyLen:74 },
   drillchuck: { label:"keyless drill chuck", kind:"chuck",  body:50, grip:30, cap:13, bodyLen:78 },
+  /* a shell-mill arbor: what a face mill bolts to */
+  arbor:      { label:"shell mill arbor",    kind:"weldon", body:44, grip:32, cap:25, bodyLen:50 },
 };
 
 /* The 40 taper every holder above sits on. */
@@ -29984,7 +30087,7 @@ const STUD_LEN  = STUD_COLLAR_L + STUD_NECK_L + STUD_HEAD_L + 2;
 
 /* A face mill hangs on an arbor and a probe brings its own body, so neither
    takes a holder. */
-const HOLDERLESS = ["facemill", "probe"];
+const HOLDERLESS = ["probe"];
 const canHold = p => !HOLDERLESS.includes(p.category);
 const holderOf = p => (canHold(p) && HOLDERS[p.holder]) || null;
 
@@ -30022,6 +30125,7 @@ const toolHeight = p => p.category === "facemill" ? p.bodyH : (p.category === "p
 function holderNose(p) {
   const h = holderOf(p);
   if (!h) return null;
+  if (p.category === "facemill") return p.bodyH;      /* the arbor meets the back of the cutter body */
   if (p.stickout > 0) return clamp(p.stickout, 4, Math.max(p.oal - 4, 5));
   return p.oal - Math.min(h.grip, Math.max(p.oal - p.loc - 4, 4));
 }
@@ -34073,6 +34177,8 @@ const Stock = (() => {
     uniform float uOrtho, uBackoff, uScale;
     uniform int   uSteps;
     uniform int   uFast;
+    uniform float uIsoOn, uIsoR, uSecOn;
+    uniform vec3  uIsoC, uSecQ, uSecN;
     uniform int   uNK;
     uniform int   uAOK;
 
@@ -34454,12 +34560,42 @@ const Stock = (() => {
 
       float t = max(bb.x, 0.0), tmax = bb.y + 0.02;
       float eps = 0.0012 * uHalf.z + 0.004;
-      bool hit = false, left = false;
+      bool hit = false, left = false, capHit = false;
+      int capK = 0; vec3 capN = vec3(0.0);
+      /* Isolation keeps a ball of the blank round the cutter; the section removes the half on the
+         camera's side of a plane. The ray is cut to what is left, and where it starts on a cut
+         face inside the metal, that face is drawn as a hatched cap. */
+      if (uIsoOn > 0.5) {
+        float kk = length(uInvModel[0].xyz);
+        vec3 cL = (uInvModel * vec4(uIsoC, 1.0)).xyz;
+        float rL = uIsoR * kk;
+        vec3 oc = ro - cL;
+        float bq = dot(oc, rd), hq = bq * bq - (dot(oc, oc) - rL * rL);
+        if (hq < 0.0) discard;
+        hq = sqrt(hq);
+        float ta = -bq - hq, tb = -bq + hq;
+        if (ta > t) { t = ta; capK = 1; capN = normalize(ro + rd * ta - cL); }
+        tmax = min(tmax, tb);
+        if (tmax < t) discard;
+      }
+      if (uSecOn > 0.5) {
+        vec3 qL = (uInvModel * vec4(uSecQ, 1.0)).xyz;
+        vec3 nL = normalize((uInvModel * vec4(uSecN, 0.0)).xyz);
+        float f0 = dot(ro - qL, nL), sq = dot(rd, nL);
+        if (abs(sq) < 1e-6) { if (f0 > 0.0) discard; }
+        else {
+          float tp = -f0 / sq;
+          if (sq > 0.0) tmax = min(tmax, tp);
+          else if (tp > t) { t = tp; capK = 2; capN = nL; }
+        }
+        if (tmax < t) discard;
+      }
+      float t00 = t;
       for (int i = 0; i < 256; i++) {
         if (i >= uSteps) break;
         vec3 p = ro + rd * t;
         float d = sdPart(p);
-        if (d < eps) { hit = true; break; }
+        if (d < eps) { hit = true; capHit = (capK != 0 && t - t00 < eps * 1.5); break; }
         t += d * 0.9;
         if (t > tmax) { left = true; break; }
       }
@@ -34479,8 +34615,13 @@ const Stock = (() => {
       }
 
       bool cutFace = sdStock(p) < -eps * 3.0;
-      vec3 n = calcN(p);
-      vec3 col = shade(p, n, rd, cutFace);
+      vec3 n = capHit ? capN : calcN(p);
+      vec3 col = shade(p, n, rd, capHit ? true : cutFace);
+      if (capHit) {
+        vec3 pw = (uModel * vec4(p, 1.0)).xyz;
+        float hh = fract((pw.x + pw.y + pw.z) * 14.0);
+        col = mix(col, col * 0.58, step(0.5, hh));
+      }
 
       vec4 clip = uProjView * (uModel * vec4(p, 1.0));
       gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5 + 0.000012;   // a hair behind a coplanar line or flush jaw
@@ -34604,6 +34745,8 @@ const Stock = (() => {
         uOrtho: { value: 1 }, uBackoff: { value: 1000 }, uScale: { value: 1 },
         uSteps: { value: rec.def.steps || 88 },
         uFast: { value: 0 }, uNK: { value: 4 }, uAOK: { value: 3 },
+        uIsoOn: { value: 0 }, uIsoR: { value: 1 }, uSecOn: { value: 0 },
+        uIsoC: { value: new THREE.Vector3() }, uSecQ: { value: new THREE.Vector3() }, uSecN: { value: new THREE.Vector3(0, 1, 0) },
       },
     });
   }
@@ -36400,6 +36543,7 @@ const Panel = (() => {
         ? Math.min(p.stock.steps || 128, Quality.steps())
         : (p.stock.steps || 128);
 
+      if (window.Isolation) window.Isolation.feed(u, camera);
       u.uFast.value = (typeof Quality !== "undefined" && Quality.fast) ? (Quality.fast() ? 1 : 0) : 0;
 
       /* Machined faces only take a polish on High — it is the one setting that
@@ -39847,7 +39991,15 @@ const MakeProgram = (() => {
     cfg.zeroSpec = o.zero || null;
     buildStock(true);
     reseat(true);
-    if (o.proud != null && window.JawClear && JawClear.setProud) { try { JawClear.setProud(o.proud, "stock", true); } catch (e) { /* leave it */ } }
+    if (o.proud != null && window.JawClear && JawClear.setProud) {
+      try {
+        /* the jaw panel speaks the display unit; a size read from the comments is in inches */
+        const mmUnits = typeof unitMode !== "undefined" && unitMode === "mm";
+        const want = o.proudIn && mmUnits ? o.proud * 25.4 : o.proud;
+        /* the parallels are cut to leave the blank standing exactly that far above the jaws */
+        JawClear.setProud(want, o.proudPars ? "pars" : "stock", true);
+      } catch (e) { /* leave it */ }
+    }
     Panel.refresh(); paint();
     return true;
   }
@@ -57841,18 +57993,47 @@ window.HAAS_LATHE_CODES = {
   /* ---------------------------------------------------------------- *
    * Categories
    * ---------------------------------------------------------------- */
+  /* The sidebar reads top to bottom as the order a student works in: load a program, set up the job,
+     look around, check the work. Everything for later sits under Extras. */
   const CATS = [
-    { key: "program", name: "Program", color: "#ffb02e", icon: "fa-file-code",
-      secs: ["program", "subs", "codes"] },
-    { key: "setup",   name: "Setup",   color: "#4cc2ff", icon: "fa-screwdriver-wrench",
+    { key: "program", name: "Step 1 \u00B7 Load a program", color: "#ffb02e", icon: "fa-file-code", open: true,
+      desc: "Type or paste G-code, or start from a ready-made sample.",
+      secs: ["program", "haas", "subs"] },
+    { key: "setup",   name: "Step 2 \u00B7 Set up the job", color: "#4cc2ff", icon: "fa-screwdriver-wrench",
+      desc: "The metal you cut, how it is held, and the tools you use.",
       secs: ["stock", "fixture", "tools", "d-offsets", "tool-models"] },
-    { key: "library", name: "Library", color: "#b48cff", icon: "fa-shapes",
-      secs: ["part-models"] },
-    { key: "view",    name: "View",    color: "#35d4c7", icon: "fa-eye",
+    { key: "view",    name: "Step 3 \u00B7 Look around", color: "#35d4c7", icon: "fa-eye",
+      desc: "Choose what is on screen and where the camera stands.",
       secs: ["display", "grid", "cameras"] },
-    { key: "check",   name: "Check",   color: "#ff6b6b", icon: "fa-magnifying-glass-chart",
-      secs: ["view-stats", "sim-debug", "setup-sheet", "stress", "syntax"] },
+    { key: "check",   name: "Step 4 \u00B7 Check your work", color: "#ff6b6b", icon: "fa-magnifying-glass-chart",
+      desc: "Run times, mistakes in the code, a setup sheet, and a code lookup.",
+      secs: ["view-stats", "syntax", "setup-sheet", "codes"] },
+    { key: "library", name: "Extras", color: "#b48cff", icon: "fa-toolbox",
+      desc: "For when you are comfortable: your own 3D models and technical tools.",
+      secs: ["part-models", "sim-debug", "stress", "dev"] },
   ];
+  /* what each panel is called for a beginner, and one line on what it is for */
+  const LABELS = {
+    program: ["Your G-code", "Type, paste or open the program the machine will run."],
+    haas: ["Ready-made samples", "Open an example to learn from. Each loads its own tools and metal."],
+    subs: ["Sub-programs", "Blocks of code the main program calls, such as with M98."],
+    stock: ["The metal (stock)", "The block you start with: its size, its material and where zero sits."],
+    fixture: ["Holding it (vise)", "The vise and the parallels the metal sits on."],
+    tools: ["Tools in the program", "Give every T number a size so the cuts come out the right width."],
+    "d-offsets": ["Tool wear (D offsets)", "Small size adjustments for cutter compensation, G41 and G42."],
+    "tool-models": ["Tool pictures", "Choose what each tool looks like and the holder it sits in."],
+    display: ["What to show", "Turn things on the screen on or off."],
+    grid: ["Floor grid", "The squares on the floor and how big they are."],
+    cameras: ["Camera angles", "Jump to a standard view, such as top or front."],
+    "view-stats": ["Program stats", "How long the program runs and how far the tool travels."],
+    syntax: ["Fix my G-code", "Looks for common typing mistakes in the program."],
+    "setup-sheet": ["Setup sheet", "A printable summary for whoever runs the machine."],
+    codes: ["G and M code lookup", "Search for what a code means."],
+    "part-models": ["Import 3D models", "Bring in your own vise, fixture or part."],
+    "sim-debug": ["Simulator details", "Technical read-outs for troubleshooting."],
+    stress: ["Stress test", "Checks the simulator against many random programs."],
+    dev: ["Developer tools", "Tools for testing the simulator itself."],
+  };
   const ICONS = {
     program: "fa-file-code", subs: "fa-file-import", codes: "fa-book", stock: "fa-cube", fixture: "fa-wrench",
     tools: "fa-table-list", "d-offsets": "fa-sliders", "tool-models": "fa-gear",
@@ -57878,14 +58059,16 @@ window.HAAS_LATHE_CODES = {
     head.dataset.cat = cat.key;
     head.style.setProperty("--cat", cat.color);
     head.innerHTML =
-      '<i class="fa-solid ' + cat.icon + '"></i><span>' + cat.name + '</span>' +
+      '<i class="fa-solid ' + cat.icon + '"></i><span><strong>' + cat.name + '</strong>' +
+      (cat.desc ? '<small>' + cat.desc + '</small>' : '') + '</span>' +
       '<em>' + members.length + '</em><b class="sb-cat-chev">&#9662;</b>';
-    head.title = "Show or hide this group";
+    head.dataset.tip = "Show or hide this group";
     head.addEventListener("click", () => {
       const off = head.classList.toggle("collapsed");
       members.forEach(m => m.classList.toggle("cat-hidden", off));
     });
     frag.appendChild(head);
+    if (!cat.open) { head.classList.add("collapsed"); members.forEach(m => m.classList.add("cat-hidden")); }
 
     members.forEach(m => {
       m.classList.add("cat-sec");
@@ -57905,6 +58088,25 @@ window.HAAS_LATHE_CODES = {
     const i = document.createElement("i");
     i.className = "fa-solid " + ICONS[key] + " sec-ico";
     name.prepend(i);
+  });
+
+  /* Every panel is named in plain words and says what it is for. The old name stays in its tooltip. */
+  Object.keys(LABELS).forEach(key => {
+    const head = headOf(key), sec = secOf(key);
+    if (!head || !sec) return;
+    const name = head.querySelector(".sec-name");
+    if (name) {
+      const old = name.textContent.trim().replace(/\s+/g, " ");
+      const t = [...name.childNodes].find(n => n.nodeType === 3 && n.nodeValue.trim());
+      if (t) t.nodeValue = " " + LABELS[key][0] + " ";
+      head.dataset.tip = LABELS[key][0] + "\n" + LABELS[key][1] + (old !== LABELS[key][0] ? "\nAlso called: " + old : "");
+      head.removeAttribute("title");
+    }
+    if (!head.querySelector(".sec-help")) {
+      const h = document.createElement("div");
+      h.className = "sec-help"; h.textContent = LABELS[key][1];
+      head.appendChild(h);      /* inside the head: the body must stay the head's next sibling for the open/close rule */
+    }
   });
 
   /* The "How do I use it?" launcher gets its own colour. */
@@ -63516,6 +63718,13 @@ const DevStressHost = (function () {
 document.getElementById('btn-dev-stress').addEventListener('click', () => window.DevStress && window.DevStress.toggle());
 </script>
 <style id="hud-theme">
+#vt-iso{display:flex;flex-direction:column;gap:6px;margin:6px 0}
+#vt-iso .vt-iso-head{font:600 10px/1 'Inter',system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim)}
+#vt-iso .vt-iso-axes,#vt-iso #vt-iso-size{display:none}
+#vt-iso.sec .vt-iso-axes{display:flex}
+#vt-iso.iso #vt-iso-size{display:flex}
+#vt-iso .vt-btn i{margin-right:6px}
+
 /* ============================================================================
    One look, everywhere: the HUD design from the shop tool sim.
 
@@ -63631,6 +63840,9 @@ html body .cr-ghead{background:var(--bg)!important;border-left-color:var(--ctl-l
 html body .cr-code{color:var(--accent)!important;border-left-color:var(--border)!important}
 html body .cr-kind{background:transparent!important;color:var(--text)!important;border:1px solid var(--ctl-line)!important}
 html body #sidebar .sec-head .sec-name,html body #sidebar .sec-name,html body #sidebar .sb-cat-head,html body #sidebar .sb-cat-head *{font-style:normal!important;font-weight:600!important;letter-spacing:.1em!important}
+html body #sidebar .sb-cat-head strong{color:var(--cat)!important;font-size:12px!important;font-weight:700!important;letter-spacing:.05em!important;text-transform:none!important}
+html body #sidebar .sb-cat-head small{color:#9da3ad!important;font-size:11px!important;font-weight:400!important;letter-spacing:0!important;text-transform:none!important}
+html body #sidebar .sb-cat-head i{color:var(--cat)!important}
 html body #sidebar code,html body #sidebar kbd{color:var(--text)!important;background:transparent!important;border:1px solid var(--ctl-line)!important;border-radius:6px!important;padding:0 5px}
 
 /* the view dock sits bottom-left; on a narrower view the transport card rides above it */
@@ -64316,6 +64528,143 @@ const HaasSamples = (function () {
   if (ta && ta.value) { const u = upperComments(ta.value); if (u !== ta.value) { ta.value = u; if (typeof updateHighlight === 'function') updateHighlight(); } }
 })();
 </script>
+<script id="isolation">
+/* Isolate and section.
+   Isolate hides everything but the cutter, its holder and the ball of blank round the cut. Section slices the
+   blank (and the cutter) through the cutter on the side facing the camera and hatches the cut face. The blank
+   is ray-marched, so its clipping happens in its own shader (uIso*, uSec*); everything else is switched off
+   or clipped with an ordinary plane just before each frame is drawn. */
+(function () {
+  const state = { iso: false, sec: false, axis: 'y', radius: 1.5 };
+  const saved = new Map(), mats = new Map();
+  const plane = new THREE.Plane(), AX = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+  const C = new THREE.Vector3(), N = new THREE.Vector3(), tmp = new THREE.Vector3();
+
+  /* the tip of the cutter, in the world, wherever the sim last put it: the visible tool model's own origin,
+     or the plain cutter when no model is loaded */
+  function centre() {
+    let o = null;
+    try { o = ToolModels.root().children.find(c => c.visible); } catch (e) { /* none */ }
+    if (!o && typeof toolCylinderMesh !== 'undefined' && toolCylinderMesh && toolCylinderMesh.visible) o = toolCylinderMesh;
+    if (!o) return null;
+    o.updateWorldMatrix(true, false);
+    return o.getWorldPosition(C);
+  }
+  /* how big a world unit is, against an inch, in the unit the page is showing */
+  const perIn = () => (typeof unitMode !== 'undefined' && unitMode === 'mm') ? 25.4 : 1;
+
+  function keepSets() {
+    const roots = new Set();
+    try { roots.add(ToolModels.root()); } catch (e) { /* no tool models yet */ }
+    try { PartModels.all().forEach(p => { if (p.role === 'stock' && p.mesh) roots.add(p.mesh); }); } catch (e) { /* no blank */ }
+    if (typeof toolCylinderMesh !== 'undefined' && toolCylinderMesh) roots.add(toolCylinderMesh);
+    const anc = new Set();
+    roots.forEach(r => { for (let o = r && r.parent; o; o = o.parent) anc.add(o); });
+    return { roots, anc };
+  }
+  function sweep(node, k) {
+    for (const c of node.children) {
+      if (k.roots.has(c) || c.isLight) continue;
+      if (k.anc.has(c)) { sweep(c, k); continue; }
+      if (c.visible && !saved.has(c)) {
+        /* pinned off: parts of the page that switch themselves back on (the coolant) cannot while this is on */
+        saved.set(c, true);
+        Object.defineProperty(c, 'visible', { get: () => false, set: () => {}, configurable: true });
+      }
+    }
+  }
+  function toolMaterials(fn) {
+    const roots = [];
+    try { roots.push(ToolModels.root()); } catch (e) { /* none */ }
+    if (typeof toolCylinderMesh !== 'undefined' && toolCylinderMesh) roots.push(toolCylinderMesh);
+    roots.forEach(r => r.traverse(o => {
+      if (!o.material) return;
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => fn(m));
+    }));
+  }
+  function clipTools(on) {
+    mainRenderer.localClippingEnabled = true;
+    toolMaterials(m => {
+      if (on) {
+        if (!mats.has(m)) { mats.set(m, { side: m.side, cp: m.clippingPlanes }); m.side = THREE.DoubleSide; m.needsUpdate = true; }
+        m.clippingPlanes = [plane];
+      } else if (mats.has(m)) { const o = mats.get(m); m.side = o.side; m.clippingPlanes = o.cp; m.needsUpdate = true; mats.delete(m); }
+    });
+    if (!on) mats.forEach((o, m) => { m.side = o.side; m.clippingPlanes = o.cp; m.needsUpdate = true; });
+    if (!on) mats.clear();
+  }
+
+  /* before each frame: keep the page's other things switched off, and the cutter clipped */
+  function pre() {
+    if (state.iso) sweep(mainScene, keepSets());
+    if (state.sec) {
+      const c = centre(); if (!c) return;
+      const cam = typeof mainCam !== 'undefined' ? mainCam : null;
+      N.copy(AX[state.axis]);
+      if (cam && tmp.copy(cam.position).sub(c).dot(N) < 0) N.negate();
+      plane.setFromNormalAndCoplanarPoint(tmp.copy(N).negate(), c);
+      clipTools(true);
+    }
+  }
+  if (!mainRenderer.__isoWrapped) {
+    const r = mainRenderer.render.bind(mainRenderer);
+    mainRenderer.render = function () { if (state.iso || state.sec) pre(); return r.apply(null, arguments); };
+    mainRenderer.__isoWrapped = true;
+  }
+
+  /* the blank's own shader */
+  function feed(u, camera) {
+    const c = (state.iso || state.sec) ? centre() : null;
+    u.uIsoOn.value = state.iso && c ? 1 : 0;
+    u.uSecOn.value = state.sec && c ? 1 : 0;
+    if (!c) return;
+    u.uIsoC.value.copy(c);
+    u.uIsoR.value = state.radius * perIn();
+    u.uSecQ.value.copy(c);
+    N.copy(AX[state.axis]);
+    if (camera && tmp.copy(camera.position).sub(c).dot(N) < 0) N.negate();
+    u.uSecN.value.copy(N);
+  }
+
+  function refresh() {
+    const bar = document.getElementById('vt-iso');
+    if (bar) { bar.classList.toggle('iso', state.iso); bar.classList.toggle('sec', state.sec); }
+    const b1 = document.getElementById('btn-iso'), b2 = document.getElementById('btn-section');
+    if (b1) b1.classList.toggle('on', state.iso);
+    if (b2) b2.classList.toggle('on', state.sec);
+    document.querySelectorAll('#vt-iso-axes [data-axis]').forEach(b => b.classList.toggle('on', b.dataset.axis === state.axis));
+    const v = document.getElementById('vt-iso-radius-val');
+    if (v) v.textContent = state.radius.toFixed(1) + (perIn() === 1 ? ' in' : ' in (' + (state.radius * 25.4).toFixed(0) + ' mm)');
+  }
+  function restore() {
+    saved.forEach((_, o) => { delete o.visible; o.visible = true; });
+    saved.clear();
+    clipTools(false);
+  }
+  function redraw() {
+    refresh();
+    if (!state.iso) { restore(); }
+    if (!state.sec) clipTools(false);
+    if (window.VPBusy) { VPBusy.hold('iso'); setTimeout(() => VPBusy.release('iso'), 400); }
+    try { if (typeof simSeekToTime === 'function') simSeekToTime(simTime); } catch (e) { /* ignore */ }
+  }
+  function set(k, v) { state[k] = v; redraw(); }
+
+  document.addEventListener('click', e => {
+    const t = e.target.closest && e.target.closest('#btn-iso, #btn-section, #vt-iso-axes [data-axis]');
+    if (!t) return;
+    if (t.id === 'btn-iso') set('iso', !state.iso);
+    else if (t.id === 'btn-section') set('sec', !state.sec);
+    else set('axis', t.dataset.axis);
+  });
+  document.addEventListener('input', e => {
+    if (e.target && e.target.id === 'vt-iso-radius') set('radius', parseFloat(e.target.value) || 1.5);
+  });
+  refresh();
+
+  window.Isolation = { state, feed, set, refresh, centre };
+})();
+</script>
 <script id="tool-detector">
 /* Tool detector: reads the tools out of the program's comments.
  *
@@ -64399,7 +64748,7 @@ const HaasSamples = (function () {
     switch (c.kind) {
       case 'face':
         shape = 'flat';
-        model = { category: 'facemill', inserts: 5, bodyH: Math.round(mm * 0.75), boreDia: Math.round(mm * 0.38), insertSize: 11, holder: true, name: '\u00D8' + fmt(D) + ' 5-insert face mill' };
+        model = { category: 'facemill', inserts: 5, bodyH: Math.round(mm * 0.75), boreDia: Math.round(mm * 0.38), insertSize: 11, holder: 'arbor', name: '\u00D8' + fmt(D) + ' 5-insert face mill' };
         break;
       case 'ball':
         shape = 'ball';
@@ -64509,6 +64858,12 @@ const HaasSamples = (function () {
       }
       const pr = c.match(new RegExp('(?:PROUD|ABOVE\\s*(?:THE\\s*)?JAWS?|STICK\\s*-?\\s*OUT)[^0-9.]*' + num)) || c.match(new RegExp(num + '\\s*(?:IN\\.?|")?\\s*(?:PROUD|ABOVE\\s*(?:THE\\s*)?JAWS?)'));
       if (pr && o.proud == null) { o.proud = parseFloat(pr[1]); found.push('proud'); }
+      /* (AT LEAST .5 ABOVE PARALLELS): the parallels are raised until the blank stands that far up */
+      const al = c.match(new RegExp('(?:AT\\s*LEAST|MIN(?:IMUM)?|MINIMUM\\s*OF)\\s*' + num + '\\s*(IN\\.?|"|MM)?\\s*(?:OF\\s*(?:STOCK\\s*)?)?(?:ABOVE|OVER|PROUD\\s*OF)\\s*(?:THE\\s*)?(?:PARALLELS?|PARS?\\b)'));
+      if (al && o.proud == null) {
+        const mmv = (al[2] || '').toUpperCase() === 'MM' || (!al[2] && mmProgram && !/\bIN\b|"/.test(c));
+        o.proud = parseFloat(al[1]) / (mmv ? 25.4 : 1); o.proudIn = true; o.proudPars = true; found.push('parallels');
+      }
     }
     /* a G54 line with nothing said about where zero is: the blank's top centre, which is where a G54 X0 Y0 sits when the part is centred */
     if (o.offset && !o.zero && o.dims) { o.zero = { x: 'center', y: 'center', z: 'top' }; found.push('zero'); }
@@ -64573,6 +64928,13 @@ const HaasSamples = (function () {
         } catch (e) { console.warn('[setup detector]', e); }
       };
       refresh(); setTimeout(refresh, 250); setTimeout(refresh, 900);
+      /* the jaws and the blank are measured once they have settled; set the height again then, and put the frame right after it */
+      if (setup.proud != null && window.JawClear && JawClear.setProud) {
+        const inMm = typeof unitMode !== 'undefined' && unitMode === 'mm';
+        const want = setup.proudIn && inMm ? setup.proud * 25.4 : setup.proud;
+        const mode = setup.proudPars ? 'pars' : 'stock';
+        [350, 1100].forEach(ms => setTimeout(() => { try { JawClear.setProud(want, mode, true); refresh(); } catch (e) { /* leave it */ } }, ms));
+      }
     }
     list.forEach(c => {
       const t = build(c);
