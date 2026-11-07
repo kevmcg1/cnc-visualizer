@@ -21211,7 +21211,7 @@ mainRenderer.setSize(viewport.clientWidth, viewport.clientHeight);
 const Quality = (() => {
   const CEIL = Math.min(devicePixelRatio || 1, 1.5);
 
-  const MIN_Q = 0.25, MAX_Q = 1;
+  const MIN_Q = 0.55, MAX_Q = 1;
   const SLOW = 20, FAST = 11;
 
   const COOLDOWN_DOWN = 220, COOLDOWN_UP = 900;
@@ -21229,9 +21229,9 @@ const Quality = (() => {
   const LOW_STEPS = 22;
   const MIN_STEPS = 24;
   const steps = () => mode === "low" ? LOW_STEPS
-                    : Math.round(MIN_STEPS + (88 - MIN_STEPS) * ((q - MIN_Q) / (MAX_Q - MIN_Q)));
+                    : Math.round(56 + (88 - 56) * ((q - MIN_Q) / (MAX_Q - MIN_Q)));   /* never so few steps that edges break up mid-drag */
 
-  const fast = () => mode === "low" || (mode === "auto" && q < 0.8);
+  const fast = () => mode === "low";
 
   const FLOOR = Math.min(CEIL, 1);
 
@@ -34250,7 +34250,7 @@ const Stock = (() => {
         vec3 swell = vec3(noise3(p * 4.5 + vec3(3.0)),
                           noise3(p * 4.5 + vec3(19.0)),
                           noise3(p * 4.5 + vec3(41.0))) - 0.5;
-        n = normalize(n + tooth * 0.035 + swell * 0.02);
+        n = normalize(n + tooth * 0.008 + swell * 0.02);
         spec  *= 0.85;
         shine *= 0.65;
       } else {
@@ -34286,8 +34286,6 @@ const Stock = (() => {
         vec3 r = reflect(rd, n);
         float ndv = max(dot(n, -rd), 0.0);
         vec3 env = studioEnv(r, cutFace ? 0.30 : 0.60);
-        // a faint brushed streak along X, the look of satin-finished sheet
-        env *= 1.0 + 0.045 * (noise3(vec3(p.x * 14.0, p.y * 520.0, p.z * 520.0)) - 0.5);
         vec3 tint = 0.55 + 0.45 * base / max(max(base.r, base.g), max(base.b, 0.001));
         float fres = pow(1.0 - ndv, 3.0);
         // bare metal, metalness 0.9: it is nearly all reflection of the room
@@ -63580,6 +63578,40 @@ html body #hud-side > #viewport-toolbar{flex:1 1 300px;width:auto!important}
 html body #hud-side > #vp-dock{flex:0 0 auto;width:auto!important}
 html body #hud-side > #transport-bar{position:relative!important;padding-top:26px!important}
 html body #hud-side > #transport-bar::before{content:"PLAYBACK";position:absolute;left:12px;top:8px;font:600 10px/1 'Inter',system-ui,sans-serif;letter-spacing:.16em;color:var(--text-dim)}
+
+/* ---- the control panel, organised: playback on the left, view controls on the right ---- */
+html body #editor-panel{height:clamp(300px,46vh,480px)!important}
+html body #hud-side{display:grid!important;grid-template-columns:minmax(330px,1fr) minmax(280px,1fr);grid-auto-rows:min-content;gap:10px;align-content:start;
+  flex:0 0 clamp(680px,58%,960px)!important;padding:10px!important}
+html body #hud-side > #vp-mode-status{grid-column:1;grid-row:1;flex:none!important}
+html body #hud-side > #transport-bar{grid-column:1;grid-row:2 / span 2;align-self:start;flex:none!important}
+html body #hud-side > #viewport-toolbar{grid-column:2;grid-row:1 / span 2;align-self:start;flex:none!important}
+html body #hud-side > #vp-dock{grid-column:2;grid-row:3;display:flex!important;flex-direction:row!important;flex-wrap:wrap;gap:6px!important;align-self:start;flex:none!important;padding:26px 8px 8px!important}
+html body #hud-side > #vp-dock > *{width:auto!important;flex:1 1 auto}
+html body #hud-side > #viewport-toolbar,html body #hud-side > #vp-dock{position:relative!important}
+html body #hud-side > #viewport-toolbar{padding-top:26px!important}
+html body #hud-side > #viewport-toolbar::before,html body #hud-side > #vp-dock::before{position:absolute;left:12px;top:8px;font:600 10px/1 'Inter',system-ui,sans-serif;letter-spacing:.16em;color:var(--text-dim)}
+html body #hud-side > #viewport-toolbar::before{content:"VIEW"}
+html body #hud-side > #vp-dock::before{content:"CAMERA AND DISPLAY"}
+/* playback: transport in the middle, the op buttons and run options on one line, the two bars, then speed */
+html body #transport-row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;row-gap:8px}
+html body #transport-row .tp-cluster{order:1;flex:1 1 100%;justify-content:center}
+html body #transport-row .tp-follow-pair{order:2;flex:0 0 auto}
+html body #transport-row .tp-right-pair{order:3;flex:1 1 auto;justify-content:flex-end;flex-wrap:wrap;gap:6px}
+html body #op-row,html body #progress-row{padding:0 2px}
+html body #tp-bottom-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+html body #viewport-toolbar .vt-row{flex-wrap:wrap;gap:6px}
+html body #viewport-toolbar .vt-btn,html body #viewport-toolbar button{min-height:30px}
+
+/* playback rows: transport; then a 2 x 2 block of op and run buttons; then the follow camera */
+html body #transport-row .tp-right-pair{order:2!important;flex:1 1 100%!important;display:grid!important;grid-template-columns:1fr 1fr;gap:6px!important}
+html body #transport-row .tp-follow-pair{order:3!important;flex:1 1 100%!important;display:grid!important;grid-template-columns:1fr auto;gap:6px}
+html body #transport-row .tp-right-pair .tp-btn,html body #transport-row .tp-follow-pair .tp-btn{height:30px;width:auto;justify-content:center;font-size:11px;padding:0 10px}
+html body #transport-row .tp-follow-pair #btn-rotate-path{width:36px;padding:0}
+/* the footer is a single line */
+html body #site-footer.foot{display:flex!important;flex-direction:row!important;gap:16px;align-items:center;white-space:nowrap;width:max-content;max-width:100%;padding:8px 30px 3px!important}
+html body #site-footer.foot .footer-mark,html body #site-footer.foot .footer-license{display:inline!important}
+html body #site-footer.foot .footer-license{overflow:hidden;text-overflow:ellipsis;max-width:62vw}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}}
 
 </style>
