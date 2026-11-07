@@ -30265,7 +30265,9 @@ function holderNose(p) {
   if (!h) return null;
   if (p.category === "facemill") return p.bodyH;      /* the arbor meets the back of the cutter body */
   if (p.stickout > 0) return clamp(p.stickout, 4, Math.max(p.oal - 4, 5));
-  return p.oal - Math.min(h.grip, Math.max(p.oal - p.loc - 4, 4));
+  /* the Tool Builder stands the tool on the bottom of the bore, so its own bore depth is the grip */
+  const bh = builderHolder(p, h);
+  return p.oal - Math.min(bh ? bh.gripMm : h.grip, Math.max(p.oal - p.loc - 4, 4));
 }
 /* The ER chucks and the shrink-fit holder are the Tool Builder's own models (its HOLDER and
    ASM geometry, loaded from builder/builder-holders.js). They are built in inches along +Y
@@ -30281,30 +30283,46 @@ function builderHolder(p, h){
   let out = null;
   try {
     const groups = { holder: [], trim: [], black: [] };
-    let yNose, yEnd = -3.953;
+    let yNose, yEnd = -3.953, gripIn;
     if (h.kind === "er"){
       const name = p.holder.toUpperCase(), A = BH.ASM_API;
       const S = A.SIZES[name];
       const P = A.defaults(name, "cat40");
       P.bore = Math.min(S.range[1] / MM_PER_IN, Math.max(S.range[0] / MM_PER_IN, shankIn));
-      const d = A.derive(P);
+      let d = A.derive(P);
+      /* like the Tool Builder's bore slider, a bore the chuck cannot be cut with moves to the nearest one it can */
+      for (let k = 1; !d && k <= 160; k++){
+        for (const sg of [1, -1]){
+          const b2 = shankIn + sg * k * 0.25 / MM_PER_IN;
+          if (b2 < S.range[0] / MM_PER_IN || b2 > S.range[1] / MM_PER_IN) continue;
+          P.bore = b2; d = A.derive(P); if (d) break;
+        }
+      }
       if (d){
         const b = A.build(d, "full", false);
         const MAP = { "chuck-ground": "holder", "chuck-thread": "holder", "chuck-body": "holder", "chuck-stud": "holder", nut: "black", ring: "trim", collet: "trim" };
         b.parts.forEach(pt => { const g = MAP[pt.id]; if (g) groups[g].push({ pos: pt.pos, nrm: pt.nrm, idx: pt.idx, place: pt.place || 0 }); });
-        yNose = d.y0c + d.L; yEnd = d.chuck.yEnd;
+        /* the Tool Builder measures stick-out from the nut's front face, and a tool sits on the bottom of the collet bore */
+        yNose = d.y0c + d.xNf; yEnd = d.chuck.yEnd; gripIn = d.xNf - d.toolBottom;
       }
     } else {
       const A = BH.HOLDER_API, P = A.defaults();
+      /* The Tool Builder's own rules for a shrink holder (setBoreDirect): the bore takes the tool's shank, and the
+         stop-screw and coolant holes shrink first so they always stay smaller than the bore. A shank outside what the
+         standard nose can carry (small or large) gets the nose opened or the holes made smaller rather than the holder
+         being swapped for a different shape. */
       P.boreD = Math.min(1.2, Math.max(0.11, shankIn));
-      const d = A.derive(P);
+      const stop = Math.max(0.03, Math.min(P.stopD, P.boreD - 0.05));
+      P.coolantD = Math.max(0.01, Math.min(P.coolantD, stop - 0.045)); P.stopD = stop;
+      let d = A.derive(P);
+      for (let t = P.noseTipD; !d && t < 1.78; t += 0.05){ P.noseTipD = t; d = A.derive(P); }
       if (d){
         const b = A.build(d, "full", false);
         [b.steel, b.oxide, b.stud].forEach(m => groups.holder.push({ pos: m.pos, nrm: m.nrm, idx: m.idx, place: 0 }));
-        yNose = d.GL; yEnd = d.studEnd;
+        yNose = d.GL; yEnd = d.studEnd; gripIn = d.GL - d.bounds.toolBottom;
       }
     }
-    if (yNose != null) out = { groups, yNose, yEnd, bodyLen: (yNose - 0.75) * MM_PER_IN };
+    if (yNose != null) out = { groups, yNose, yEnd, bodyLen: (yNose - 0.75) * MM_PER_IN, gripMm: gripIn * MM_PER_IN };
   } catch (e) { out = null; }
   BH_CACHE[key] = out;
   return out;
@@ -31686,7 +31704,8 @@ function partSpec(part, p, look) {
   if (part === "led") return isProbe(p)
     ? { color: 0xbfe2ff, emissive: 0x7fc4ff, emissiveI: 1.5, metal: 0, rough: 0.3, envI: 0.4, bump: null, scale: 0 }
     : { color: 0x1fe86a, emissive: 0x28ff7a, emissiveI: 1.4, metal: 0, rough: 0.35, envI: 0.4, bump: null, scale: 0 };
-  if (part === "black") return { color: 0x34383e, metal: 0.7, rough: 0.38, envI: 1, bump: "blast", scale: 0.004 };
+  /* the ER nut: the Tool Builder's black oxide (0.075, 0.078, 0.088), metal 0.75, rough 0.42 */
+  if (part === "black") return { color: 0x131416, metal: 0.75, rough: 0.42, envI: 1, bump: "blast", scale: 0.003 };
   if (isProbe(p)) {
     if (part === "slots") return { color: 0x3a3f46, metal: 0.35, rough: 0.12, envI: 1.2, bump: null, scale: 0 };   /* smoked infrared glass */
     if (part === "trim")  return { color: 0x9a9da1, metal: 1, rough: 0.16, envI: 1, bump: null, scale: 0 };   /* polished steel rings */
@@ -31694,13 +31713,13 @@ function partSpec(part, p, look) {
   if (part === "slots") return { color: 0x0e1013, metal: 0.4, rough: 0.7, envI: 0.4, bump: null, scale: 0 };
   if (part === "trim") {
     /* the ER nut and a chuck's jaw nose are black oxide: dark, matte, a little grain */
-    if (kind === "er") return { color: 0x9c9a94, metal: 1, rough: 0.14, envI: 1, bump: null, scale: 0 };      /* collet and retaining ring */
+    if (kind === "er") return { color: 0xc7c4bd, metal: 1, rough: 0.12, envI: 1, bump: null, scale: 0 };      /* collet and retaining ring: the builder's light collet (0.78, 0.77, 0.74) */
     if (kind === "chuck") return { color: 0x34383e, metal: 0.8, rough: 0.34, envI: 1, bump: "blast", scale: 0.006 };
     return { color: 0x9ea4ac, metal: 1, rough: 0.2, envI: 1, bump: null, scale: 0 };
   }
   /* the holder body */
-  if (kind === "shrink") return { color: 0x3c3e42, metal: 0.8, rough: 0.5, envI: 0.8, bump: "blast", scale: 0.008 };   /* dark grey, lightly blasted */
-  if (kind === "er") return { color: 0x8f949b, metal: 1, rough: 0.16, envI: 1, bump: null, scale: 0 };                 /* polished ground steel chuck */
+  if (kind === "shrink") return { color: 0x585b61, metal: 0.8, rough: 0.5, envI: 0.9, bump: "blast", scale: 0.008 };   /* the builder's matte dark grey shrink body (0.31, 0.32, 0.34), lightly blasted */
+  if (kind === "er") return { color: 0xc2c7d1, metal: 1, rough: 0.12, envI: 1, bump: null, scale: 0 };                 /* polished ground steel chuck: the builder's light steel (0.76, 0.78, 0.82) */
   return { color: 0x8d9198, metal: 1, rough: 0.22, envI: 1, bump: "grind", scale: 0.004 };                                /* ground steel */
 }
 
