@@ -26381,7 +26381,7 @@ function setSampleTool(num, dia, shape, model) {
       const params = Object.assign({ dia: dia * 25.4, shankDia: dia * 25.4 }, model);
       window.ToolModels.add(
         ToolModel.encode(params, { number: num, name: model.name }),
-        { quiet: true, syncDiameter: false });
+        { quiet: true, syncDiameter: false, fresh: true });
       if (window.ToolModels.relabel) window.ToolModels.relabel();
       if (window.ToolModels.refresh) window.ToolModels.refresh();
     }
@@ -32147,6 +32147,20 @@ function syncDiameter(number, diameterMM) {
 function add(text, opts) {
   const o = opts || {};
   const t = ToolModel.decode(text);
+  /* Changing what kind of tool it is (square to ball, endmill to drill) must not move the holder along the tool: the cutter keeps
+     sticking out of the holder by the same amount. Only when the holder is the same and the new tool does not say otherwise. */
+  try {
+    const old = models.get(t.number);
+    if (old && old.params && !o.fresh) {      /* a sample or the comment reader setting its own cutters up from scratch passes fresh */
+      const a0 = ToolModel.normalize(old.params), b0 = ToolModel.normalize(t.params);
+      const typeChanged = a0.category !== b0.category || (a0.endType || "flat") !== (b0.endType || "flat");
+      if (typeChanged && a0.holder && a0.holder === b0.holder && !(+t.params.stickout > 0)) {
+        const nose = ToolModel.holderNose(a0);
+        /* never so short that the new flutes sit inside the holder, nor longer than the new tool has */
+        if (nose != null && isFinite(nose) && nose >= (b0.loc || 0) + 2 && nose <= b0.oal - 4) t.params.stickout = +nose.toFixed(3);
+      }
+    }
+  } catch (e) { /* the new tool keeps its own */ }
   remove(t.number, { quiet: true });
 
   const rec = { code: ToolModel.encodeText(t.params, { number: t.number, name: t.name }), name: t.name, params: t.params, group: null, scale: 1, align: null };
