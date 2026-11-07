@@ -66482,5 +66482,378 @@ html body #mouse-hints .mh-key{font:400 10px/1 'Inter',system-ui,sans-serif;colo
   window.GcodeFind = { open: open, close: close, next: function () { step(1); }, prev: function () { step(-1); }, matches: function () { return matches.length; } };
 })();
 </script>
+<style id="sidebar-redesign">
+/* ===================================================================================================
+   LEFT SIDEBAR, redesigned to read like the Shop Tool Sim sidebar.
+   This sheet is the last word on the sidebar: every block is a flat band in its own category color
+   (strong edge bar, color fading out to the right), every category title is upper-case italic Inter over a
+   thin gradient rule, every button is an outline that lights up in its category color, and every width is
+   fluid so nothing is cut off from a 320 px phone up to a wide desktop, portrait or landscape.
+   Category colors:  learn #5b93ea · live machine state #5fcf8a · model mode #f472b6
+                     step 1 program #ffb02e · step 2 setup #4cc2ff · step 3 view #35d4c7
+                     step 4 check #ff6b6b · extras #b48cff · header / general #94a3b8
+   =================================================================================================== */
+
+/* ---------- the frame ---------- */
+html body #sidebar#sidebar{
+  --sc:#94a3b8;
+  --sb-bg:#131416; --sb-line:#222428; --sb-btn-line:#3d4147; --sb-well:#0f1012;
+  --sb-ink:#ececee; --sb-soft:#b3b8c0; --sb-mute:#8a8f97;
+  --sb-ease:cubic-bezier(.22,.8,.25,1);
+  --sb-pad:clamp(12px,3.4vw,16px);
+  --sb-fs:clamp(12.5px,.28vw + 11.8px,13.5px);
+  --sb-fs-s:clamp(11.5px,.2vw + 11px,12px);
+  width:clamp(280px,23vw,340px)!important; min-width:280px!important; max-width:100%!important;
+  box-sizing:border-box!important;
+  background:var(--sb-bg)!important;
+  border-right:1px solid var(--sb-line)!important;
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  font-size:var(--sb-fs)!important; line-height:1.45; color:var(--sb-ink);
+  display:flex!important; flex-direction:column!important;
+  overflow-x:hidden!important; overflow-y:auto!important;
+  overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin; scrollbar-color:#2c2f34 transparent;
+  text-size-adjust:100%; -webkit-text-size-adjust:100%;
+}
+html body #sidebar#sidebar *, html body #sidebar#sidebar *::before, html body #sidebar#sidebar *::after{ box-sizing:border-box }
+html body #sidebar#sidebar > *{ flex:0 0 auto!important; min-width:0!important; max-width:100%!important }
+html body #sidebar#sidebar :is(div,span,p,label,strong,small,b,em,td,th,li,button,summary,a){ overflow-wrap:anywhere }
+html body #sidebar#sidebar :is(img,svg,canvas,video,table,textarea,input,select){ max-width:100% }
+
+/* ---------- category colors: one accent per category, keyed on data-cat, used for header, icons, outlines ---------- */
+html body #sidebar#sidebar :is(.sb-cat-head,.section)[data-cat="program"]{ --sc:#ffb02e }
+html body #sidebar#sidebar :is(.sb-cat-head,.section)[data-cat="setup"]{ --sc:#4cc2ff }
+html body #sidebar#sidebar :is(.sb-cat-head,.section)[data-cat="view"]{ --sc:#35d4c7 }
+html body #sidebar#sidebar :is(.sb-cat-head,.section)[data-cat="check"]{ --sc:#ff6b6b }
+html body #sidebar#sidebar :is(.sb-cat-head,.section)[data-cat="library"]{ --sc:#b48cff }
+
+/* ---------- every top-level block is a flat band in its category color ---------- */
+html body #sidebar#sidebar > :where(#sidebar-header,#sb-setup,#sb-model,#mkp-launch,#vp-mode-status,#machine-state-panel,#mkp-section,#legacy-state,.sb-cat-head,.section){
+  position:relative; margin:0!important; width:auto!important;
+  border:0!important; border-bottom:1px solid var(--sb-line)!important; border-radius:0!important;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--sc) 15%,transparent) 0%,color-mix(in srgb,var(--sc) 6%,transparent) 45%,transparent 100%)!important;
+  box-shadow:inset 3px 0 0 color-mix(in srgb,var(--sc) 75%,transparent)!important;
+  filter:none;
+}
+html body #sidebar#sidebar > #legacy-state:empty{ display:none!important }
+
+/* ---------- header: logo, version, collapse all ---------- */
+html body #sidebar#sidebar > #sidebar-header{
+  --sc:#94a3b8; padding:var(--sb-pad) var(--sb-pad) 14px!important; text-align:center;
+  display:flex!important; flex-direction:column!important; align-items:center; gap:0;
+}
+html body #sidebar#sidebar #sidebar-header h1.brand{ font-size:clamp(1.55rem,5.2vw,2.15rem)!important; max-width:100%; justify-content:center; flex-wrap:nowrap }
+html body #sidebar#sidebar #sidebar-header .stable-row,html body #sidebar#sidebar #sidebar-header .shop-vrow{ display:flex; justify-content:center; flex-wrap:wrap; gap:6px; max-width:100%; margin:8px 0 0 }
+html body #sidebar#sidebar #sidebar-header .stable-tag{ max-width:100%; font-size:var(--sb-fs-s)!important; line-height:1.3; white-space:normal; text-align:center }
+html body #sidebar#sidebar #sidebar-header .shop-vchip{ max-width:100%; min-height:30px; white-space:normal; text-align:center; font-size:var(--sb-fs-s)!important }
+html body #sidebar#sidebar #sidebar-header .hdr-rule{ width:100%; max-width:210px; margin:12px auto 0!important }
+html body #sidebar#sidebar #sidebar-header .collapse-all-btn{ width:100%!important; max-width:100%; margin:12px 0 0!important }
+
+/* ---------- buttons: outlines, never fills; they light up in their band's color ---------- */
+html body #sidebar#sidebar :is(button,.sample-card,.pm-sample-row,.gd-arrow,.gd-mode,.gd-axis-btn,.ms-btn,.qa-btn,.collapse-all-btn){
+  font-family:'Inter',system-ui,sans-serif;
+  background:transparent!important; color:var(--sb-ink)!important;
+  border:1px solid var(--sb-btn-line)!important; border-radius:8px!important; box-shadow:none!important;
+  min-height:36px; max-width:100%; min-width:0;
+  font-size:var(--sb-fs-s)!important; font-weight:600; line-height:1.25; letter-spacing:0;
+  text-align:center; white-space:normal; overflow-wrap:anywhere;
+  transition:border-color .2s var(--sb-ease),background-color .2s var(--sb-ease),color .2s var(--sb-ease),transform .16s var(--sb-ease),opacity .2s var(--sb-ease)!important;
+  -webkit-tap-highlight-color:transparent; touch-action:manipulation;
+}
+html body #sidebar#sidebar :is(button,.sample-card,.pm-sample-row,.gd-arrow,.gd-mode,.gd-axis-btn,.ms-btn,.collapse-all-btn):is(:hover,:focus-visible){
+  border-color:color-mix(in srgb,var(--sc) 70%,#8a8f97)!important;
+  background:color-mix(in srgb,var(--sc) 8%,transparent)!important; color:#fff!important; transform:none; filter:none!important;
+}
+html body #sidebar#sidebar :is(button,.sample-card,.pm-sample-row,.ms-btn):active{ transform:scale(.985) }
+html body #sidebar#sidebar :is(button,.sample-card,.gd-mode,.gd-axis-btn,.ms-btn).on,
+html body #sidebar#sidebar :is(button,.sample-card,.gd-mode,.gd-axis-btn,.ms-btn).active,
+html body #sidebar#sidebar :is(button,.gd-mode,.ms-btn)[aria-pressed="true"],
+html body #sidebar#sidebar .sample-card.is-selected{
+  border-color:var(--sc)!important; color:var(--sc)!important;
+  background:color-mix(in srgb,var(--sc) 13%,transparent)!important;
+}
+html body #sidebar#sidebar :is(button,.ms-btn):disabled,html body #sidebar#sidebar :is(button,.ms-btn):disabled:hover,html body #sidebar#sidebar .ms-btn.is-off{
+  opacity:.4; cursor:default; background:transparent!important; border-color:var(--sb-btn-line)!important; color:var(--sb-ink)!important;
+}
+html body #sidebar#sidebar :is(button,summary,[role=button],.sec-head,.sb-cat-head,.toggle-row):focus-visible{ outline:2px solid var(--sc); outline-offset:2px }
+html body #sidebar#sidebar button :is(i,svg){ color:inherit }
+html body #sidebar#sidebar button i[class*="fa-"]{ font-size:1em; margin-right:6px }
+html body #sidebar#sidebar button i[class*="fa-"]:only-child{ margin-right:0 }
+
+/* ---------- inputs ---------- */
+html body #sidebar#sidebar :is(input[type=number],input[type=text],input[type=search],input:not([type]),select,textarea){
+  font-family:'Inter',system-ui,sans-serif; font-size:max(16px,var(--sb-fs))!important;
+  min-height:36px; min-width:0; max-width:100%;
+  background:var(--sb-well)!important; color:var(--sb-ink)!important;
+  border:1px solid var(--sb-btn-line)!important; border-radius:8px!important; padding:6px 10px!important; box-shadow:none;
+  transition:border-color .2s var(--sb-ease),background-color .2s var(--sb-ease);
+}
+@media (hover:hover) and (pointer:fine){
+  html body #sidebar#sidebar :is(input[type=number],input[type=text],input[type=search],input:not([type]),select,textarea){ font-size:var(--sb-fs)!important }
+}
+html body #sidebar#sidebar :is(input,select,textarea):hover{ border-color:color-mix(in srgb,var(--sc) 55%,#8a8f97)!important }
+html body #sidebar#sidebar :is(input,select,textarea):focus{ outline:none; border-color:var(--sc)!important; box-shadow:0 0 0 3px color-mix(in srgb,var(--sc) 18%,transparent)!important }
+html body #sidebar#sidebar input[type=range]{ accent-color:var(--sc); width:100%; min-height:24px; padding:0!important; background:transparent!important; border:0!important }
+html body #sidebar#sidebar input[type=checkbox],html body #sidebar#sidebar input[type=radio]{ accent-color:var(--sc); min-height:0; width:16px; height:16px; flex:none }
+
+/* ---------- toggle switches (outlined track, category colour when on) ---------- */
+html body #sidebar#sidebar .toggle-row{
+  display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:36px;
+  padding:6px 8px!important; margin:0 -8px!important; border-radius:8px; cursor:pointer;
+  transition:background-color .2s var(--sb-ease);
+}
+html body #sidebar#sidebar .toggle-row:hover{ background:color-mix(in srgb,var(--sc) 7%,transparent)!important }
+html body #sidebar#sidebar .toggle-text{ flex:1 1 auto; min-width:0; font-size:var(--sb-fs)!important; color:var(--sb-soft)!important }
+html body #sidebar#sidebar .toggle-track{ flex:0 0 auto; background:transparent!important; border:1px solid var(--sb-btn-line); transition:border-color .2s var(--sb-ease),background-color .2s var(--sb-ease)!important }
+html body #sidebar#sidebar .toggle-track.on{ background:color-mix(in srgb,var(--sc) 18%,transparent)!important; border-color:var(--sc) }
+html body #sidebar#sidebar .toggle-thumb{ background:#cfd3d9!important; transition:left .2s var(--sb-ease),background-color .2s var(--sb-ease)!important }
+html body #sidebar#sidebar .toggle-track.on .toggle-thumb{ background:var(--sc)!important }
+
+/* ---------- learn: take the tour / how do I use it ---------- */
+html body #sidebar#sidebar > #mkp-launch{
+  --sc:#5b93ea; padding:var(--sb-pad)!important; display:grid!important; grid-template-columns:minmax(0,1fr); gap:8px;
+}
+html body #sidebar#sidebar #mkp-launch > button{ margin:0!important; width:100%!important; max-width:none!important; min-height:42px!important; height:auto!important; padding:9px 14px!important; display:flex!important; align-items:center; justify-content:center; gap:10px; }
+html body #sidebar#sidebar #mkp-launch #tour-btn{ color:var(--sb-ink)!important }
+html body #sidebar#sidebar #mkp-launch #btn-make-program{
+  color:var(--sc)!important; border-color:var(--sc)!important; background:color-mix(in srgb,var(--sc) 10%,transparent)!important;
+  font-size:var(--sb-fs)!important; font-weight:700; transform:none!important; filter:none!important; box-shadow:none!important; text-shadow:none!important;
+}
+html body #sidebar#sidebar #mkp-launch #btn-make-program:hover{ background:color-mix(in srgb,var(--sc) 20%,transparent)!important; color:#fff!important; border-color:var(--sc)!important }
+html body #sidebar#sidebar #mkp-launch .mkp-q{ flex:none; width:22px; height:22px; border-radius:50%; background:transparent!important; border:1px solid currentColor; color:inherit!important; font-size:12px; font-weight:700; display:inline-grid; place-items:center }
+html body #sidebar#sidebar #mkp-launch .mkp-t{ min-width:0; text-align:center }
+
+/* ---------- the sim / model mode banner ---------- */
+html body #sidebar#sidebar > #vp-mode-status{
+  --sc:#5fcf8a; display:flex!important; flex-direction:row!important; flex-wrap:nowrap!important; align-items:center; gap:10px!important;
+  padding:var(--sb-pad)!important; inset:auto!important; position:relative!important; transform:none!important;
+  max-width:100%!important; opacity:1!important; box-shadow:inset 3px 0 0 color-mix(in srgb,var(--sc) 75%,transparent)!important;
+}
+html body #sidebar#sidebar > #vp-mode-status:not(.is-sim){ --sc:#f472b6 }
+html body #sidebar#sidebar #vp-mode-status .vms-text{ flex:1 1 0!important; min-width:0!important; display:flex!important; flex-direction:column; gap:3px }
+html body #sidebar#sidebar #vp-mode-status .vms-main{ font:600 var(--sb-fs)/1.35 'Inter',system-ui,sans-serif!important; color:var(--sb-ink)!important }
+html body #sidebar#sidebar #vp-mode-status .vms-sub{ font:400 var(--sb-fs-s)/1.4 'Inter',system-ui,sans-serif!important; color:var(--sb-mute)!important }
+html body #sidebar#sidebar #vp-mode-status .vms-mode{ color:var(--sc)!important; font-weight:700 }
+html body #sidebar#sidebar #vp-mode-status .vms-dot{ flex:0 0 22px!important; width:22px!important; text-align:center; color:var(--sc)!important }
+html body #sidebar#sidebar #vp-mode-status #vp-mode-switch{ flex:0 0 auto!important; min-height:0; border:0!important; padding:4px!important; background:transparent!important; align-self:center }
+html body #sidebar#sidebar #vp-mode-status .vms-track{ background:transparent!important; border:1px solid var(--sc)!important }
+html body #sidebar#sidebar #vp-mode-status .vms-thumb{ background:var(--sc)!important }
+
+/* ---------- machine state ---------- */
+html body #sidebar#sidebar > #machine-state-panel{ --sc:#5fcf8a; padding:var(--sb-pad)!important }
+html body #sidebar#sidebar #machine-state-panel .ms-header{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 10px; margin:0 0 10px!important }
+html body #sidebar#sidebar #machine-state-panel .ms-title{
+  position:relative; font-size:var(--sb-fs)!important; font-style:italic; font-weight:700!important; letter-spacing:.1em!important;
+  text-transform:uppercase!important; color:color-mix(in srgb,var(--sc) 55%,#fff)!important; line-height:1.2;
+}
+html body #sidebar#sidebar #machine-state-panel .ms-hud-toggle{ margin:0!important; padding:4px 6px!important; flex:0 1 auto; min-height:32px }
+html body #sidebar#sidebar #machine-state-panel .ms-hud-toggle .toggle-text{ font-size:var(--sb-fs-s)!important; color:var(--sb-mute)!important }
+html body #sidebar#sidebar #machine-state-panel .ms-grid{
+  display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr))!important; gap:6px!important; margin:0;
+}
+html body #sidebar#sidebar #machine-state-panel .ms-cell{
+  display:flex!important; align-items:baseline; justify-content:space-between; gap:8px!important; min-width:0; min-height:36px;
+  padding:7px 10px!important; background:transparent!important; border:1px solid var(--sb-btn-line)!important; border-radius:8px!important; overflow:hidden;
+}
+html body #sidebar#sidebar #machine-state-panel .ms-label{ flex:0 0 auto; font-size:var(--sb-fs-s)!important; font-weight:600; color:var(--sb-mute)!important; text-transform:none!important; letter-spacing:0!important }
+html body #sidebar#sidebar #machine-state-panel .ms-val{
+  flex:1 1 auto; min-width:0; text-align:right; font-size:var(--sb-fs)!important; font-weight:600; color:var(--sb-ink)!important;
+  font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+html body #sidebar#sidebar #machine-state-panel .ms-val.ms-accent{ color:var(--sc)!important }
+html body #sidebar#sidebar #machine-state-panel .ms-sub{ margin:12px 0 6px; font-size:var(--sb-fs-s)!important; font-style:italic; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--sb-mute)!important }
+
+/* ---------- category titles: upper-case italic over a gradient rule ---------- */
+html body #sidebar#sidebar > .sb-cat-head{
+  display:flex!important; align-items:center; gap:10px!important; min-height:52px;
+  padding:14px var(--sb-pad) 13px!important; cursor:pointer; user-select:none; -webkit-user-select:none;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--sc) 24%,transparent) 0%,color-mix(in srgb,var(--sc) 9%,transparent) 50%,transparent 100%)!important;
+  box-shadow:inset 3px 0 0 var(--sc)!important;
+  transition:background-color .2s var(--sb-ease),filter .2s var(--sb-ease)!important; filter:none!important;
+}
+html body #sidebar#sidebar > .sb-cat-head::after{
+  content:""; position:absolute; left:var(--sb-pad); right:var(--sb-pad); bottom:0; height:2px; border-radius:2px;
+  background:linear-gradient(90deg,var(--sc) 0%,color-mix(in srgb,var(--sc) 45%,#5b93ea) 42%,transparent 100%);
+}
+html body #sidebar#sidebar > .sb-cat-head:hover{ background:linear-gradient(90deg,color-mix(in srgb,var(--sc) 32%,transparent) 0%,color-mix(in srgb,var(--sc) 12%,transparent) 55%,transparent 100%)!important }
+html body #sidebar#sidebar > .sb-cat-head > i{ flex:0 0 18px; width:18px; text-align:center; font-size:14px!important; color:var(--sc)!important }
+html body #sidebar#sidebar > .sb-cat-head > span{ flex:1 1 0!important; min-width:0!important; display:flex!important; flex-direction:column; gap:3px }
+html body #sidebar#sidebar > .sb-cat-head strong{
+  display:block; font-family:'Inter',system-ui,sans-serif!important; font-style:italic!important; font-weight:700!important;
+  font-size:var(--sb-fs)!important; letter-spacing:.07em!important; text-transform:uppercase!important; line-height:1.25;
+  color:color-mix(in srgb,var(--sc) 55%,#fff)!important;
+}
+html body #sidebar#sidebar > .sb-cat-head small{ display:block; font-style:normal!important; font-weight:400!important; font-size:var(--sb-fs-s)!important; line-height:1.4!important; letter-spacing:0!important; text-transform:none!important; color:var(--sb-mute)!important; white-space:normal }
+html body #sidebar#sidebar > .sb-cat-head em{
+  flex:0 0 auto; min-width:22px; text-align:center; padding:1px 7px!important; border-radius:999px; font-style:normal; font-size:11px!important; font-weight:700;
+  color:var(--sc)!important; background:transparent!important; border:1px solid color-mix(in srgb,var(--sc) 60%,transparent);
+}
+html body #sidebar#sidebar > .sb-cat-head .sb-cat-chev{ flex:0 0 auto; font-size:12px!important; color:var(--sc)!important; transition:transform .2s var(--sb-ease)!important }
+html body #sidebar#sidebar > .sb-cat-head.collapsed .sb-cat-chev{ transform:rotate(-90deg) }
+
+/* ---------- sections inside a category ---------- */
+html body #sidebar#sidebar > .section{
+  padding:0!important;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--sc) 7%,transparent) 0%,transparent 60%)!important;
+  box-shadow:inset 3px 0 0 color-mix(in srgb,var(--sc) 55%,transparent)!important;
+}
+html body #sidebar#sidebar > .section.cat-hidden{ display:none!important }
+html body #sidebar#sidebar > #mkp-section{ --sc:#5b93ea }
+html body #sidebar#sidebar .section > .sec-head{
+  display:flex!important; flex-wrap:wrap; align-items:center; gap:4px 10px!important; min-height:48px;
+  padding:12px var(--sb-pad)!important; margin:0!important; border:0!important; border-radius:0!important;
+  background:transparent!important; cursor:pointer; user-select:none; -webkit-user-select:none;
+  transition:background-color .2s var(--sb-ease)!important;
+}
+html body #sidebar#sidebar .section > .sec-head:hover{ background:color-mix(in srgb,var(--sc) 9%,transparent)!important }
+html body #sidebar#sidebar .section > .sec-head.open{ background:color-mix(in srgb,var(--sc) 8%,transparent)!important }
+html body #sidebar#sidebar .section > .sec-head .sec-name{
+  flex:1 1 0!important; min-width:0!important; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  font-family:'Inter',system-ui,sans-serif!important; font-style:normal!important; font-size:var(--sb-fs)!important; font-weight:600!important;
+  letter-spacing:0!important; text-transform:none!important; line-height:1.3; color:var(--sb-soft)!important; transition:color .2s var(--sb-ease)!important;
+}
+html body #sidebar#sidebar .section > .sec-head .sec-ico{ flex:0 0 16px; width:16px!important; margin:0!important; text-align:center; font-size:13px!important; color:var(--sc)!important }
+html body #sidebar#sidebar .section > .sec-head:hover .sec-name,html body #sidebar#sidebar .section > .sec-head.open .sec-name{ color:color-mix(in srgb,var(--sc) 55%,#fff)!important }
+html body #sidebar#sidebar .section > .sec-head .sec-chev{ flex:0 0 18px; color:var(--sb-mute)!important }
+html body #sidebar#sidebar .section > .sec-head:hover .sec-chev,html body #sidebar#sidebar .section > .sec-head.open .sec-chev{ color:var(--sc)!important }
+html body #sidebar#sidebar .section > .sec-head .sec-help{
+  flex:0 0 100%!important; order:9; padding:0 0 0 26px!important; margin:0;
+  font-size:var(--sb-fs-s)!important; line-height:1.45!important; font-weight:400!important; letter-spacing:0!important; text-transform:none!important; color:var(--sb-mute)!important;
+}
+html body #sidebar#sidebar .section > .sec-head .sec-soon,html body #sidebar#sidebar .section .sf-tag{
+  flex:0 0 auto; padding:1px 7px; border-radius:999px; border:1px solid color-mix(in srgb,var(--sc) 60%,transparent); background:transparent!important;
+  color:var(--sc)!important; font-size:10px!important; font-weight:700; letter-spacing:.1em; text-transform:uppercase; line-height:1.5;
+}
+html body #sidebar#sidebar .section > .sec-body{ padding:2px var(--sb-pad) var(--sb-pad)!important; min-width:0; max-width:100%; overflow-x:hidden }
+html body #sidebar#sidebar .section > .sec-body > *{ max-width:100% }
+html body #sidebar#sidebar .sub-head{
+  margin:18px 0 8px!important; font-size:var(--sb-fs-s)!important; font-style:italic; font-weight:700!important; letter-spacing:.1em!important;
+  text-transform:uppercase!important; line-height:1.3; color:color-mix(in srgb,var(--sc) 60%,#fff)!important;
+}
+html body #sidebar#sidebar .sec-body > .sub-head:first-child{ margin-top:10px!important }
+html body #sidebar#sidebar .hint,html body #sidebar#sidebar .pm-note,html body #sidebar#sidebar .pm-msg,html body #sidebar#sidebar .ms-note{ font-size:var(--sb-fs-s)!important; line-height:1.5!important; color:var(--sb-mute)!important; margin:8px 0 0 }
+html body #sidebar#sidebar .sec-body label{ font-size:var(--sb-fs-s); color:var(--sb-soft) }
+
+/* ---------- grids and cards ---------- */
+html body #sidebar#sidebar .samples-grid{ display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr))!important; gap:6px!important }
+html body #sidebar#sidebar .sample-card{
+  display:flex!important; flex-direction:column; align-items:center; justify-content:center; gap:3px; min-height:58px!important; padding:10px 8px!important;
+  cursor:pointer; text-align:center; min-width:0;
+}
+html body #sidebar#sidebar .sample-card[style*="grid-column"]{ grid-column:1 / -1!important }
+html body #sidebar#sidebar .sample-name{ max-width:100%; font-size:var(--sb-fs)!important; font-weight:600!important; letter-spacing:0!important; text-transform:none!important; color:var(--sb-ink)!important; line-height:1.3; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:4px 6px }
+html body #sidebar#sidebar .sample-desc{ max-width:100%; font-size:var(--sb-fs-s)!important; font-weight:400; letter-spacing:0!important; color:var(--sb-mute)!important; line-height:1.35 }
+html body #sidebar#sidebar .sample-card:hover .sample-name,html body #sidebar#sidebar .sample-card.on .sample-name{ color:#fff!important }
+html body #sidebar#sidebar .sample-badge{ padding:0 7px; border:1px solid var(--sc); border-radius:999px; background:transparent!important; color:var(--sc)!important; font-size:10px!important; font-weight:700; letter-spacing:.06em; text-transform:uppercase; line-height:1.6 }
+html body #sidebar#sidebar .stat-grid{ display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr))!important; gap:6px!important }
+html body #sidebar#sidebar .stat-item{ min-width:0; padding:8px 10px!important; background:transparent!important; border:1px solid var(--sb-btn-line)!important; border-radius:8px!important }
+html body #sidebar#sidebar .stat-label{ font-size:var(--sb-fs-s)!important; font-weight:600; color:var(--sb-mute)!important; text-transform:none!important; letter-spacing:0!important }
+html body #sidebar#sidebar .stat-value{ margin-top:2px; font-size:calc(var(--sb-fs) + 1px)!important; font-weight:600; color:var(--sb-ink)!important; font-variant-numeric:tabular-nums; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+
+/* flex / grid rows of controls always shrink and wrap inside the width they are given */
+html body #sidebar#sidebar .sec-body :is(div,span)[style*="display:flex"],html body #sidebar#sidebar .sec-body :is(div,span)[style*="display: flex"]{ flex-wrap:wrap; min-width:0 }
+html body #sidebar#sidebar .sec-body :is(.row,.pm-bank-row,.pm-line,.pt-row,.tm-row,.ms-row,.cr-tabs){ min-width:0; flex-wrap:wrap }
+html body #sidebar#sidebar .sec-body :is(.row,.pm-bank-row,.ms-row) > *{ flex:1 1 7.5em; min-width:0 }
+html body #sidebar#sidebar .sec-body table{ width:100%; table-layout:fixed; border-collapse:collapse }
+html body #sidebar#sidebar .sec-body :is(td,th){ min-width:0; overflow-wrap:anywhere; font-size:var(--sb-fs-s) }
+html body #sidebar#sidebar .sec-body :is(pre,code,kbd){ max-width:100%; white-space:pre-wrap; overflow-wrap:anywhere; font-size:var(--sb-fs-s) }
+html body #sidebar#sidebar .sec-body :is(textarea){ width:100%; resize:vertical }
+html body #sidebar#sidebar .sec-body :is(select){ width:100%; text-overflow:ellipsis }
+html body #sidebar#sidebar .sec-body :is(input[type=number],input[type=text]){ width:100%; min-width:0 }
+
+/* ---------- legend rows (display section) ---------- */
+html body #sidebar#sidebar .legend-head,html body #sidebar#sidebar .legend-row{ display:grid!important; grid-template-columns:14px minmax(0,1fr) 36px minmax(44px,52px)!important; column-gap:8px!important; align-items:center }
+html body #sidebar#sidebar .legend-row .legend-label{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:var(--sb-fs-s) }
+html body #sidebar#sidebar .legend-col-hdr{ font-size:11px!important; color:var(--sb-mute)!important; letter-spacing:.04em; text-align:center }
+html body #sidebar#sidebar .legend-row .legend-skip-btn{ min-height:26px!important; width:100%!important; padding:0 4px!important; font-size:10.5px!important }
+
+/* ---------- model mode (arrange parts) ---------- */
+html body #sidebar#sidebar > :is(#sb-setup,#sb-model){ --sc:#f472b6; padding:var(--sb-pad)!important }
+html body #sidebar#sidebar #sb-setup:not(:has(#pm-model-tools:not([hidden]))){ display:none!important }
+html body #sidebar#sidebar #sb-setup .sb-setup-head,html body #sidebar#sidebar #sb-setup .sb-setup-label,html body #sidebar#sidebar #sb-model .ms-q{
+  font-size:var(--sb-fs)!important; font-style:italic; font-weight:700!important; letter-spacing:.08em!important; text-transform:uppercase!important;
+  line-height:1.3; color:color-mix(in srgb,var(--sc) 55%,#fff)!important; margin:0 0 8px;
+}
+html body #sidebar#sidebar #sb-model .ms-step{ padding:12px 0!important; border-bottom:1px solid var(--sb-line)!important; background:transparent!important }
+html body #sidebar#sidebar #sb-model .ms-step:last-child{ border-bottom:0!important }
+html body #sidebar#sidebar #sb-model .ms-sub{ font-style:normal!important; font-size:var(--sb-fs-s)!important; line-height:1.5; color:var(--sb-mute)!important; margin:0 0 8px }
+html body #sidebar#sidebar #sb-model .ms-row{ display:flex; flex-direction:column; gap:6px }
+html body #sidebar#sidebar #sb-model .ms-row-2,html body #sidebar#sidebar #sb-model .ms-row-3{ flex-direction:row; flex-wrap:wrap }
+html body #sidebar#sidebar #sb-model .ms-btn{ display:flex!important; flex-direction:column!important; align-items:flex-start!important; text-align:left!important; gap:2px; padding:10px 12px!important; width:100% }
+html body #sidebar#sidebar #sb-model :is(.ms-row-2,.ms-row-3) > .ms-btn{ flex:1 1 7em; width:auto; align-items:center!important; text-align:center!important }
+html body #sidebar#sidebar #sb-model .ms-btn-t{ font-size:var(--sb-fs)!important; font-weight:600; color:inherit!important; line-height:1.3 }
+html body #sidebar#sidebar #sb-model .ms-btn-d{ font-size:var(--sb-fs-s)!important; font-weight:400; color:var(--sb-mute)!important; line-height:1.4 }
+html body #sidebar#sidebar #sb-model .ms-go{ border-color:var(--sc)!important; color:var(--sc)!important }
+html body #sidebar#sidebar #sb-model .ms-selected,html body #sidebar#sidebar #sb-model .ms-readout{ font-size:var(--sb-fs-s)!important; color:var(--sb-soft)!important; min-width:0 }
+html body #sidebar#sidebar #pm-history,html body #sidebar#sidebar #pm-select,html body #sidebar#sidebar .gz-btns,#pm-gizmo .gz-btns{ display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px }
+html body #sidebar#sidebar #pm-history > button,html body #sidebar#sidebar #pm-select > button,html body #sidebar#sidebar .gz-btns > button{ flex:1 1 5.5em; min-width:0 }
+
+/* ---------- how do I use it (guided steps) ---------- */
+html body #sidebar#sidebar #mkp-banner{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; padding:10px 12px; margin:0 0 10px; border:1px solid color-mix(in srgb,var(--sc) 55%,transparent); border-radius:8px; background:transparent!important; font-size:var(--sb-fs-s); color:var(--sb-soft) }
+html body #sidebar#sidebar #mkp-banner > span{ flex:1 1 12em; min-width:0 }
+html body #sidebar#sidebar #mkp-banner b{ color:var(--sc) }
+html body #sidebar#sidebar .gd-modes{ display:flex!important; flex-wrap:wrap; gap:6px!important; border:0!important; background:transparent!important; padding:0!important }
+html body #sidebar#sidebar .gd-mode{ flex:1 1 8em; min-width:0 }
+html body #sidebar#sidebar .gd-step{ min-width:0; border:1px solid var(--sb-btn-line)!important; border-radius:8px!important; background:transparent!important; margin-top:8px }
+html body #sidebar#sidebar .gd-step.is-open{ border-color:color-mix(in srgb,var(--sc) 60%,transparent)!important }
+html body #sidebar#sidebar .gd-step .gd-head{ display:flex!important; align-items:center; gap:10px; width:100%; min-height:44px; padding:10px 12px!important; border:0!important; border-radius:8px!important; text-align:left; justify-content:flex-start }
+html body #sidebar#sidebar .gd-htext{ flex:1 1 0!important; min-width:0!important }
+html body #sidebar#sidebar .gd-q{ font-size:var(--sb-fs)!important; font-weight:600; color:var(--sb-ink)!important; line-height:1.3 }
+html body #sidebar#sidebar .gd-hint{ font-size:var(--sb-fs-s)!important; color:var(--sb-mute)!important; line-height:1.4 }
+html body #sidebar#sidebar .gd-step.is-open .gd-q{ color:var(--sc)!important }
+html body #sidebar#sidebar .gd-body{ padding:0 12px 12px!important; min-width:0 }
+html body #sidebar#sidebar .gd-nav{ display:flex; flex-wrap:wrap; align-items:center; gap:6px }
+html body #sidebar#sidebar .gd-count{ font-size:var(--sb-fs-s)!important; color:var(--sb-mute)!important }
+
+/* ---------- g & m code reference ---------- */
+html body #sidebar#sidebar #cr-root{ min-width:0; max-width:100% }
+html body #sidebar#sidebar #cr-root :is(.cr-tabs,.cr-filters,.cr-bar){ display:flex; flex-wrap:wrap; gap:6px; min-width:0 }
+html body #sidebar#sidebar #cr-root :is(.cr-tabs,.cr-filters) > button{ flex:1 1 4.5em; min-width:0 }
+html body #sidebar#sidebar #cr-root :is(.cr-row,.cr-item,.cr-code){ min-width:0; max-width:100% }
+
+/* ---------- touch targets on touch screens ---------- */
+@media (pointer:coarse){
+  html body #sidebar#sidebar :is(button,.sample-card,.pm-sample-row,.gd-mode,.ms-btn){ min-height:44px }
+  html body #sidebar#sidebar .toggle-row{ min-height:44px }
+  html body #sidebar#sidebar .section > .sec-head{ min-height:52px }
+}
+
+/* ---------- smaller screens ---------- */
+/* stacked under the 3D view: full width, a comfortable share of the height, still scrolls on its own */
+@media (max-width:800px){
+  html body #sidebar#sidebar{
+    width:100%!important; min-width:0!important; max-width:100%!important; height:auto!important;
+    border-right:0!important; border-top:1px solid var(--sb-line)!important;
+    flex:0 0 clamp(190px,32dvh,420px)!important; max-height:clamp(190px,32dvh,420px)!important;
+  }
+  html body #sidebar#sidebar .samples-grid,html body #sidebar#sidebar .stat-grid{ grid-template-columns:repeat(2,minmax(0,1fr))!important }
+  html body #sidebar#sidebar > #sidebar-header{ flex-direction:row!important; flex-wrap:wrap; justify-content:center; gap:4px 16px; align-items:center }
+  html body #sidebar#sidebar > #sidebar-header .hdr-rule{ display:none }
+}
+/* very narrow phones: one column of cards, brackets stay with the title */
+@media (max-width:359px){
+  html body #sidebar#sidebar .samples-grid,html body #sidebar#sidebar .stat-grid,html body #sidebar#sidebar #machine-state-panel .ms-grid{ grid-template-columns:minmax(0,1fr)!important }
+  html body #sidebar#sidebar #machine-state-panel .ms-grid.ms-dtg{ grid-template-columns:repeat(2,minmax(0,1fr))!important }
+  html body #sidebar#sidebar #sidebar-header h1.brand{ font-size:1.45rem!important }
+}
+/* a phone turned on its side: the sidebar sits beside the 3D view instead of under a sliver of it */
+@media (max-width:950px) and (orientation:landscape) and (max-height:520px){
+  html body #app{ flex-direction:row!important }
+  html body #right-col{ order:2!important; flex:1 1 0!important; min-width:0!important; width:auto!important }
+  html body #sidebar#sidebar{
+    order:1!important; width:clamp(240px,36vw,320px)!important; min-width:0!important; max-width:44vw!important;
+    height:100%!important; max-height:none!important; flex:0 0 clamp(240px,36vw,320px)!important;
+    border-top:0!important; border-right:1px solid var(--sb-line)!important;
+  }
+  html body #vp-mode-status{ display:flex!important }
+  html body #sidebar#sidebar > #sidebar-header{ flex-direction:column!important }
+}
+@media (prefers-reduced-motion:reduce){ html body #sidebar#sidebar *,html body #sidebar#sidebar *::before,html body #sidebar#sidebar *::after{ transition-duration:.01s!important; animation-duration:.01s!important } }
+
+/* ---------- nothing in the sidebar is set smaller than 11 px ---------- */
+html body #sidebar#sidebar :is(.sample-badge,.sp-h,.fx-show-text,.jc-z-k,.jc-label,.jc-reset em,.dia-alt,.tm-empty,.tm-spin-title,.tm-note,.grid-field-row span,.mc-sub,#view-stats-content span,#view-stats-content div,#tool-table-container span,.sec-soon,.sf-tag,.cr-sim-badge,.cr-tag,.cr-kind,.cr-ghead span,.cr-ghead em,.cr-foot span,.pm-eye,.pm-name,.pm-tri,.pm-del,.sd-head,.sd-key,.sd-pill,.cr-tabs em,.sb-cat-head em,.sp-drop span,.gd-num,.gd-subcount,.gd-chev,.sd-val,.st-opt em,.st-foot,.sp-foot,.sp-foot *,.mkp-pick-note,.jc-verdict,.legend-col-hdr,#cr-count,#cr-foot,#cr-foot *){
+  font-size:max(11px,.6875rem)!important; line-height:1.35;
+}
+</style>
 </body>
 </html>
