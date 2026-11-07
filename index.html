@@ -32558,9 +32558,12 @@ function bindTableBox() {
   const box = $("#tool-table-type"), msg = $("#tool-table-type-msg");
   if (!box) return;
   const live = () => {
-    const text = box.value.trim();
+    const full = box.value.trim();
+    const text = (window.ToolTableSync && window.ToolTableSync.onlyEdited) ? window.ToolTableSync.onlyEdited(full) : full;
+    if (!full) { msg.textContent = ""; msg.className = "tt-msg"; return; }
     if (!text) { msg.textContent = ""; msg.className = "tt-msg"; return; }
     const res = applyText(text);
+    if (window.ToolTableSync && window.ToolTableSync.accept && res.tools.length) window.ToolTableSync.accept(full);
     if (res.tools.length) {
       msg.textContent = "Updated " + res.tools.map(t => "T" + t.number).join(", ");
       msg.className = "tt-msg ok";
@@ -42788,9 +42791,19 @@ window.JawClear = (function () {
   }
 
   function reparse() {
+    /* Re-reading the program for a changed tool must leave the run where it was: the tool stays at the same moment of the same cut,
+       not thrown to the end of the program. */
+    let at = null, playing = false;
+    try { at = typeof simTime === "number" ? simTime : null; playing = typeof simPlaying !== "undefined" && simPlaying; } catch (e) { at = null; }
     try {
       if (typeof flushParseNow === "function") flushParseNow();
       else if (typeof simSeekToTime === "function") simSeekToTime(simTime);
+    } catch (e) {   }
+    try {
+      if (at != null && typeof simSeekToTime === "function") {
+        simSeekToTime(Math.min(at, typeof simTotalTime === "number" && simTotalTime > 0 ? simTotalTime : at));
+        if (typeof simPlaying !== "undefined") simPlaying = playing;
+      }
     } catch (e) {   }
   }
 
@@ -65334,7 +65347,11 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
   "use strict";
   const box = () => document.getElementById("tool-table-type");
   const prog = () => { const t = document.getElementById("gcode-input"); return t ? t.value : ""; };
-  let lastProg = null, edited = false, lastSig = "";
+  let lastProg = null, edited = false, lastSig = "", written = new Set();
+  const linesOf = t => String(t || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  /* only the lines you have changed since the box was filled in: the rest are left exactly as they are, not rebuilt from the plain words */
+  const onlyEdited = t => { if (!written.size) return String(t || "").trim(); return linesOf(t).filter(l => !written.has(l)).join("\n"); };
+  const accept = t => { written = new Set(linesOf(t)); };
 
   const FR = [2, 4, 8, 16, 32, 64];
   function inchText(d) {
@@ -65395,7 +65412,7 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
     const sig = nums.map(n => { let r = ""; try { const m = ToolModels.get(n); r = m ? JSON.stringify(m.params) : ""; } catch (e) { /* none */ } return n + ":" + toolTable.get(n) + ":" + r; }).join(";");
     const b = box();
     if (!b || document.activeElement === b || edited) { lastSig = sig; return; }
-    if (sig !== lastSig || changed) { b.value = nums.map(lineFor).join("\n"); b.rows = Math.min(8, Math.max(2, nums.length)); }
+    if (sig !== lastSig || changed) { b.value = nums.map(lineFor).join("\n"); b.rows = Math.min(8, Math.max(2, nums.length)); accept(b.value); }
     lastSig = sig;
   }
 
@@ -65406,7 +65423,7 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
     window.loadGCode = loadGCode = function () { const r = prev.apply(this, arguments); setTimeout(sync, 250); return r; };
   }
   setTimeout(sync, 600);
-  window.ToolTableSync = { sync, lineFor };
+  window.ToolTableSync = { sync, lineFor, onlyEdited, accept };
 })();
 </script>
 <script id="boot-reveal">
