@@ -25947,16 +25947,16 @@ T1 M06 (#2 CENTER DRILL - 60 DEG)
 G00 G54 X0. Y0.
 G43 Z1.0 H01 M03 S5000
 (--- Line 1: HELLO WORLD at 0.4 inch tall ---)
-G47 P0 X-4.0 Y2.0 I0. J0.4 R0.05 Z-0.005 F30. (HELLO WORLD)
+G47 P0 X-4.0 Y2.0 I0. J0.4 R0.05 Z-0.03 F30. (HELLO WORLD)
 G00 Z1.0
 (--- Line 2: Serial number style with angle ---)
-G47 P0 X-4.0 Y1.0 I0. J0.3 R0.05 Z-0.005 F30. (SN-2025-001)
+G47 P0 X-4.0 Y1.0 I0. J0.3 R0.05 Z-0.03 F30. (SN-2025-001)
 G00 Z1.0
 (--- Line 3: rotated 15 degrees ---)
-G47 P0 X-4.0 Y-0.5 I15. J0.35 R0.05 Z-0.005 F30. (ANGLED TEXT)
+G47 P0 X-4.0 Y-0.5 I15. J0.35 R0.05 Z-0.03 F30. (ANGLED TEXT)
 G00 Z1.0
 (--- Line 4: Part number bottom ---)
-G47 P0 X-4.0 Y-2.0 I0. J0.25 R0.05 Z-0.005 F30. (PART NO 12345-A)
+G47 P0 X-4.0 Y-2.0 I0. J0.25 R0.05 Z-0.03 F30. (PART NO 12345-A)
 G00 Z1.0
 G00 X0. Y0.
 M05
@@ -26403,14 +26403,28 @@ document.getElementById('btn-load-multiaxis').addEventListener('click', () => {
     'Rapid moves with an A word in them, over a 6 \u00D7 5 \u00D7 1 aluminum block, so you can see the rotary envelope.');
 });
 
+/* The lettering is small, so the camera comes in close and looks mostly straight down at the plate. */
+function frameEngraving() {
+  try {
+    const st = PartModels.all().find(x => x.stock);
+    if (!st || !st.mesh) return;
+    const bx = new THREE.Box3().setFromObject(st.mesh), c = bx.getCenter(new THREE.Vector3());
+    camTarget.set(c.x, c.y, bx.max.z);
+    camSphere.r = Math.max(bx.max.x - bx.min.x, bx.max.y - bx.min.y) * 1.25;
+    camSphere.theta = 0.0; camSphere.phi = 0.55;
+    updateMainCamera();
+  } catch (e) { /* leave the camera where it is */ }
+}
+
 document.getElementById('btn-load-engrave').addEventListener('click', () => {
   loadGCode(ENGRAVE_DEMO_GCODE);
   loadSampleStock('engrave');
   /* a #2 center drill: 3/16 body, 5/64 pilot, 60 degree point, held in an ER16 collet */
   setSampleTool(1, 0.1875, 'drill', { category: 'spotdrill', pointAngle: 60, flutes: 2, helix: 20, shankDia: 4.763, loc: 11, oal: 50.8, holder: 'er16', name: '#2 center drill (5/64 \u00D7 3/16, 60\u00B0)' });
   rewindSimToStart();
+  setTimeout(frameEngraving, 700);
   showToast('Engraving demo loaded',
-    'Four lines of G47 text cut five thou deep into a 5 \u00D7 6 \u00D7 \u00BD aluminum nameplate.');
+    'Four lines of G47 text cut thirty thou deep into a 5 \u00D7 6 \u00D7 \u00BD aluminum nameplate.');
 });
 
 document.getElementById('btn-load-contour-g41').addEventListener('click', () => {
@@ -39052,7 +39066,7 @@ const MakeProgram = (() => {
 
   SAMPLES.engrave = {
     name: "Text engrave",
-    note: "G47 — a part number and a serial cut 0.008 into the faced top",
+    note: "G47 — a part number and a serial cut 0.030 deep into the faced top",
     tools: [[1, 0.75, "flat"], [8, 0.1875, "drill"]], dias: { 1: 0.75, 8: 0.1875 },
     code: () => {
       const L = HEAD("1110", "FACE THEN ENGRAVE - G47 TEXT");
@@ -39068,12 +39082,12 @@ const MakeProgram = (() => {
         "", "(=== T8 .125 ENGRAVER ===)",
         "T8 M06 (#2 CENTER DRILL - 60 DEG)", "S9000 M03", "G43 H8 Z1.", "M08",
         "(--- G47: I IS THE ANGLE, J THE LETTER HEIGHT, R THE RETRACT ---)",
-        "G47 P0 X.4 Y2.9 I0. J.35 R.05 Z-.008 F24. (PART 5X4X1)",
+        "G47 P0 X.4 Y2.9 I0. J.35 R.05 Z-.03 F24. (PART 5X4X1)",
         "G00 Z.25",
-        "G47 P0 X.4 Y2. I0. J.28 R.05 Z-.008 F24. (SN 2026-0001)",
+        "G47 P0 X.4 Y2. I0. J.28 R.05 Z-.03 F24. (SN 2026-0001)",
         "G00 Z.25",
 
-        "G47 P0 X.4 Y1.2 I0. J.22 R.05 Z-.008 F24. (6061 ALUMINUM)",
+        "G47 P0 X.4 Y1.2 I0. J.22 R.05 Z-.03 F24. (6061 ALUMINUM)",
         "G00 Z.25");
       return L.concat(FOOT).join("\n");
     },
@@ -39118,6 +39132,7 @@ const MakeProgram = (() => {
     reseat();
     useCode(s.code(), s.name);
     (SAMPLE_TOOLS[key] || []).forEach(a => { if (typeof setSampleTool === "function") setSampleTool(a[0], a[1], a[2], a[3]); });
+    if (key === "engrave" && typeof frameEngraving === "function") setTimeout(frameEngraving, 700);
     paint();
     Panel.home();
 
@@ -63881,6 +63896,9 @@ html body .cr-ghead{background:var(--bg)!important;border-left-color:var(--ctl-l
 html body .cr-code{color:var(--accent)!important;border-left-color:var(--border)!important}
 html body .cr-kind{background:transparent!important;color:var(--text)!important;border:1px solid var(--ctl-line)!important}
 html body #sidebar .sec-head .sec-name,html body #sidebar .sec-name,html body #sidebar .sb-cat-head,html body #sidebar .sb-cat-head *{font-style:normal!important;font-weight:600!important;letter-spacing:.1em!important}
+/* a button that is switched on wears an outline, so it can be told from one that is off at a glance */
+html body :is(#vp-dock,#hud-side,#viewport-toolbar,#transport-bar,#cin-ui) :is(button,.vt-btn,.tp-btn,.vbtn,.cool):is(.on,.active,[aria-pressed="true"]){
+  border-color:var(--accent,#5b93ea)!important;box-shadow:0 0 0 1px var(--accent,#5b93ea) inset!important;color:#fff}
 html body #sidebar .sb-cat-head strong{color:var(--cat)!important;font-size:12px!important;font-weight:700!important;letter-spacing:.05em!important;text-transform:none!important}
 html body #sidebar .sb-cat-head small{color:#9da3ad!important;font-size:11px!important;font-weight:400!important;letter-spacing:0!important;text-transform:none!important}
 html body #sidebar .sb-cat-head i{color:var(--cat)!important}
@@ -64497,7 +64515,7 @@ const HaasSamples = (function () {
 
   /* ================= CHAMFER, ENGRAVE, 3D ================= */
   add('Finishing', 'fin1', 'Chamfer · outside edge', 'Break the top edge with a 90 degree chamfer mill', [CH(1)], () => J(HEAD('6701', 'CHAMFER EDGE').concat(ON(1, 6000, '.500 90 DEG CHAMFER MILL'), ['G00 X-.5 Y-.5', 'G00 Z.1', 'G01 Z-.04 F20.', 'G01 Y4.5 F30.', 'G01 X5.5', 'G01 Y-.5', 'G01 X-.5'], OFF, FOOT)));
-  add('Finishing', 'fin2', 'Engrave · G47 text', 'Part number and serial with a center drill as the engraver', [CD(1)], () => J(HEAD('6702', 'G47 TEXT ENGRAVING').concat(ON(1, 6000, '#2 CENTER DRILL'), ['G47 P0 X.5 Y3. I0. J.3 R.05 Z-.006 F24. (HAAS 3 AXIS)', 'G00 Z.25', 'G47 P0 X.5 Y2. I0. J.25 R.05 Z-.006 F24. (SN 2026-0001)', 'G00 Z.25', 'G47 P0 X.5 Y1. I0. J.2 R.05 Z-.006 F24. (6061 ALUMINUM)'], OFF, FOOT)));
+  add('Finishing', 'fin2', 'Engrave · G47 text', 'Part number and serial with a center drill as the engraver', [CD(1)], () => J(HEAD('6702', 'G47 TEXT ENGRAVING').concat(ON(1, 6000, '#2 CENTER DRILL'), ['G47 P0 X.5 Y3. I0. J.3 R.05 Z-.03 F24. (HAAS 3 AXIS)', 'G00 Z.25', 'G47 P0 X.5 Y2. I0. J.25 R.05 Z-.03 F24. (SN 2026-0001)', 'G00 Z.25', 'G47 P0 X.5 Y1. I0. J.2 R.05 Z-.03 F24. (6061 ALUMINUM)'], OFF, FOOT)));
   add('Finishing', 'fin3', '3D · ball-end scallops', 'Parallel passes at stepdown with a ball nose', [BALL(1, 0.25, 'er16')], () => J(HEAD('6703', 'BALL NOSE PASSES').concat(ON(1, 8000, '.250 BALL END MILL'),
     ['G00 X1. Y1.', 'G00 Z.1'].concat([0, 1, 2, 3, 4, 5].flatMap(k => ['G01 Z' + num(-.05 - (k % 3) * .03) + ' F10.', `G01 X${k % 2 ? 1 : 4} Y${num(1 + k * .25)} F30.`, k < 5 ? 'G01 Y' + num(1 + (k + 1) * .25) : '']).filter(Boolean)), OFF, FOOT)));
 
