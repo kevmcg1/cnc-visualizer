@@ -14171,7 +14171,7 @@ const Textures = (() => {
 /* ── Materials ────────────────────────────────────────────────────── */
 const Materials = (() => {
   const SUBSTRATE = {
-    carbide: { name:"Carbide", color:0x24272b, metal:0.72, roughAdd:0.1 },
+    carbide: { name:"Carbide", color:0x6a7078, metal:0.5, roughAdd:0.12 },
     hss:     { name:"HSS",     color:0xc7ccd2, metal:0.96, roughAdd:-0.04 },
   };
   /* A holder, an arbor or a parting blade is a steel part carrying a
@@ -14184,8 +14184,8 @@ const Materials = (() => {
      names TiN or DLC still opens and still draws something sensible —
      only the two the panel offers are choosable. */
   const COATINGS = {
-    none:  { name:"Uncoated (bare carbide)", color:null,    flat:0x2a2e33 },
-    tialn: { name:"Violet",              color:0x584a66, flat:0x8b78ba },
+    none:  { name:"Uncoated (bare carbide)", color:null,    flat:0x5a6068 },
+    tialn: { name:"Coated (dark gray)",   color:0x5a6068, flat:0x5a6068 },
     tin:   { name:"TiN (gold)",       color:0xd9b23c },
     ticn:  { name:"TiCN (blue-gray)", color:0x7f8aa0 },
     altin: { name:"AlTiN (dark gray)", color:0x3b4046 },
@@ -17380,7 +17380,7 @@ window.__tbCtl = { pause: Viewer.pause, resume: Viewer.resume };
     }
     return matHolder;
   }
-  var COAT = { tialn: 0x584a66, tin: 0xd9b23c, ticn: 0x7f8aa0, altin: 0x3b4046, zrn: 0xd8c88f, dlc: 0x1c1f24 };
+  var COAT = { tialn: 0x5a6068, tin: 0xd9b23c, ticn: 0x7f8aa0, altin: 0x3b4046, zrn: 0xd8c88f, dlc: 0x1c1f24 };
   function toolGeom(doc) {
     var key = doc.id + '|' + JSON.stringify(doc.params || {});
     if (geoCache[key]) return geoCache[key];
@@ -28461,7 +28461,7 @@ window.TOOL_MODEL_SAMPLES = [
       tools: [{
         number: 1, name: "1/2\" 4FL flat endmill", type: "endmill",
         params: { category: "endmill", endType: "flat", dia: 12.7, shankDia: 12.7,
-                  loc: 32, oal: 76, flutes: 4, helix: 35, coating: "tialn" },
+                  loc: 32, oal: 76, flutes: 4, helix: 35, coating: "none" },
       }],
     },
   },
@@ -28513,7 +28513,7 @@ window.TOOL_MODEL_SAMPLES = [
       tools: [{
         number: 8, name: "1/2\" 90° chamfer mill", type: "chamfer",
         params: { category: "chamfer", dia: 12.7, shankDia: 12.7, coneAngle: 90,
-                  tipDia: 1.5, loc: 10, oal: 63, flutes: 4, coating: "tialn" },
+                  tipDia: 1.5, loc: 10, oal: 63, flutes: 4, coating: "none" },
       }],
     },
   },
@@ -28540,7 +28540,7 @@ window.TOOL_MODEL_SAMPLES = [
       tools: [{
         number: 7, name: "1/2\" 4FL endmill · shrink fit", type: "endmill",
         params: { category: "endmill", endType: "flat", dia: 12.7, shankDia: 12.7,
-                  loc: 32, oal: 84, flutes: 4, helix: 35, coating: "tialn",
+                  loc: 32, oal: 84, flutes: 4, helix: 35, coating: "none",
                   holder: "shrink" },
       }],
     },
@@ -30053,7 +30053,7 @@ const DEFAULTS = {
   holder:    "none",
   stickout:   0,        /* mm from the tip to the holder's nose; 0 = worked out from the holder's grip */
   material:  "carbide",
-  coating:   "tialn",
+  coating:   "none",
   finish:    "ground",
   coatShank:  false,
 };
@@ -31531,11 +31531,11 @@ let ENV = null;
 function setEnvironment(tex) { ENV = tex || null; }
 
 const SUBSTRATE = {
-  carbide: { color: 0x24272b, metal: 0.72, roughAdd: 0.10 },
+  carbide: { color: 0x6a7078, metal: 0.5, roughAdd: 0.12 },
   hss:     { color: 0x9fa4ab, metal: 0.96, roughAdd: -0.04 },
 };
 const BODY_STEEL = { color: 0x6b727b, metal: 0.88, roughAdd: 0.10 };
-const COAT_COLORS = { tialn: 0x584a66, tin: 0xd9b23c, ticn: 0x7f8aa0, altin: 0x3b4046, zrn: 0xd8c88f, dlc: 0x1c1f24 };
+const COAT_COLORS = { tialn: 0x5a6068, tin: 0xd9b23c, ticn: 0x7f8aa0, altin: 0x3b4046, zrn: 0xd8c88f, dlc: 0x1c1f24 };
 const FINISHES = {
   polished: { rough: 0.16, bump: null,    scale: 0 },
   ground:   { rough: 0.34, bump: "grind", scale: 0.012 },
@@ -31588,7 +31588,7 @@ function partSpec(part, p, look) {
   if (part === "led") return isProbe(p)
     ? { color: 0xbfe2ff, emissive: 0x7fc4ff, emissiveI: 1.5, metal: 0, rough: 0.3, envI: 0.4, bump: null, scale: 0 }
     : { color: 0x1fe86a, emissive: 0x28ff7a, emissiveI: 1.4, metal: 0, rough: 0.35, envI: 0.4, bump: null, scale: 0 };
-  if (part === "black") return { color: 0x0e0f11, metal: 0.55, rough: 0.36, envI: 0.8, bump: "blast", scale: 0.004 };
+  if (part === "black") return { color: 0x34383e, metal: 0.7, rough: 0.38, envI: 1, bump: "blast", scale: 0.004 };
   if (isProbe(p)) {
     if (part === "slots") return { color: 0x3a3f46, metal: 0.35, rough: 0.12, envI: 1.2, bump: null, scale: 0 };   /* smoked infrared glass */
     if (part === "trim")  return { color: 0x9a9da1, metal: 1, rough: 0.16, envI: 1, bump: null, scale: 0 };   /* polished steel rings */
@@ -31597,7 +31597,7 @@ function partSpec(part, p, look) {
   if (part === "trim") {
     /* the ER nut and a chuck's jaw nose are black oxide: dark, matte, a little grain */
     if (kind === "er") return { color: 0x9c9a94, metal: 1, rough: 0.14, envI: 1, bump: null, scale: 0 };      /* collet and retaining ring */
-    if (kind === "chuck") return { color: 0x17191c, metal: 0.8, rough: 0.34, envI: 0.9, bump: "blast", scale: 0.006 };
+    if (kind === "chuck") return { color: 0x34383e, metal: 0.8, rough: 0.34, envI: 1, bump: "blast", scale: 0.006 };
     return { color: 0x9ea4ac, metal: 1, rough: 0.2, envI: 1, bump: null, scale: 0 };
   }
   /* the holder body */
