@@ -64138,6 +64138,7 @@ html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
   modal.setAttribute('aria-modal', 'true');
   modal.innerHTML = '<div class="cg-card"><div class="cg-head"><i class="fa-solid fa-triangle-exclamation"></i><span>Collision</span></div>' +
     '<p class="cg-what"></p><p class="cg-where"></p><p class="cg-ask">Continue anyway?</p>' +
+    '<label class="cg-all"><input type="checkbox" class="cg-all-cb"> Just keep going until the end</label>' +
     '<div class="cg-row"><button type="button" class="cg-stop">Stop here</button><button type="button" class="cg-go">Continue anyway</button></div></div>';
   document.body.appendChild(modal);
   const css = document.createElement('style');
@@ -64151,6 +64152,7 @@ html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
 #collision-modal .cg-head{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:#ff7a6e}
 #collision-modal p{margin:8px 0 0}#collision-modal .cg-where{color:#8a8f97;font-size:12px}
 #collision-modal .cg-ask{margin-top:12px;font-weight:650}
+#collision-modal .cg-all{display:flex;align-items:center;gap:9px;margin-top:12px;color:#cfd2d8;font-size:12.5px;cursor:pointer}
 #collision-modal .cg-row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 #collision-modal button{height:34px;padding:0 14px;border-radius:8px;background:transparent;border:1px solid #3d4147;color:#ececee;font:600 12.5px 'Inter',system-ui,sans-serif;cursor:pointer;
   transition:border-color .22s ease,background-color .22s ease,color .22s ease}
@@ -64316,6 +64318,7 @@ html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
     return segTimeline.length + ':' + simTotalTime.toFixed(2) + ':' + Array.from(toolTable.entries()).join(';') + ':' + fx;
   }
 
+  let keepGoing = false;     /* "Just keep going until the end": ticked once, no more stops this run */
   function show(c) {
     simPlaying = false;
     if (typeof PlaybackUI !== 'undefined' && PlaybackUI.refresh) PlaybackUI.refresh();
@@ -64323,12 +64326,14 @@ html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
     const fmt = v => (Math.round(v * 1000) / 1000).toFixed(3);
     modal.querySelector('.cg-what').textContent = 'T' + c.tool + (c.holder ? ' (the holder)' : ' (the cutter)') + ' runs into the ' + c.part + '.';
     modal.querySelector('.cg-where').textContent = 'Line ' + ((c.seg.origLineIdx != null ? c.seg.origLineIdx : c.seg.lineIdx) + 1) + ' · X' + fmt(c.at[0]) + ' Y' + fmt(c.at[1]) + ' Z' + fmt(c.at[2]);
+    modal.querySelector('.cg-all-cb').checked = false;      /* off every time it asks */
     modal.classList.add('on');
     modal.querySelector('.cg-go').focus();
     modal._c = c;
   }
   modal.querySelector('.cg-go').addEventListener('click', () => {
     const c = modal._c; modal.classList.remove('on');
+    if (modal.querySelector('.cg-all-cb').checked) keepGoing = true;
     if (c) { acknowledged.add(c); simActive = true; simPlaying = true; if (typeof PlaybackUI !== 'undefined' && PlaybackUI.refresh) PlaybackUI.refresh(); }
   });
   modal.querySelector('.cg-stop').addEventListener('click', () => {
@@ -64346,16 +64351,18 @@ html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
     if (simPlaying && crashes.length) {
       for (const c of crashes) {
         if (acknowledged.has(c)) continue;
+        if (keepGoing) { acknowledged.add(c); continue; }
         if (simTime >= c.t - 1e-3 && lastT < c.t + 0.5 && simTime - c.t < 2) {
           simSeekToTime(c.t); show(c); break;
         }
       }
     }
+    if (simTime < lastT - 0.5) keepGoing = false;      /* a rewind starts a fresh run */
     lastT = simTime;
     setTimeout(loop, 250);
   }
   /* a restart, or a seek back before an acknowledged crash, asks again */
-  document.addEventListener('click', e => { if (e.target.closest && e.target.closest('#btn-sim-reset')) acknowledged.clear(); });
+  document.addEventListener('click', e => { if (e.target.closest && e.target.closest('#btn-sim-reset')) { acknowledged.clear(); keepGoing = false; } });
   setTimeout(loop, 1500);
   window.CollisionGuard = { crashes, analyse, get working() { return working; } };
 })();
