@@ -3300,6 +3300,9 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }
   opacity: 0.75;
 }
 
+/* Round bar blanks are off for now; the controls stay in the markup, hidden. */
+[data-cyl-off][hidden] { display: none !important; }
+
 /* Button rows: equal columns, one gap, one height. */
 #sidebar .stk-row { display: grid; gap: 6px; }
 #sidebar .stk-row-1 { grid-template-columns: 1fr; }
@@ -18236,7 +18239,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             <span class="ms-btn-t">Add a rectangular block</span>
             <span class="ms-btn-d">The usual starting point.</span>
           </button>
-          <button class="ms-btn" data-doclick="#pm-stock-cyl">
+          <button class="ms-btn" data-doclick="#pm-stock-cyl" data-cyl-off hidden>
             <span class="ms-btn-t">Add a round bar</span>
             <span class="ms-btn-d">For anything turned or round.</span>
           </button>
@@ -18429,9 +18432,11 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
 
         <div class="stk-group">
           <div class="stk-head">Add a blank</div>
-          <div class="stk-row stk-row-2">
+          <div class="stk-row stk-row-1">
             <button id="pm-stock-block" class="stk-btn">Block</button>
-            <button id="pm-stock-cyl" class="stk-btn">Round bar</button>
+            <!-- Round bars are switched off for now: remove the hidden attribute
+                 (and data-cyl-off) on the [data-cyl-off] controls to bring them back. -->
+            <button id="pm-stock-cyl" class="stk-btn" data-cyl-off hidden>Round bar</button>
           </div>
           <div class="stk-note" id="stock-empty" hidden>
             Nothing to cut yet — drop a blank in with one of those, or load a
@@ -18470,9 +18475,8 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
               <button data-metal="stainless">Stainless</button>
             </div>
             <div class="stk-note">
-              The blank re-skins itself a cell at a time — a front crosses it on
-              the diagonal and the new metal follows it across. Machining already
-              done is kept.
+              The blank blends to the new metal in a fraction of a second.
+              Machining already done is kept.
             </div>
           </div>
 
@@ -18763,8 +18767,8 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
               Live — shape, material and size land on the blank as you set them,
               jaws re-close and the parallels re-bank each time.
             </div>
-            <div class="mkp-label">Shape</div>
-            <div class="pm-mini" id="mkp-stock-shape">
+            <div class="mkp-label" data-cyl-off hidden>Shape</div>
+            <div class="pm-mini" id="mkp-stock-shape" data-cyl-off hidden>
               <button data-mkpshape="block" class="on">Block</button>
               <button data-mkpshape="cyl">Round bar</button>
             </div>
@@ -19665,7 +19669,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
               <h3>The drawers</h3>
               <ul>
                 <li><strong>Stock</strong> — shape, material and size, all live.
-                    Change one and the blank re-skins itself a cell at a time and
+                    Change one and the blank blends to the new metal and
                     keeps the machining you've already done.</li>
                 <li><strong>Fixture</strong> — vise, parallels, table, each with
                     its own show/hide. <em>Auto align parallels</em> re-cuts the
@@ -36351,59 +36355,53 @@ const Panel = (() => {
     refresh();
   }
 
-  /* Swapping the metal re-skins the blank a cell at a time rather than cross-
-     fading it: the old finish stays in slot A, the new one goes into slot B,
-     and a front crosses the solid converting A to B as it passes. Only the
-     billet does this — nothing else in the scene carries the sweep shader. */
+  /* Swapping the metal is a short uniform blend, nothing more. The old
+     cell-by-cell sweep ran a second grain pass and a glowing front through
+     the billet shader on every pixel for over a second; this writes four
+     uniforms for about a fifth of a second and then stops. No geometry,
+     material, texture or DOM is rebuilt, and the same values go into both
+     finish slots so the shader's sweep branch never switches on. */
+  const _mmFrom = { col: new THREE.Vector3(), spec: new THREE.Vector3(), shine: 0, grain: 0 };
+  const _mmTo = { col: new THREE.Vector3(), spec: new THREE.Vector3() };
   function setMetal(p, keyName) {
     const m = Stock.METALS[keyName];
     if (!m || !p || !p.stock || !p.mesh || !p.mesh.material.uniforms) return;
     const u = p.mesh.material.uniforms;
     if (!u.uSwProgress) return;
 
-    const same = p.stock.metal === keyName;
     p.stock.metal = keyName;
+    if (p._sweep) { cancelAnimationFrame(p._sweep); p._sweep = 0; }
 
-    /* Whatever it is wearing right now becomes the "before". */
-    if (!same) {
-      u.uCol.value.copy(u.uColB.value);
-      u.uSpec.value.copy(u.uSpecB.value);
-      u.uShine.value = u.uShineB.value;
-      u.uGrain.value = u.uGrainB.value;
-    }
-    u.uColB.value.fromArray(m.col);
-    u.uSpecB.value.fromArray(m.spec);
-    u.uShineB.value = m.shine;
-    u.uGrainB.value = m.grain;
+    /* Settled state: the sweep is off and slot B is what the shader shows. */
+    u.uSwOn.value = 0; u.uSwActive.value = 0; u.uSwProgress.value = 1;
 
-    Stock.aimSweep(u, p.stock);
-    u.uSwOn.value = 1;
+    /* Start from whatever is on screen right now, so a second click mid-blend
+       carries on from where the first one had got to. */
+    _mmFrom.col.copy(u.uColB.value); _mmFrom.spec.copy(u.uSpecB.value);
+    _mmFrom.shine = u.uShineB.value; _mmFrom.grain = u.uGrainB.value;
+    _mmTo.col.fromArray(m.col); _mmTo.spec.fromArray(m.spec);
 
-    /* Driven straight off rAF rather than through Motion, because Motion eases
-       both ends and an easing front reads as a stall. This one is linear. */
-    if (p._sweep) cancelAnimationFrame(p._sweep);
-    const ms = Stock.SWEEP.seconds * 1000;
-    const t0 = performance.now();
+    const paintTo = k => {
+      u.uColB.value.copy(_mmFrom.col).lerp(_mmTo.col, k);
+      u.uSpecB.value.copy(_mmFrom.spec).lerp(_mmTo.spec, k);
+      u.uShineB.value = _mmFrom.shine + (m.shine - _mmFrom.shine) * k;
+      u.uGrainB.value = _mmFrom.grain + (m.grain - _mmFrom.grain) * k;
+      u.uCol.value.copy(u.uColB.value); u.uSpec.value.copy(u.uSpecB.value);
+      u.uShine.value = u.uShineB.value; u.uGrain.value = u.uGrainB.value;
+    };
+
+    /* Highlight the chosen metal by hand; a full refresh() would rebuild the
+       part list and every panel for a change that touches two buttons. */
+    const row = document.getElementById("pm-metals");
+    if (row) row.querySelectorAll("[data-metal]").forEach(b =>
+      b.classList.toggle("on", b.dataset.metal === keyName));
+
+    const ms = 200, t0 = performance.now();
     (function step(now) {
       const k = Math.min((now - t0) / ms, 1);
-      u.uSwProgress.value = k;
-      u.uSwTime.value = (now - t0) / 1000;
-
-      /* Fade the glowing front in at the start and out at the finish, so it
-         never pops on an edge that is already done. */
-      u.uSwActive.value = Math.min(smoothstep(0, 0.06, k), 1 - smoothstep(0.94, 1, k));
-
-      if (k < 1) { p._sweep = requestAnimationFrame(step); return; }
-
-      p._sweep = 0;
-      u.uSwActive.value = 0;
-      u.uSwOn.value = 0;
-      u.uCol.value.copy(u.uColB.value);
-      u.uSpec.value.copy(u.uSpecB.value);
-      u.uShine.value = u.uShineB.value;
-      u.uGrain.value = u.uGrainB.value;
+      paintTo(smoothstep(0, 1, k));
+      p._sweep = k < 1 ? requestAnimationFrame(step) : 0;
     })(t0);
-    refresh();
   }
 
   function smoothstep(a, b, x) {
