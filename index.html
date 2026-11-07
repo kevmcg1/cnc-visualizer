@@ -26165,6 +26165,10 @@ function loadComboTools() {
   setSampleTool(6, 0.25,  'tap',   { category: 'tap', pitch: 1.27, flutes: 3, loc: 20, oal: 63, holder: 'er16', name: '1/4-20 UNC tap' });
 }
 
+/* The six cutters are built a moment after the first frame rather than before it: the page
+   appears sooner and the tools fill in, instead of everything waiting on their geometry. */
+function deferComboTools() { (window.requestIdleCallback || (f => setTimeout(f, 120)))(() => loadComboTools(), { timeout: 600 }); }
+
 (function() {
   loadGCode(COMBO_GCODE);
   updateHighlight();
@@ -26176,7 +26180,7 @@ function loadComboTools() {
         /* A setup saved with the default program keeps its cutters too. */
         try {
           const ed = document.getElementById('gcode-input');
-          if (ed && ed.value.trim() === COMBO_GCODE.trim()) loadComboTools();
+          if (ed && ed.value.trim() === COMBO_GCODE.trim()) deferComboTools();
         } catch (e) { /* the saved tools stand */ }
         showToast('Your saved setup is back',
           'The blank, vise and program you left last time. How do I use it? \u25B8 Start fresh puts the demo back.');
@@ -26184,7 +26188,7 @@ function loadComboTools() {
       }
       if (typeof window.PartModels.sampleStock === 'function') {
         window.PartModels.sampleStock('fullPart');
-        loadComboTools();
+        deferComboTools();
         rewindSimToStart();
         /* Later start-up work can re-read the program and put every cutter
            back to a half-inch default; put the real ones back if it does. */
@@ -26193,7 +26197,7 @@ function loadComboTools() {
             const ed = document.getElementById('gcode-input');
             if (ed && ed.value.trim() === COMBO_GCODE.trim() &&
                 !(Math.abs((toolTable.get(5) || 0) - 0.201) < 1e-6)) {
-              loadComboTools();
+              deferComboTools();
               if (window.StockSim) StockSim.reset(false);
               rewindSimToStart();
             }
@@ -61237,6 +61241,7 @@ window.HAAS_LATHE_CODES = {
     const x = state.x != null ? state.x : Math.max(8, v.width - W - 16);
     const y = state.y != null ? state.y : 120;
     panel.style.left = Math.max(0, Math.min(v.width - 120, x)) + "px";
+    panel.style.setProperty("--hp-avail", Math.max(90, Math.floor(v.height - 222)) + "px");
     const ph = panel.offsetHeight || H;
     panel.style.top = Math.max(4, Math.min(v.height - Math.min(ph, v.height - 8) - 4, y)) + "px";
   }
@@ -61253,6 +61258,9 @@ window.HAAS_LATHE_CODES = {
   });
   head.addEventListener("pointerup", () => { if (mv) { mv = null; save(); } });
   window.addEventListener("resize", place);
+  /* a panel measured while it was hidden is placed again once it is showing and whenever its size settles */
+  if (window.ResizeObserver) new ResizeObserver(() => place()).observe(panel);
+  new ResizeObserver(() => place()).observe(viewport);
 
   function paint() {
     panel.classList.toggle("folded", !!state.collapsed);
@@ -63612,6 +63620,10 @@ html body #transport-row .tp-follow-pair #btn-rotate-path{width:36px;padding:0}
 html body #site-footer.foot{display:flex!important;flex-direction:row!important;gap:16px;align-items:center;white-space:nowrap;width:max-content;max-width:100%;padding:8px 30px 3px!important}
 html body #site-footer.foot .footer-mark,html body #site-footer.foot .footer-license{display:inline!important}
 html body #site-footer.foot .footer-license{overflow:hidden;text-overflow:ellipsis;max-width:62vw}
+
+/* ---- the holder panel fits whatever height the 3D view has: its picture takes what is left after the header and the readout ---- */
+html body #holder-panel{max-height:calc(100% - 8px)!important}
+html body #holder-panel .hp-view{height:min(250px,var(--hp-avail,250px))!important}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}}
 
 </style>
@@ -64086,6 +64098,35 @@ const HaasSamples = (function () {
     showToast(sm.name, sm.desc + '. Haas program, 5 \u00D7 4 \u00D7 1 aluminum, zero at the top near-left corner.');
   }
   window.loadHaasSample = id => { const sm = L.find(x => x.id === id); if (sm) loadHaas(sm); return !!sm; };
+})();
+</script>
+<script id="upper-comments">
+/* Every comment in the program is upper case, always: typed, pasted, loaded from a file or a sample.
+   A comment is whatever sits in parentheses, or after a semicolon to the end of the line. */
+(function () {
+  const upperComments = (t) => String(t)
+    .replace(/\([^)\n]*\)?/g, m => m.toUpperCase())
+    .replace(/;[^\n]*/g, m => m.toUpperCase());
+  window.upperComments = upperComments;
+
+  const ta = document.getElementById('gcode-input');
+  if (ta) {
+    ta.addEventListener('input', () => {
+      const v = ta.value, u = upperComments(v);
+      if (u !== v) {
+        const a = ta.selectionStart, b = ta.selectionEnd, st = ta.scrollTop;
+        ta.value = u;
+        try { ta.setSelectionRange(a, b); } catch (e) {  }
+        ta.scrollTop = st;
+      }
+    }, true);
+  }
+  /* programs handed to the editor from anywhere else: samples, files, drops, the builder */
+  if (typeof loadGCode === 'function') {
+    const original = loadGCode;
+    window.loadGCode = loadGCode = function (text) { return original.call(this, upperComments(text)); };
+  }
+  if (ta && ta.value) { const u = upperComments(ta.value); if (u !== ta.value) { ta.value = u; if (typeof updateHighlight === 'function') updateHighlight(); } }
 })();
 </script>
 </body>
