@@ -1318,6 +1318,11 @@ body.no-program #transport-bar button:disabled, body.no-program #transport-bar i
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
+  #sidebar #machine-state-panel #ms-feed {
+    white-space: normal; overflow: visible; text-overflow: clip;
+    overflow-wrap: anywhere; line-height: 1.25; text-align: right;
+  }
+
   #sidebar .section { border-bottom: 1px solid var(--sb-line-soft); }
   #sidebar .sec-head {
     padding: 15px 18px; gap: 10px;
@@ -18414,7 +18419,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </div>
       <div class="ms-grid">
         <div class="ms-cell"><span class="ms-label">X</span><span class="ms-val" id="ms-x">—</span></div>
-        <div class="ms-cell"><span class="ms-label">Feed</span><span class="ms-val ms-accent" id="ms-feed">—</span></div>
+        <div class="ms-cell"><span class="ms-label">Feed</span><span class="ms-val ms-accent" id="ms-feed">N/A</span></div>
         <div class="ms-cell"><span class="ms-label">Y</span><span class="ms-val" id="ms-y">—</span></div>
         <div class="ms-cell"><span class="ms-label">RPM</span><span class="ms-val" id="ms-rpm">—</span></div>
         <div class="ms-cell"><span class="ms-label">Z</span><span class="ms-val" id="ms-z">—</span></div>
@@ -19804,7 +19809,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </div>
 
       <div id="machine-hud" class="v-hud">
-        <div class="v-hud-row"><span class="v-hud-label">Feed</span><span class="v-hud-val accent" id="hud-feed">—</span></div>
+        <div class="v-hud-row"><span class="v-hud-label">Feed</span><span class="v-hud-val accent" id="hud-feed">N/A</span></div>
         <div class="v-hud-row"><span class="v-hud-label">RPM</span><span class="v-hud-val" id="hud-rpm">—</span></div>
         <div class="v-hud-row"><span class="v-hud-label">Tool</span><span class="v-hud-val" id="hud-tool">—</span></div>
         <div class="v-hud-row"><span class="v-hud-label">To go</span><span class="v-hud-val accent" id="hud-dtg">—</span></div>
@@ -21261,6 +21266,41 @@ let segTimeline  = [];
 let simTotalTime = 0;
 let simTime      = 0;
 let simPlaying   = false;
+
+/* The Feed read-out only ever shows a number, or N/A. It is N/A whenever the
+   cutter is not actually feeding: playback paused or stopped, nothing loaded,
+   an M00/M01 stop, an M06 tool change, a dwell, or any block with no feed. The
+   value is inches/min with metric in parentheses, scaled by playback speed. */
+const FEED_NA = 'N/A';
+function formatFeedReadout(seg, rate, playing) {
+  if (!playing || !seg) return FEED_NA;
+  if (seg.isStop || seg.isToolChange || seg.isMarker) return FEED_NA;
+  const f = seg.feedRate;
+  if (typeof f !== 'number' || !isFinite(f) || f <= 0) return FEED_NA;
+  const k = (typeof rate === 'number' && rate > 0) ? rate : 1;
+  const ipm = (seg.feedIsIPM ? f : f / 25.4) * k;
+  const mm = ipm * 25.4;
+  const n1 = v => v.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  const n0 = v => Math.round(v).toLocaleString('en-US');
+  return n1(ipm) + ' IPM (' + n0(mm) + ' mm/min)';
+}
+let feedReadoutSeg = null, feedReadoutRate = 1, feedReadoutPlaying = false;
+function paintFeedReadout() {
+  const txt = formatFeedReadout(feedReadoutSeg, feedReadoutRate, feedReadoutPlaying);
+  ['ms-feed', 'hud-feed', 'sim-feed'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.textContent !== txt) el.textContent = txt;
+  });
+}
+/* Pause, play, stop and end-of-run are flipped from many places, so watch the
+   one flag instead of hooking each of them. */
+(function watchFeedPlaying() {
+  const tick = () => {
+    if (feedReadoutPlaying !== !!simPlaying) { feedReadoutPlaying = !!simPlaying; paintFeedReadout(); }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+})();
 let simActive    = false;
 let singleBlockMode = false;
 let singleBlockTargetTime = null;
@@ -24535,8 +24575,6 @@ function simSeekToTime(t) {
 
   const cur = activeSeg || (segTimeline.length ? segTimeline[segTimeline.length - 1] : null);
 
-  const simFeedEl = document.getElementById('sim-feed');
-  if (simFeedEl) simFeedEl.textContent = cur ? (cur.seg.feedLabel || '—') : '—';
 
   let tipForHud = toolEnd;
   if (!tipForHud && segTimeline.length && completedCount > 0) {
@@ -24556,16 +24594,9 @@ function simSeekToTime(t) {
   const rate = (typeof simSpeed === 'number' && simSpeed > 0) ? simSpeed : 1;
   const scaled = rate !== 1;
 
-  let feedStr = '—';
-  if (cur) {
-    const seg = cur.seg;
-    if (scaled && seg.feedRate > 0) {
-      const unit = seg.feedIsIPM ? 'IPM' : 'mm/min';
-      feedStr = `${Math.round(seg.feedRate * rate).toLocaleString()} ${unit} @${rate}×`;
-    } else {
-      feedStr = seg.feedLabel || '—';
-    }
-  }
+  feedReadoutSeg = cur ? cur.seg : null;
+  feedReadoutRate = rate;
+  feedReadoutPlaying = !!simPlaying;
 
   const rpmForLine = (lineForState >= 0)
     ? getActiveSpindleAtLine(lineForState)
@@ -24593,6 +24624,8 @@ function simSeekToTime(t) {
         : `${rpmForLine.toLocaleString()} RPM`)
     : '—';
 
+  paintFeedReadout();
+
   const toolStr = (activeToolNumber != null) ? ('T' + activeToolNumber) : '—';
 
   {
@@ -24600,7 +24633,6 @@ function simSeekToTime(t) {
     set('ms-x', xStr);
     set('ms-y', yStr);
     set('ms-z', zStr);
-    set('ms-feed', feedStr);
     set('ms-rpm', rpmStr);
     set('ms-tool', toolStr);
 
@@ -24623,7 +24655,6 @@ function simSeekToTime(t) {
     set('xyz-hud-x', xStr);
     set('xyz-hud-y', yStr);
     set('xyz-hud-z', zStr);
-    set('hud-feed',  feedStr);
     set('hud-rpm',   rpmStr);
     set('hud-tool',  toolStr);
   }
@@ -28380,7 +28411,7 @@ ModalSystem.init();
       const line = (s.origLineIdx != null) ? s.origLineIdx + 1 : (s.lineIdx + 1);
       out.push(row('Editor line', String(line), 'accent'));
       out.push(row('Kind', esc(MOVE_NAMES[s.type] || s.type || 'unknown')));
-      out.push(row('Feed', esc(s.feedLabel || '—')));
+      out.push(row('Feed', esc(formatFeedReadout(s, 1, true))));
       out.push(row('Move', (active.frac * 100).toFixed(0) + '% done'));
       out.push(row('From', pt(s.start)));
       out.push(row('To', pt(s.end)));
