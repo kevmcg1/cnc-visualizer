@@ -27593,15 +27593,22 @@ const _completeBanner = document.getElementById('program-complete-banner');
    through one another. */
 function _restack() { if (window.VPLayout) window.VPLayout(); }
 
+let _completeTimer = 0;
 function showProgramComplete() {
-
-  _completeBanner.classList.remove('show');
+  clearTimeout(_completeTimer);
+  _completeBanner.classList.remove('show', 'fading');
   void _completeBanner.offsetWidth;
   _completeBanner.classList.add('show');
   _restack();
+  /* like the toasts, it goes away by itself: a few seconds up, then a fade */
+  _completeTimer = setTimeout(() => {
+    _completeBanner.classList.add('fading');
+    _completeTimer = setTimeout(hideProgramComplete, 400);
+  }, 5000);
 }
 function hideProgramComplete() {
-  _completeBanner.classList.remove('show');
+  clearTimeout(_completeTimer);
+  _completeBanner.classList.remove('show', 'fading');
   _restack();
 }
 document.getElementById('banner-close').addEventListener('click', hideProgramComplete);
@@ -31098,9 +31105,10 @@ const Builder = (() => {
         [z0 + h.bodyLen * 0.44,     bR],
       ].concat(tail));
       /* The set screw that makes it a Weldon rather than a plain sleeve. */
-      const boss = new THREE.CylinderGeometry(bR * 0.20, bR * 0.20, bR * 0.8, 14);
+      /* a short screw head that stands only a few millimetres proud of the neck, like the real one, not a pin sticking out */
+      const boss = new THREE.CylinderGeometry(bR * 0.17, bR * 0.17, bR * 0.22, 16);
       boss.rotateZ(Math.PI / 2);
-      boss.translate(bR * 0.60, 0, z0 + h.bodyLen * 0.18);
+      boss.translate(bR * 0.62, 0, z0 + h.bodyLen * 0.18);
       trim = boss;
 
     } else if (h.kind === "hyd"){
@@ -31110,7 +31118,7 @@ const Builder = (() => {
         [z0 + h.bodyLen * 0.30,     bR * 0.88],
         [z0 + h.bodyLen * 0.55,     bR],
       ].concat(tail));
-      const screw = new THREE.CylinderGeometry(bR * 0.16, bR * 0.16, bR * 0.55, 12);
+      const screw = new THREE.CylinderGeometry(bR * 0.14, bR * 0.14, bR * 0.24, 14);
       screw.rotateZ(Math.PI / 2);
       screw.translate(bR * 0.82, 0, z0 + h.bodyLen * 0.44);
       trim = screw;
@@ -64603,6 +64611,84 @@ const HaasSamples = (function () {
   add('Macros', 'mac4', 'Macro · G65 hole group', 'A G65 macro call drills a row, arguments X Y Z', [DR(1, 0.25)], () => J(HEAD('6804', 'G65 MACRO CALL').concat(ON(1, 3800, '.250 JOBBER DRILL'),
     ['G65 P6890 X1. Y1. Z-.6', 'G65 P6890 X1. Y2. Z-.6', 'G65 P6890 X1. Y3. Z-.6'], OFF, ['G53 Y0.', 'M30', '%', '', 'O06890 (DRILL A ROW OF 4 FROM X Y)', '#10=0', 'WHILE [#10 LT 4] DO1', 'G99 G81 X[#24+#10*1.] Y#25 Z#26 R.1 F10.', '#10=#10+1', 'END1', 'G80', 'M99', '%'])));
 
+  /* ================= MORE SAMPLES ================= */
+  /* every cut stays over the blank (5 x 4 x 1, zero at the top near-left corner), so none of them touches the jaws or parallels */
+  const stripes = (x0, x1, y0, y1, step, z, feed) => { const o = ['G00 X' + num(x0) + ' Y' + num(y0), 'G00 Z.1', 'G01 Z' + num(z) + ' F20.']; let y = y0, d = 1; while (true) { o.push('G01 X' + num(d > 0 ? x1 : x0) + ' F' + feed + '.'); if (y >= y1 - 1e-6) break; y = Math.min(y + step, y1); o.push('G01 Y' + num(y)); d = -d; } return o; };
+  const circ = (cx, cy, r, z, feed) => ['G01 X' + num(cx + r) + ' Y' + num(cy) + ' F' + feed + '.', 'G01 Z' + num(z) + ' F8.', 'G03 X' + num(cx + r) + ' Y' + num(cy) + ' I' + num(-r) + ' J0 F' + feed + '.'];
+  const ramp3 = (x, y, r, from, to, n) => Array.from({ length: n }, (_, i) => 'G03 X' + num(x) + ' Y' + num(y) + ' I' + num(-r) + ' J0 Z' + num(from + (to - from) * (i + 1) / n) + ' F18.');
+
+  add('Facing', 'face5', 'Face · 1/2 end mill stripes', 'Ten stripes with a half inch cutter, 0.02 deep', [EM(1, 0.5, 4, 'er25')], () => J(HEAD('6005', 'FACE HALF INCH STRIPES')
+    .concat(ON(1, 5000, '.500 4FL END MILL'), stripes(-.4, 5.4, .2, 3.8, .4, -.02, 45), OFF, FOOT)));
+  add('Facing', 'face6', 'Face · spiral in', 'Rings from the outside of the blank inward, 0.02 deep', [EM(1, 0.75, 4, 'er32')], () => {
+    const o = ['G00 X-.4 Y-.4', 'G00 Z.1', 'G01 Z-.02 F20.'];
+    for (let i = 0; i < 4; i++) { const a = -.4 + i * .6, b = 5.4 - i * .6, c = -.4 + i * .6, d = 4.4 - i * .6; o.push('G01 X' + num(b) + ' Y' + num(c) + ' F45.', 'G01 X' + num(b) + ' Y' + num(d), 'G01 X' + num(a) + ' Y' + num(d), 'G01 X' + num(a) + ' Y' + num(c + .6)); }
+    return J(HEAD('6006', 'FACE SPIRAL IN').concat(ON(1, 4200, '.750 4FL END MILL'), o, OFF, FOOT));
+  });
+
+  add('Slots', 'slot6', 'Slot · crossing T', 'Two 1/4 slots that cross, 0.3 deep in two steps', [EM(1, 0.25, 3, 'er16')], () => J(HEAD('6106', 'CROSSING SLOTS').concat(ON(1, 8000, '.250 3FL END MILL'),
+    ['G00 X1. Y2.', 'G00 Z.1', 'G01 Z-.15 F8.', 'G01 X4. F25.', 'G01 Z-.3 F8.', 'G01 X1. F25.', 'G00 Z.1', 'G00 X2.5 Y.8', 'G01 Z-.15 F8.', 'G01 Y3.2 F25.', 'G01 Z-.3 F8.', 'G01 Y.8 F25.'], OFF, FOOT)));
+  add('Slots', 'slot7', 'Slot · three depths', 'Three 3/8 slots cut 0.2, 0.4 and 0.6 deep', [EM(1, 0.375, 3, 'er20')], () => J(HEAD('6107', 'THREE DEPTH SLOTS').concat(ON(1, 6000, '.375 3FL END MILL'),
+    [1, 2, 3].flatMap((y, i) => ['G00 X1. Y' + num(y), 'G00 Z.1', 'G01 Z' + num(-.2 * (i + 1)) + ' F8.', 'G01 X4. F22.']), OFF, FOOT)));
+  add('Slots', 'slot8', 'Slot · diagonal', 'A slot at an angle across the blank, 0.3 deep', [EM(1, 0.25, 3, 'er16')], () => J(HEAD('6108', 'DIAGONAL SLOT').concat(ON(1, 8000, '.250 3FL END MILL'),
+    ['G00 X1. Y.8', 'G00 Z.1', 'G01 Z-.15 F8.', 'G01 X4. Y3.2 F25.', 'G01 Z-.3 F8.', 'G01 X1. Y.8 F25.'], OFF, FOOT)));
+  add('Slots', 'slot9', 'Slot · zigzag', 'A slot that follows a four point zigzag, 0.25 deep', [EM(1, 0.25, 3, 'er16')], () => J(HEAD('6109', 'ZIGZAG SLOT').concat(ON(1, 8000, '.250 3FL END MILL'),
+    ['G00 X1. Y1.', 'G00 Z.1', 'G01 Z-.25 F8.', 'G01 X2. Y3. F25.', 'G01 X3. Y1.', 'G01 X4. Y3.'], OFF, FOOT)));
+  add('Slots', 'slot10', 'Slot · ramped entry', 'The cutter ramps down along the slot instead of plunging', [EM(1, 0.25, 3, 'er16')], () => J(HEAD('6110', 'RAMPED SLOT').concat(ON(1, 8000, '.250 3FL END MILL'),
+    ['G00 X1. Y2.', 'G00 Z.1', 'G01 Z0. F20.', 'G01 X2.5 Z-.3 F18.', 'G01 X4. F25.', 'G01 X1. F25.'], OFF, FOOT)));
+
+  add('Pockets', 'pock9', 'Pocket · two levels', 'The same raster pocket cut at 0.15 and 0.3', [EM(1, 0.5, 3, 'er25')], () => J(HEAD('6209', 'POCKET TWO LEVELS').concat(ON(1, 6000, '.500 3FL END MILL'),
+    zigzagPocket(1.5, 1.2, 3.5, 2.8, .3, -.15, 28), ['G00 Z.1'], zigzagPocket(1.5, 1.2, 3.5, 2.8, .3, -.3, 28), OFF, FOOT)));
+  add('Pockets', 'pock10', 'Pocket · square, rings out', 'A 2.4 square pocket worked from the centre outward', [EM(1, 0.5, 3, 'er25')], () => J(HEAD('6210', 'SQUARE POCKET RINGS').concat(ON(1, 6000, '.500 3FL END MILL'),
+    rectRings(2.5, 2, 1.2, 1.2, .25, -.25, .3, 28), OFF, FOOT)));
+  add('Pockets', 'pock11', 'Pocket · stepped', 'A wide shallow pocket with a smaller deeper one inside it', [EM(1, 0.375, 3, 'er20')], () => J(HEAD('6211', 'STEPPED POCKET').concat(ON(1, 6500, '.375 3FL END MILL'),
+    zigzagPocket(1.2, 1., 3.8, 3., .25, -.12, 30), ['G00 Z.1'], zigzagPocket(1.8, 1.5, 3.2, 2.5, .25, -.3, 30), OFF, FOOT)));
+  add('Pockets', 'pock12', 'Pocket · round, helix then rings', 'Helix down at the centre, then three circles outward', [EM(1, 0.375, 3, 'er20')], () => J(HEAD('6212', 'ROUND POCKET RINGS').concat(ON(1, 6500, '.375 3FL END MILL'),
+    ['G00 X2.5 Y2.', 'G00 Z.1', 'G01 X2.75 F20.'], ramp3(2.75, 2., .25, 0, -.25, 5), ['G03 X2.75 Y2. I-.25 J0 F18.'], [.5, .75].flatMap(r => ['G01 X' + num(2.5 + r) + ' Y2. F25.', 'G03 X' + num(2.5 + r) + ' Y2. I' + num(-r) + ' J0 F25.']), OFF, FOOT)));
+
+  add('Contours', 'cont7', 'Contour · triangle boss', 'A triangular boss round the outside with cutter comp right', [EM(1, 0.5, 4, 'er25')], () => J(HEAD('6307', 'TRIANGLE BOSS G42').concat(ON(1, 5000, '.500 4FL END MILL'),
+    ['G00 X1. Y.5', 'G00 Z.1', 'G01 Z-.4 F10.', 'G42 D01 X1.5 Y1. F25.', 'G01 X3.5', 'G01 X2.5 Y2.8', 'G01 X1.5 Y1.', 'G40 G01 X1. Y.5'], OFF, FOOT)));
+  add('Contours', 'cont8', 'Contour · inside circle G41', 'A 2.0 round pocket profiled with cutter comp left', [EM(1, 0.5, 4, 'er25')], () => J(HEAD('6308', 'INSIDE CIRCLE G41').concat(ON(1, 5000, '.500 4FL END MILL'),
+    ['G00 X2.5 Y2.', 'G00 Z.1', 'G01 Z-.4 F10.', 'G41 D01 X3.5 Y2. F25.', 'G03 X3.5 Y2. I-1. J0', 'G40 G01 X2.5 Y2.'], OFF, FOOT)));
+  add('Contours', 'cont9', 'Contour · octagon boss', 'An eight sided boss, 2.2 across, with cutter comp right', [EM(1, 0.5, 4, 'er25')], () => { const P = boltCircle(2.5, 2, 1.1, 8, 22.5); return J(HEAD('6309', 'OCTAGON BOSS G42').concat(ON(1, 5000, '.500 4FL END MILL'),
+    ['G00 X' + num(P[0][0] + .5) + ' Y' + num(P[0][1] - .6), 'G00 Z.1', 'G01 Z-.4 F10.', 'G42 D01 ' + at(P[0]) + ' F25.'].concat(P.slice(1).map(p => 'G01 ' + at(p)), ['G01 ' + at(P[0]), 'G40 G01 X' + num(P[0][0] + .5) + ' Y' + num(P[0][1] - .6)]), OFF, FOOT)); });
+  add('Contours', 'cont10', 'Contour · cut corners', 'A rectangular boss with four chamfered corners', [EM(1, 0.5, 4, 'er25')], () => J(HEAD('6310', 'CUT CORNER BOSS G42').concat(ON(1, 5000, '.500 4FL END MILL'),
+    ['G00 X.7 Y.5', 'G00 Z.1', 'G01 Z-.4 F10.', 'G42 D01 X1.4 Y1. F25.', 'G01 X3.6', 'G01 X4. Y1.4', 'G01 Y2.6', 'G01 X3.6 Y3.', 'G01 X1.4', 'G01 X1. Y2.6', 'G01 Y1.4', 'G01 X1.4 Y1.', 'G40 G01 X.7 Y.5'], OFF, FOOT)));
+  add('Contours', 'cont11', 'Contour · open L edge', 'An L shaped edge cut along two sides with G41', [EM(1, 0.5, 4, 'er25')], () => J(HEAD('6311', 'L EDGE G41').concat(ON(1, 5000, '.500 4FL END MILL'),
+    ['G00 X.6 Y3.4', 'G00 Z.1', 'G01 Z-.3 F10.', 'G41 D01 X1. Y3. F25.', 'G01 Y1.', 'G01 X4.', 'G40 G01 Y.6'], OFF, FOOT)));
+
+  add('Drilling', 'drl8', 'Drill · diagonal line', 'Seven 1/4 holes along a diagonal, G81', [DR(1, 0.25)], () => J(HEAD('6408', 'G81 DIAGONAL').concat(ON(1, 3800, '.250 JOBBER DRILL'), ['G99 G81 Z-.6 R.1 F11.'],
+    Array.from({ length: 7 }, (_, i) => [.75 + i * .6, .8 + i * .45]).map(at), ['G80'], OFF, FOOT)));
+  add('Drilling', 'drl9', 'Drill · deep G83 corners', 'Four 3/8 holes pecked 0.9 deep in the corners', [DR(1, 0.375)], () => J(HEAD('6409', 'G83 DEEP CORNERS').concat(ON(1, 3200, '.375 JOBBER DRILL'), ['G98 G83 Z-.9 R.1 Q.15 F7.'],
+    [[.8, .8], [4.2, .8], [4.2, 3.2], [.8, 3.2]].map(at), ['G80'], OFF, FOOT)));
+  add('Drilling', 'drl10', 'Drill · G82 dwell grid', 'Eight 5/16 holes with a half second dwell at the bottom', [DR(1, 0.3125)], () => J(HEAD('6410', 'G82 DWELL GRID').concat(ON(1, 3400, '.3125 JOBBER DRILL'), ['G99 G82 Z-.3 R.1 P500 F9.'],
+    grid(4, 2, 1., 1.5, 1., 1).map(at), ['G80'], OFF, FOOT)));
+  add('Drilling', 'drl11', 'Drill · border holes', 'Twelve 3/16 holes round the edge, 1/2 in from the sides', [DR(1, 0.1875)], () => J(HEAD('6411', 'G81 BORDER HOLES').concat(ON(1, 4500, '.1875 JOBBER DRILL'), ['G99 G81 Z-.5 R.1 F8.'],
+    [0, 1, 2, 3, 4, 5].map(i => [.75 + i * .7, .6]).concat([0, 1, 2, 3, 4, 5].map(i => [.75 + i * .7, 3.4])).map(at), ['G80'], OFF, FOOT)));
+  add('Drilling', 'drl12', 'Drill · spot then G73', 'Spot every hole, then chip-break drill them', [SP(1), DR(2, 0.25)], () => { const P = grid(3, 2, 1.25, 1.5, 1.25, 1.); return J(HEAD('6412', 'SPOT THEN G73').concat(ON(1, 3200, '.375 90 DEG SPOT DRILL'), ['G99 G81 Z-.1 R.1 F8.'], P.map(at), ['G80'], OFF, ON(2, 3800, '.250 JOBBER DRILL'), ['G99 G73 Z-.7 R.1 Q.15 F9.'], P.map(at), ['G80'], OFF, FOOT)); });
+
+  add('Tapping', 'tap4', 'Tap · G84 10-32', 'Six small holes, tap drill then a 10-32 tap', [DR(1, 0.159), TAP(2, '10-32', 0.19, 0.79375)], () => { const P = grid(3, 2, 1.25, 1.5, 1.25, 1.); return J(HEAD('6504', 'TAP 10-32 G84').concat(ON(1, 4800, '.159 TAP DRILL'), ['G99 G83 Z-.6 R.1 Q.2 F9.'], P.map(at), ['G80'], OFF, ON(2, 800, '10-32 UNF SPIRAL POINT TAP', 'M08'), ['G99 G84 Z-.45 R.2 F25.'], P.map(at), ['G80'], OFF, FOOT)); });
+  add('Tapping', 'tap5', 'Tap · G84 5/16-18', 'Four holes in the corners tapped 5/16-18', [DR(1, 0.257), TAP(2, '5/16-18', 0.3125, 1.4111)], () => { const P = [[.9, .9], [4.1, .9], [4.1, 3.1], [.9, 3.1]]; return J(HEAD('6505', 'TAP 5/16-18 G84').concat(ON(1, 3600, '.257 TAP DRILL'), ['G99 G83 Z-.8 R.1 Q.2 F8.'], P.map(at), ['G80'], OFF, ON(2, 450, '5/16-18 UNC SPIRAL POINT TAP', 'M08'), ['G99 G84 Z-.6 R.2 F25.'], P.map(at), ['G80'], OFF, FOOT)); });
+  add('Tapping', 'tap6', 'Tap · G84 M6 x 1', 'A metric thread: 5.0 mm tap drill, then an M6 x 1 tap', [DR(1, 0.1969), TAP(2, 'M6x1', 0.2362, 1.0)], () => { const P = [[1.5, 2], [2.5, 2], [3.5, 2]]; return J(HEAD('6506', 'TAP M6 X 1 G84').concat(ON(1, 4800, '5.0 MM TAP DRILL'), ['G99 G83 Z-.55 R.1 Q.2 F9.'], P.map(at), ['G80'], OFF, ON(2, 600, 'M6 X 1.0 SPIRAL POINT TAP', 'M08'), ['G99 G84 Z-.45 R.2 F23.6'], P.map(at), ['G80'], OFF, FOOT)); });
+  add('Tapping', 'tap7', 'Tap · G84 1/2-13 deep', 'Two 1/2-13 holes tapped 0.75 deep', [DR(1, 0.4219), TAP(2, '1/2-13', 0.5, 1.954)], () => { const P = [[1.5, 2], [3.5, 2]]; return J(HEAD('6507', 'TAP 1/2-13 G84').concat(ON(1, 2800, '27/64 TAP DRILL'), ['G99 G83 Z-.9 R.1 Q.25 F6.'], P.map(at), ['G80'], OFF, ON(2, 300, '1/2-13 UNC SPIRAL POINT TAP', 'M08'), ['G99 G84 Z-.75 R.2 F23.'], P.map(at), ['G80'], OFF, FOOT)); });
+
+  add('Boring', 'bore4', 'Bore · wide helix', 'A 1.5 bore on a spiral with a 3/8 end mill', [EM(1, 0.375, 3, 'er20')], () => J(HEAD('6604', 'WIDE HELICAL BORE').concat(ON(1, 6500, '.375 3FL END MILL'),
+    ['G00 X2.5 Y2.', 'G00 Z.1', 'G01 X3. F20.'], ramp3(3., 2., .5, 0, -.6, 6), ['G03 X3. Y2. I-.5 J0 F18.', 'G01 X2.5', 'G00 Z1.'].slice(0, 2), OFF, FOOT)));
+  add('Boring', 'bore5', 'Bore · G85 ream row', 'Drill four 1/4 holes, then ream them feed-in feed-out', [DR(1, 0.25), REAM(2, 0.25)], () => { const P = [1, 2, 3, 4].map(i => [i + .25, 2]); return J(HEAD('6605', 'G85 REAM ROW').concat(ON(1, 3800, '.250 JOBBER DRILL'), ['G99 G83 Z-.9 R.1 Q.2 F9.'], P.map(at), ['G80'], OFF, ON(2, 900, '.250 CHUCKING REAMER'), ['G99 G85 Z-.7 R.1 F10.'], P.map(at), ['G80'], OFF, FOOT)); });
+
+  add('Finishing', 'fin4', 'Engrave · three lines', 'Three lines of G47 text at different heights', [CD(1)], () => J(HEAD('6704', 'G47 THREE LINES').concat(ON(1, 6000, '#2 CENTER DRILL'),
+    ['G47 P0 X.5 Y3.1 I0. J.35 R.05 Z-.03 F24. (HAAS CNC)', 'G00 Z.25', 'G47 P0 X.5 Y2.1 I0. J.28 R.05 Z-.03 F24. (6061 ALUMINUM)', 'G00 Z.25', 'G47 P0 X.5 Y1.2 I0. J.22 R.05 Z-.03 F24. (5 X 4 X 1 BLANK)', 'G00 Z.25'], OFF, FOOT)));
+  add('Finishing', 'fin5', 'Engrave · angled text', 'A line of text engraved at 30 degrees', [CD(1)], () => J(HEAD('6705', 'G47 ANGLED TEXT').concat(ON(1, 6000, '#2 CENTER DRILL'),
+    ['G47 P0 X1. Y.9 I30. J.3 R.05 Z-.03 F24. (ANGLED)', 'G00 Z.25'], OFF, FOOT)));
+  add('Finishing', 'fin6', '3D · ball rings', 'Concentric rings at three depths with a ball nose', [BALL(1, 0.25, 'er16')], () => J(HEAD('6706', 'BALL NOSE RINGS').concat(ON(1, 8000, '.250 BALL END MILL'),
+    ['G00 X2.5 Y2.', 'G00 Z.1'].concat([[.8, -.05], [.6, -.1], [.4, -.15], [.2, -.2]].flatMap(a => circ(2.5, 2., a[0], a[1], 30))), OFF, FOOT)));
+
+  add('Macros', 'mac5', 'Macro · WHILE slot stepdown', 'A slot cut in 0.1 steps from a WHILE loop', [EM(1, 0.25, 3, 'er16')], () => J(HEAD('6805', 'MACRO SLOT STEPDOWN').concat(ON(1, 8000, '.250 3FL END MILL'),
+    ['#1=0', 'G00 X1. Y2.', 'G00 Z.1', 'WHILE [#1 LT .4] DO1', '#1=#1+.1', 'G01 Z[-#1] F8.', 'G01 X4. F25.', 'G01 X1.', 'END1'], OFF, FOOT)));
+  add('Macros', 'mac6', 'Macro · stepped round pocket', 'A G12 pocket repeated deeper each pass by a variable', [EM(1, 0.375, 3, 'er20')], () => J(HEAD('6806', 'MACRO ROUND POCKET').concat(ON(1, 6500, '.375 3FL END MILL'),
+    ['#1=0', 'G00 X2.5 Y2.', 'G00 Z.1', 'WHILE [#1 LT .5] DO1', '#1=#1+.125', 'G01 Z[-#1] F8.', 'G12 I.2 K.6 Q.2 D01 F22.', 'END1'], OFF, FOOT)));
+  add('Macros', 'mac7', 'Macro · variable bolt circle', 'A hole count in a variable sets the pattern', [DR(1, 0.25)], () => J(HEAD('6807', 'MACRO HOLE COUNT').concat(ON(1, 3800, '.250 JOBBER DRILL'),
+    ['#3=6', '#1=0', 'WHILE [#1 LT #3] DO1', '#2=[#1*360./#3]', 'G99 G81 X[2.5+1.4*COS[#2]] Y[2.+1.4*SIN[#2]] Z-.6 R.1 F10.', '#1=#1+1', 'END1', 'G80'], OFF, FOOT)));
+
   return { list: L, categories: Array.from(new Set(L.map(s => s.cat))) };
 })();
 
@@ -65124,6 +65210,19 @@ html body :is(#toast, #program-complete-banner, #stop-hud, #vp-mode-status, #fit
 .sc-ico, #stop-hud::after, #vp-mode-status .vms-dot::before, #fit-note::after {
   color: var(--sc-c); transform-origin: 50% 70%; animation: sc-dance 2.4s ease-in-out infinite;
 }
+/* one spacing for every card: generous, even padding; the icon sits in its own fixed box with a clear gap before the text */
+html body :is(#toast, #program-complete-banner, #vp-mode-status, #stop-hud, #fit-note) { box-sizing: border-box; }
+html body #toast { padding: 14px 20px 14px 18px !important; }
+html body #toast.show { column-gap: 14px !important; row-gap: 3px !important; }
+html body #toast .sc-ico, html body #program-complete-banner .sc-ico { width: 24px; text-align: center; flex: 0 0 24px; line-height: 1; }
+html body #program-complete-banner { padding: 13px 16px 13px 18px !important; }
+html body #program-complete-banner.show { gap: 14px !important; }
+html body #program-complete-banner .banner-x { margin-left: 6px; padding: 2px 4px; }
+html body #vp-mode-status { padding: 13px 16px 13px 18px !important; gap: 10px 14px !important; }
+html body #vp-mode-status .vms-dot { width: 24px !important; text-align: center; }
+html body #stop-hud { padding: 13px 20px 13px 52px !important; }
+html body #stop-hud::after { left: 18px; width: 24px; text-align: center; }
+html body #fit-note { padding: 14px 44px 14px 18px !important; }
 /* toast: icon beside the two lines */
 html body #toast.show { display: grid !important; grid-template-columns: auto 1fr; column-gap: 11px; row-gap: 2px; align-items: center; }
 html body #toast .sc-ico { grid-row: 1 / span 2; grid-column: 1; font-size: 17px; }
@@ -65132,6 +65231,7 @@ html body #toast .toast-body { grid-column: 2; }
 html body #toast.is-bare .sc-ico { grid-row: 1; }
 /* program complete */
 html body #program-complete-banner.show { display: flex !important; align-items: center; gap: 10px; }
+html body :is(#toast, #program-complete-banner).fading { opacity: 0; transition: opacity .4s ease; }
 html body #program-complete-banner .sc-ico { font-size: 16px; }
 html body #program-complete-banner > span:first-of-type { color: var(--text) !important; font-weight: 600; }
 html body #program-complete-banner .banner-x { color: var(--text-dim); cursor: pointer; transition: color .18s ease; }
@@ -65145,6 +65245,9 @@ html body #vp-mode-status .vms-dot { flex: 0 0 auto; width: auto; height: auto; 
 html body #vp-mode-status .vms-dot::before { display: block; font: 900 15px/1 "Font Awesome 6 Free"; content: "\f1b2"; }
 html body #vp-mode-status.is-sim .vms-dot::before { content: "\f144"; }
 /* fit note */
+/* the always-on mode banner is calm: static outline, still icon */
+html body #vp-mode-status::before { animation: none !important; background: none !important; }
+html body #vp-mode-status .vms-dot::before { animation: none !important; }
 html body #fit-note { --sc-c: #7cc4ff; }
 html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; top: 14px; font: 900 14px/1 "Font Awesome 6 Free"; }
 @media (prefers-reduced-motion: reduce) {
