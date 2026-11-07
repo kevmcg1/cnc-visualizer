@@ -11,6 +11,9 @@ A single-file G-code simulator for a Haas-style mill. Open `index.html` in a bro
 - **Setup awareness**: the tool, holder, vise, parallels, fixture, table, blank and program are checked against each other every time anything changes (a program, a tool, a slider, a part moved). The *Setup* chip beside the editor header lists each finding (holder nose against the blank and jaws, flute length against cut depth, blank on the parallels and between the jaws, toolpath on the table, cuts reaching the vise) and can stand the blank proud of the jaws for a program that needs it.
 - **View cube**: much larger, one per view in a multi-camera layout, and the Orbit view's own cube now sits in the Orbit view instead of doubling up on another view's cube.
 - Orbit and Close-up cameras start a lot closer.
+- **Collision by real contact**: the Setup check tests the cutter's body against the actual fixed jaw, moving jaw, vise bed and parallels, each with its own thickness and height. Passing over a jaw, or beside it, is fine; only touching it is flagged.
+- **Coolant** is drawn as a jet and spray only (no nozzle or hose). Beads left on the blank let go when a cut takes their metal away, all of it clears on a rewind or seek, and it stops at M30 or the end of the program.
+- **Bottom panel**: the mode banner and playback sit in a fixed left column and the view controls scroll on their own on the right, so scrolling one never moves the other. The footer plate is flush with the bottom of the window, with no empty band under it.
 - Text engraving sweeps a real V-groove at the cutter's point angle (a 60 degree center drill cuts a thin line), instead of stamping a round pit at the start of each stroke.
 - Tooltips are drawn on one page-level card that never overlaps its control or leaves the window.
 - One design language throughout (Inter, outlined controls, flat dark HUD cards).
