@@ -19816,9 +19816,9 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </div>
 
       <div id="mouse-hints" aria-hidden="true">
-        <div class="mh-item"><i class="fa-solid fa-hand mh-ico"></i><span class="mh-text"><span class="mh-label">Pan</span><span class="mh-key">Left drag</span></span></div>
-        <div class="mh-item"><i class="fa-solid fa-rotate mh-ico"></i><span class="mh-text"><span class="mh-label">Rotate</span><span class="mh-key">Right drag</span></span></div>
-        <div class="mh-item"><i class="fa-solid fa-magnifying-glass mh-ico"></i><span class="mh-text"><span class="mh-label">Zoom</span><span class="mh-key">Scroll</span></span></div>
+        <div class="mh-item"><svg class="mh-ico mh-mouse" viewBox="0 0 16 24" width="16" height="24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path class="mh-on" d="M8 1A7 7 0 0 0 1 8V10H8Z"/><rect x="1" y="1" width="14" height="22" rx="7"/><path d="M1 10H15M8 1V10"/><rect class="mh-wheel" x="6.8" y="3.4" width="2.4" height="4.6" rx="1.2"/></svg><span class="mh-text"><span class="mh-label">Pan</span><span class="mh-key">Left drag</span></span></div>
+        <div class="mh-item"><svg class="mh-ico mh-mouse" viewBox="0 0 16 24" width="16" height="24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path class="mh-on" d="M8 1A7 7 0 0 1 15 8V10H8Z"/><rect x="1" y="1" width="14" height="22" rx="7"/><path d="M1 10H15M8 1V10"/><rect class="mh-wheel" x="6.8" y="3.4" width="2.4" height="4.6" rx="1.2"/></svg><span class="mh-text"><span class="mh-label">Rotate</span><span class="mh-key">Right drag</span></span></div>
+        <div class="mh-item"><svg class="mh-ico mh-mouse" viewBox="0 0 16 24" width="16" height="24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="1" width="14" height="22" rx="7"/><path d="M1 10H15M8 1V10"/><rect class="mh-on" x="6.5" y="3" width="3" height="5.5" rx="1.5"/></svg><span class="mh-text"><span class="mh-label">Zoom</span><span class="mh-key">Scroll</span></span></div>
       </div>
 
       <div id="transport-bar">
@@ -66194,7 +66194,9 @@ html body #viewport-wrap #mouse-hints,html body #mouse-hints{display:flex!import
   background:rgba(11,12,14,.86);border:1px solid #2a2e34;border-radius:10px;overflow:hidden;pointer-events:none;z-index:89;font-family:'Inter',system-ui,sans-serif}
 html body #mouse-hints .mh-item{display:flex;flex-direction:row;align-items:center;gap:10px;padding:8px 14px}
 html body #mouse-hints .mh-item+.mh-item{border-left:1px solid #23272c}
-html body #mouse-hints .mh-ico{width:14px;text-align:center;font-size:13px;color:#e4e6ea}
+html body #mouse-hints .mh-ico{width:16px;height:24px;flex:none;color:#e4e6ea}
+html body #mouse-hints .mh-ico .mh-wheel{fill:#0b0c0e;stroke-width:1}
+html body #mouse-hints .mh-ico .mh-on{fill:currentColor;stroke:none;transition:opacity .3s ease}
 html body #mouse-hints .mh-text{display:flex;flex-direction:column;gap:3px}
 html body #mouse-hints .mh-label{font:600 11px/1 'Inter',system-ui,sans-serif;letter-spacing:.06em;text-transform:none;color:#e4e6ea}
 html body #mouse-hints .mh-key{font:400 10px/1 'Inter',system-ui,sans-serif;color:#8a9099;letter-spacing:.02em}
