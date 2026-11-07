@@ -8,6 +8,10 @@ A single-file G-code simulator for a Haas-style mill. Open `index.html` in a bro
 - **Next op** button in the transport bar: jumps to the next rapid up or tool change (a rapid up and the tool change after it count as one stop).
 - **Stress test** dev tool: `Ctrl+Shift+D`, or *Dev tools* in the sidebar. It builds, runs and checks ten programs a second against the real parser, with a lamp per kind and a path preview. Use *Burst* to run 20 of every kind at once. Failures can be loaded straight into the editor.
 - Every sample loads with matching cutters and holders.
+- **Setup awareness**: the tool, holder, vise, parallels, fixture, table, blank and program are checked against each other every time anything changes (a program, a tool, a slider, a part moved). The *Setup* chip beside the editor header lists each finding (holder nose against the blank and jaws, flute length against cut depth, blank on the parallels and between the jaws, toolpath on the table, cuts reaching the vise) and can stand the blank proud of the jaws for a program that needs it.
+- **View cube**: much larger, one per view in a multi-camera layout, and the Orbit view's own cube now sits in the Orbit view instead of doubling up on another view's cube.
+- Orbit and Close-up cameras start a lot closer.
+- Text engraving sweeps a real V-groove at the cutter's point angle (a 60 degree center drill cuts a thin line), instead of stamping a round pit at the start of each stroke.
 - Tooltips are drawn on one page-level card that never overlaps its control or leaves the window.
 - One design language throughout (Inter, outlined controls, flat dark HUD cards).
 

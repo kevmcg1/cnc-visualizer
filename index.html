@@ -4742,7 +4742,7 @@ input, textarea, .v-hud, #coords-hud, #zoom-hud, #fps-hud, .tool-table, #gcode-i
 }
 
 /* ---------- view cube ---------- */
-#cube-wrap { width: 136px; height: 136px; }
+#cube-wrap { width: 208px; height: 208px; }
 #cube-canvas { border-radius: 10px; touch-action: none; }
 .vc-bar {
   position: absolute; left: 50%; bottom: -30px; transform: translateX(-50%);
@@ -25647,7 +25647,7 @@ const CamView = (() => {
    and every program or sample load land exactly here, so switching between
    samples no longer leaves the view somewhere different each time. */
 const HOME_FRUSTUM = () =>
-  (typeof unitMode !== 'undefined' && unitMode === 'mm') ? 190 : 7.5;
+  (typeof unitMode !== 'undefined' && unitMode === 'mm') ? 100 : 4;
 
 function homeView() {
   return {
@@ -26007,7 +26007,8 @@ G54 X0. Y0. S3000 M03
 G43 H01 Z1.0 M08
 
 (--- Rapid to lead-in start ---)
-G00 X-0.5 Y-0.5
+(--- the cutter stays over the blank: its edge reaches the blank's edge, never past it ---)
+G00 X-0.25 Y-0.25
 G00 Z0.1
 G01 Z-0.5 F8.0
 
@@ -26021,7 +26022,7 @@ G01 X0.    Y2.0
 G01 X0.    Y0.
 
 (--- Lead out and cancel cutter comp ---)
-G01 X-0.5 Y-0.5
+G01 X-0.25 Y-0.25
 G40
 
 (--- Retract ---)
@@ -26409,10 +26410,9 @@ function frameEngraving() {
     const st = PartModels.all().find(x => x.stock);
     if (!st || !st.mesh) return;
     const bx = new THREE.Box3().setFromObject(st.mesh), c = bx.getCenter(new THREE.Vector3());
-    camTarget.set(c.x, c.y, bx.max.z);
-    camSphere.r = Math.max(bx.max.x - bx.min.x, bx.max.y - bx.min.y) * 1.25;
-    camSphere.theta = 0.0; camSphere.phi = 0.55;
-    updateMainCamera();
+    /* the camera is orthographic, so what frames the plate is the frustum, not the distance */
+    const span = Math.max(bx.max.x - bx.min.x, bx.max.y - bx.min.y);
+    CamView.to({ target: new THREE.Vector3(c.x, c.y, bx.max.z), theta: Math.PI, phi: 0.3, frustum: span * 1.12 }, 700);
   } catch (e) { /* leave the camera where it is */ }
 }
 
@@ -34248,7 +34248,7 @@ const Stock = (() => {
     }
 
     float cutCore(vec2 pp, float pz, vec2 a2, float az, vec2 b2, float bz,
-                  float r, int ty){
+                  float r, int ty, float sl){
       float h;
       float dc  = sd2seg(pp, a2, b2, h);
       float dxy = dc - r;
@@ -34267,8 +34267,10 @@ const Stock = (() => {
       }
 
       if (ty == 2) {
-        float rr = length(pp - a2);
-        return max(rr - r, (tz + rr * 0.6 - pz) * 0.857);
+        /* A drill point: a cone whose tip rides the path. A plunge (a2 == b2) is the round pit it always was; a move
+           along the surface, which is what engraving with a centre drill is, sweeps a V-groove the length of the move.
+           sl is the cone's rise per unit of radius: 0.6 for a 118 degree point, 1.73 for a 60 degree one. */
+        return max(dc - r, (tz + dc * sl - pz) * inversesqrt(1.0 + sl * sl));
       }
       if (ty == 0) {
         vec3 ca = vec3(a2, az + r), cb = vec3(b2, bz + r);
@@ -34318,14 +34320,17 @@ const Stock = (() => {
                           dot(B.xyz, w), A.w, Rh);
       }
       int ty = int(B.w + 0.5);
+      /* a drill's point angle rides in the fraction of its type: 2.0 is the stock 118 degrees, 2.0 + (s - 0.3) / 4 is a cone of slope s */
+      float sl = 0.6;
+      if (ty == 2 && B.w - 2.0 > 0.001) sl = 0.3 + (B.w - 2.0) * 4.0;
       if (w.z > 0.999995)
-        return cutCore(p.xy, p.z, A.xy, A.z, B.xy, B.z, A.w, ty);
+        return cutCore(p.xy, p.z, A.xy, A.z, B.xy, B.z, A.w, ty, sl);
       vec3 u, v;
       toolFrame(w, u, v);
       return cutCore(vec2(dot(p, u), dot(p, v)), dot(p, w),
                      vec2(dot(A.xyz, u), dot(A.xyz, v)), dot(A.xyz, w),
                      vec2(dot(B.xyz, u), dot(B.xyz, v)), dot(B.xyz, w),
-                     A.w, ty);
+                     A.w, ty, sl);
     }
 
     ivec2 cutAt(int i, int k){
@@ -37800,6 +37805,17 @@ const StockSim = (() => {
         else if (/drill|spot|center|center/.test(cls)) ty = 2;
       } catch (e) {   }
     }
+    if (ty === 2) {
+      /* a spot or centre drill is a steeper cone than a jobber: carry its real point angle into the cut */
+      try {
+        const rec = (typeof ToolModels !== "undefined") && ToolModels.get(toolNum);
+        const pa = rec && rec.params && +rec.params.pointAngle;
+        if (pa > 20 && pa < 175 && Math.abs(pa - 118) > 0.5) {
+          const slope = 1 / Math.tan(pa * Math.PI / 360);
+          ty = 2 + (Math.min(2.2, Math.max(0.3, slope)) - 0.3) / 4;
+        }
+      } catch (e) {   }
+    }
     typeCache.set(toolNum, ty);
     return ty;
   }
@@ -39107,7 +39123,7 @@ const MakeProgram = (() => {
     tap:     [[2, 0.375, "drill", SPOT(".375", "er20")], [3, 0.201, "drill", DRL(".201 tap", 45, 90, "er16")],
               [4, 0.25, "tap", { category: "tap", tapType: "spiralpoint", threadSize: "1/4-20", pitch: 1.27, flutes: 3, loc: 25, oal: 64, holder: "er16", name: "1/4-20 UNC spiral point tap" }]],
     face:    [[1, 0.75, "flat", EM("\u00D8.750 4FL end mill", 4, 32, 90, "er32")]],
-    slot:    [[1, 0.375, "flat", EM("\u00D8.375 4FL end mill", 4, 22, 64, "er20")]],
+    slot:    [[1, 0.375, "flat", EM("\u00D8.375 4FL end mill", 4, 28, 70, "er20")]],
     bore:    [[1, 0.5, "flat", EM("\u00D8.500 4FL end mill", 4, 32, 80, "hydraulic")]],
     chamfer: [[1, 0.5, "chamfer", { category: "chamfer", coneAngle: 90, tipDia: 1.5, oal: 64, holder: "er25", name: "\u00D8.500 90\u00B0 chamfer mill" }]],
     engrave: [[1, 0.75, "flat", EM("\u00D8.750 4FL end mill", 4, 32, 90, "er32")],
@@ -58724,7 +58740,7 @@ window.HAAS_LATHE_CODES = {
   function setupCloseup(f, aspect) {
     const L = f.h;
     closeup.aspect = aspect;
-    _p.set(f.tip.x + L * 0.30, f.tip.y - L * 0.85, f.tip.z + L * 0.30);
+    _p.set(f.tip.x + L * 0.15, f.tip.y - L * 0.42, f.tip.z + L * 0.15);
     _t.copy(f.tip); _t.z += L * 0.08;
     aim(closeup, _p, _t, new THREE.Vector3(0, 0, 1), Math.max(L * 0.01, 1e-4), Math.max(L * 300, 5000));
   }
@@ -58826,7 +58842,8 @@ window.HAAS_LATHE_CODES = {
         const oldZoom = cam.zoom;
         cam.zoom = zf;
         if (cam === mainCam) {
-          const fs = (typeof frustumSize !== "undefined") ? frustumSize : 120;
+          /* a grid cell is small, so its Orbit view comes in closer than the full-screen one */
+          const fs = ((typeof frustumSize !== "undefined") ? frustumSize : 120) * (L.cells.length > 1 ? 0.6 : 1);
           mainCam.left = -fs * aspect / 2; mainCam.right = fs * aspect / 2;
           mainCam.top = fs / 2; mainCam.bottom = -fs / 2;
         }
@@ -60582,7 +60599,7 @@ window.HAAS_LATHE_CODES = {
   "use strict";
   if (typeof cubeScene === "undefined" || typeof cubeRenderer === "undefined" || typeof cubeCanvas === "undefined") return;
 
-  const SIZE = 136;
+  const SIZE = 208;
   const COL = {
     face: 0x353a42, faceTop: 0x3d434c, edge: 0x4a505a, corner: 0x5b626d,
     hover: 0xe8c547, core: 0x1b1d21,
@@ -60820,7 +60837,7 @@ window.HAAS_LATHE_CODES = {
   layer.id = "cc-layer";
   vp.appendChild(layer);
   const wrap = document.getElementById("cube-wrap");
-  const REAL = 136;                                   /* the page cube's own size (view-cube.js) */
+  const REAL = 208;                                   /* the page cube's own size (view-cube.js) */
   const copies = [];                                  /* one { canvas, ctx } per view that has a copy */
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const savePos = new THREE.Vector3(), saveQuat = new THREE.Quaternion(), saveUp = new THREE.Vector3();
@@ -60837,10 +60854,12 @@ window.HAAS_LATHE_CODES = {
     if (!wrap) return;
     if (!on) { wrap.style.display = "none"; return; }
     wrap.style.display = "";
-    wrap.style.top = top + "px";
-    wrap.style.right = rightPx + "px";
-    wrap.style.transformOrigin = "top right";
-    wrap.style.transform = "scale(" + (size / REAL).toFixed(3) + ")";
+    /* the page's own stylesheet pins the cube top right with !important, so the inline place must be important too,
+       or the real cube stays in the corner of the whole view and sits on top of another view's copy */
+    wrap.style.setProperty("top", top + "px", "important");
+    wrap.style.setProperty("right", rightPx + "px", "important");
+    wrap.style.setProperty("transform-origin", "top right", "important");
+    wrap.style.setProperty("transform", "scale(" + (size / REAL).toFixed(3) + ")", "important");
   }
 
   /* back to the page's own arrangement: one cube, top right, full size */
@@ -60848,7 +60867,7 @@ window.HAAS_LATHE_CODES = {
     document.body.classList.remove("cc-on");
     copies.forEach(c => { if (c && c.canvas.parentNode) c.canvas.parentNode.removeChild(c.canvas); });
     copies.length = 0;
-    if (wrap) { wrap.style.display = ""; wrap.style.top = ""; wrap.style.right = ""; wrap.style.transform = ""; wrap.style.transformOrigin = ""; }
+    if (wrap) { wrap.style.display = ""; ["top", "right", "transform", "transform-origin"].forEach(k => wrap.style.removeProperty(k)); }
   }
 
   function renderFrom(q) {
@@ -60871,7 +60890,10 @@ window.HAAS_LATHE_CODES = {
     savePos.copy(cubeCam.position); saveQuat.copy(cubeCam.quaternion); saveUp.copy(cubeCam.up);
 
     cells.forEach((c, k) => {
-      const size = Math.round(clamp(Math.min(c.w * sx, c.h * sy) * 0.30, 54, 120));
+      /* big enough to steer by: 40% of the view's short side, but never taller than the view has room for
+         (the corner offset above it, and the Home / turn buttons under the clickable one) */
+      const room = c.h * sy - 34 - (k === realCell ? 40 : 10);
+      const size = Math.round(Math.max(44, Math.min(clamp(Math.min(c.w * sx, c.h * sy) * 0.40, 84, 200), room)));
       const left = ox + (c.x + c.w) * sx - size - 8;                 /* in the viewport's own pixels */
       const top = oy + (H - c.y - c.h) * sy + 34;                    /* clear of the camera tag along the top */
       if (k === realCell) {
@@ -63940,7 +63962,7 @@ html body #fps-hud{position:absolute!important;transform:none!important;top:var(
 html body #cube-wrap{top:14px!important;right:14px!important}
 @media (max-width:1180px){html body #mouse-hints{display:none!important}}
 @media (max-height:720px){
-  html body #cube-wrap{transform:scale(.68);transform-origin:top right}
+  html body #cube-wrap{transform:scale(.8);transform-origin:top right}
   html body #mouse-hints{display:none!important}
 }
 @media (max-width:640px){
@@ -63952,7 +63974,7 @@ html body #cube-wrap{top:14px!important;right:14px!important}
   html body #vp-mode-status{padding:6px 12px!important;min-height:0!important}
 }
 @media (max-height:800px){html:root,:root{--code-h:118px!important}}
-@media (max-width:800px){html body #fps-hud{display:none!important}html body #cube-wrap{transform:scale(.6);transform-origin:top right}}
+@media (max-width:800px){html body #fps-hud{display:none!important}html body #cube-wrap{transform:scale(.7);transform-origin:top right}}
 @media (min-width:801px) and (max-height:800px){html body #editor-panel{height:150px!important}}
 @media (min-width:801px) and (max-height:660px){html body #editor-panel{height:112px!important}}
 
@@ -64379,12 +64401,23 @@ const HaasSamples = (function () {
   const ON = (t, s, desc, cool) => ['T' + t + ' M06 (' + desc + ')', 'S' + s + ' M03', 'G43 H' + String(t).padStart(2, '0') + ' Z1.', cool || 'M08'];
   const OFF = ['G00 Z1.', 'M09', 'M05', 'G53 G49 Z0.'];
   const FOOT = ['G53 Y0.', 'M30', '%'];
-  const J = a => a.join('\n');
+  /* A canned cycle with no X or Y drills where the tool already is, which is work zero: the corner of the blank. Every sample
+     that opens a cycle and then lists its holes on the lines below has the first hole moved up onto the cycle line itself. */
+  const J = a => {
+    const o = [];
+    for (let i = 0; i < a.length; i++) {
+      const l = a[i], n = a[i + 1];
+      if (typeof l === 'string' && typeof n === 'string' && /^G9[89] G(?:7[346]|8[1-9])\b/.test(l) && !/\b[XY]-?[.\d#\[]/.test(l) && /^X\S+(\s+Y\S+)?$/.test(n)) {
+        o.push(l.replace(/^(G9[89] G\d+)/, '$1 ' + n)); i++;
+      } else o.push(l);
+    }
+    return o.join('\n');
+  };
 
   /* ---- cutters (diameters in inches, lengths in millimetres) ---- */
   const EM = (n, dia, fl, holder, ex) => [n, dia, 'flat', Object.assign({ category: 'endmill', flutes: fl, loc: +(dia * 25.4 * 2.2).toFixed(1), oal: +(dia * 25.4 * 5 + 24).toFixed(1), holder, helix: 35,
     name: 'Ø' + f(dia) + ' ' + fl + 'FL end mill' }, ex || null)];
-  const BALL = (n, dia, holder) => [n, dia, 'ball', { category: 'endmill', endType: 'ball', flutes: 2, loc: +(dia * 25.4 * 2).toFixed(1), oal: +(dia * 25.4 * 5 + 24).toFixed(1), holder, name: 'Ø' + f(dia) + ' ball end mill' }];
+  const BALL = (n, dia, holder) => [n, dia, 'ball', { category: 'endmill', endType: 'ball', flutes: 2, loc: +(dia * 25.4 * 3).toFixed(1), oal: +(dia * 25.4 * 5 + 24).toFixed(1), holder, name: 'Ø' + f(dia) + ' ball end mill' }];
   const DR = (n, dia, holder) => [n, dia, 'drill', { category: 'drill', pointAngle: 118, flutes: 2, helix: 30, loc: +(dia * 25.4 * 6).toFixed(1), oal: +(dia * 25.4 * 9 + 25).toFixed(1), holder: holder || (dia > 0.3 ? 'drillchuck' : 'er16'), name: 'Ø' + f(dia) + ' jobber drill' }];
   const SP = n => [n, 0.375, 'drill', { category: 'spotdrill', pointAngle: 90, flutes: 2, loc: 16, oal: 66, holder: 'er20', name: 'Ø.375 90° spot drill' }];
   const CD = n => [n, 0.1875, 'drill', { category: 'spotdrill', pointAngle: 60, flutes: 2, helix: 20, shankDia: 4.763, loc: 11, oal: 50.8, holder: 'er16', name: '#2 center drill (5/64 × 3/16, 60°)' }];
@@ -65001,6 +65034,369 @@ const HaasSamples = (function () {
   }
   soon(2500);
   window.ToolDetector = { detect, detectSetup, describe, build, apply };
+})();
+</script>
+<script id="setup-aware">
+/* setup-aware.js — everything on the machine knows about everything else.
+ *
+ * The tool, its holder, the vise, the parallels, the fixture, the table, the blank and the program
+ * are checked against one another, in the program's own coordinates, every time any one of them
+ * changes: a program is loaded or edited, a tool or holder is swapped, a slider or a part moves.
+ *
+ *   tool      reaches the depth the program asks for? flutes long enough for the cut?
+ *   holder    does its nose clear the blank, the jaws and the vise on the deepest cut of every tool?
+ *   vise      do the jaws hold the blank, and does the blank fit between them?
+ *   parallels does the blank rest on them, and are the jaws standing proud of the cut?
+ *   fixture   is anything holding the blank at all?
+ *   table     does the blank, and the toolpath, sit on the table?
+ *   program   does every T have a tool, does it stay on the blank, how deep and how far does it go?
+ *
+ * The result is a chip beside the editor's header ("Setup · 7 ok · 1 warning") that opens a card
+ * listing every finding, with a fix button where one is safe (stand the blank proud of the jaws).
+ * Nothing is written to the scene except by those buttons. Window.SetupAware.check() returns the
+ * same findings as data.
+ */
+(function () {
+  "use strict";
+  const IN = 25.4;
+  const inch = () => typeof unitMode !== "undefined" && unitMode === "inch";
+  /* scene units (the program's own) to millimetres, and a length shown inches first, metric in brackets */
+  const toMm = u => (inch() ? u * IN : u);
+  const len = mm => (inch()
+    ? (mm / IN).toFixed(3) + " in (" + mm.toFixed(2) + " mm)"
+    : mm.toFixed(2) + " mm (" + (mm / IN).toFixed(3) + " in)");
+  const PM = () => window.PartModels || null;
+  const body = k => { try { return PM() && PM().bodyOf ? PM().bodyOf(k) : null; } catch (e) { return null; } };
+  const CUTTING = { cut: 1, engrave: 1, drill: 1, tap: 1 };
+
+  /* ---------------- measuring ---------------- */
+  function frameInv() {
+    return new THREE.Matrix4().copy(stageGroup.matrixWorld).multiply(programFrame).invert();
+  }
+  function progBox(part) {
+    if (!part || !part.node) return null;
+    part.node.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(part.node);
+    if (b.isEmpty() || !isFinite(b.max.z)) return null;
+    const inv = frameInv(), out = new THREE.Box3(), c = new THREE.Vector3();
+    for (let i = 0; i < 8; i++) {
+      c.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).applyMatrix4(inv);
+      out.expandByPoint(c);
+    }
+    return out;
+  }
+  function jawBox() {
+    const v = body("vise");
+    if (!v) return null;
+    const jaw = v.members && v.members.find(m => m.name === "Jaw");
+    return progBox(jaw && jaw.node ? { node: jaw.node } : v);
+  }
+  const overlapXY = (a, b, pad) => a.min.x < b.max.x + pad && a.max.x > b.min.x - pad && a.min.y < b.max.y + pad && a.max.y > b.min.y - pad;
+
+  /* every tool's reach in the program: deepest Z and the footprint of its cutting moves (cached) */
+  let scanKey = "", scanVal = null;
+  function scan() {
+    let segs = [];
+    try { segs = allSegments || []; } catch (e) { return { tools: new Map(), moves: 0, box: null }; }
+    const tc = (typeof toolChanges !== "undefined" && toolChanges) ? toolChanges.length : 0;
+    const key = segs.length + ":" + tc + ":" + (segs.length ? (segs[0].lineIdx || 0) + ":" + (segs[segs.length - 1].lineIdx || 0) : "") +
+      ":" + (typeof programFrame !== "undefined" ? programFrame.elements.map(v => v.toFixed(3)).join(",") : "");
+    if (key === scanKey && scanVal) return scanVal;
+    const tools = new Map(), box = new THREE.Box3();
+    segs.forEach(s => {
+      if (!s.start || !s.end || !CUTTING[s.type || "cut"]) return;
+      let n = null;
+      try { n = getActiveToolAtLine(s.lineIdx); } catch (e) { /* none */ }
+      if (n == null) n = 0;
+      let t = tools.get(n);
+      if (!t) tools.set(n, t = { n, minZ: Infinity, box: new THREE.Box3(), moves: 0 });
+      t.minZ = Math.min(t.minZ, s.start.z, s.end.z);
+      t.box.expandByPoint(s.start); t.box.expandByPoint(s.end);
+      t.moves++;
+      box.expandByPoint(s.start); box.expandByPoint(s.end);
+    });
+    scanVal = { tools, moves: segs.length, box: box.isEmpty() ? null : box };
+    scanKey = key;
+    return scanVal;
+  }
+
+  function toolInfo(n) {
+    try {
+      const rec = window.ToolModels && ToolModels.get(n);
+      if (!rec) return null;
+      const p = ToolModel.normalize(rec.params);
+      const h = ToolModel.holderOf(p);
+      const nose = ToolModel.holderNose(p);
+      return {
+        p, name: rec.name || p.name || ("T" + n), dia: p.dia, loc: p.loc, oal: p.oal,
+        cat: p.category, holder: p.holder, holderLabel: h ? h.label : null,
+        nose: nose != null ? nose : null,
+        holderR: h ? ((h.nut || h.tipD || h.body) / 2) : 0,
+      };
+    } catch (e) { return null; }
+  }
+
+  /* ---------------- the findings ---------------- */
+  const F = (sev, part, text, fix) => ({ sev, part, text, fix: fix || null });
+
+  function check() {
+    const out = [];
+    const sc = scan();
+    const stock = body("stock"), vise = body("vise"), pars = body("pars"), table = body("table");
+    const sb = progBox(stock), jb = jawBox(), pb = progBox(pars), tb = progBox(table);
+    const k = toMm;                                    /* scene units to mm */
+
+    /* program */
+    if (!sc.moves) {
+      out.push(F("warn", "program", "No program loaded, so nothing to check the setup against yet."));
+    } else {
+      const bits = sc.tools.size + " tool" + (sc.tools.size === 1 ? "" : "s") + ", " + sc.moves + " moves";
+      let z = Infinity; sc.tools.forEach(t => { z = Math.min(z, t.minZ); });
+      if (sb && isFinite(z)) out.push(F("ok", "program", bits + ", deepest cut " + len(k(sb.max.z - z)) + " below the top of the blank."));
+      else out.push(F("ok", "program", bits + "."));
+    }
+
+    /* fixture: the parts that hold the blank */
+    if (!stock) out.push(F("warn", "fixture", "There is no blank in the scene."));
+    else if (!vise && !pars) out.push(F("warn", "fixture", "Nothing is holding the blank: no vise and no parallels."));
+    else out.push(F("ok", "fixture", "The blank is held" + (vise ? " in " + (vise.name || "the vise") : "") + (pars ? ", on parallels" : "") + "."));
+
+    /* table */
+    if (!table) out.push(F("warn", "table", "No table in the scene, so reach and travel cannot be checked."));
+    else if (tb && sb) {
+      const out2 = sb.min.x < tb.min.x - 1e-3 || sb.max.x > tb.max.x + 1e-3 || sb.min.y < tb.min.y - 1e-3 || sb.max.y > tb.max.y + 1e-3;
+      out.push(out2 ? F("bad", "table", "The blank hangs off the table.") : F("ok", "table", "The blank sits on the table."));
+      if (sc.box && (sc.box.min.x < tb.min.x || sc.box.max.x > tb.max.x || sc.box.min.y < tb.min.y || sc.box.max.y > tb.max.y)) {
+        out.push(F("warn", "table", "The toolpath runs past the edge of the table."));
+      }
+    }
+
+    /* vise */
+    if (vise && sb && jb) {
+      const jawTop = jb.max.z, proud = sb.max.z - jawTop;
+      const grip = sb.min.z < jawTop - 1e-3;
+      out.push(grip
+        ? F("ok", "vise", "The jaws grip the blank; it stands " + len(k(Math.max(proud, 0))) + " above them.")
+        : F("bad", "vise", "The blank is not between the jaws: its underside is above the jaw tops."));
+    } else if (!vise && sb) {
+      out.push(F("warn", "vise", "No vise in the scene."));
+    }
+
+    /* parallels */
+    if (pars && sb && pb) {
+      const gap = sb.min.z - pb.max.z;
+      const tol = k(0) + (inch() ? 0.02 : 0.5);
+      out.push(Math.abs(gap) <= tol
+        ? F("ok", "parallels", "The blank rests on the parallels (top at " + len(k(pb.max.z - sb.max.z)) + " from the top face).")
+        : (gap > 0 ? F("bad", "parallels", "The blank floats " + len(k(gap)) + " above the parallels.")
+                   : F("bad", "parallels", "The blank sinks " + len(k(-gap)) + " into the parallels.")));
+    } else if (!pars && vise && sb) {
+      out.push(F("warn", "parallels", "No parallels: the blank rests on the vise bed."));
+    }
+
+    /* tool + holder, for every tool the program calls */
+    sc.tools.forEach(t => {
+      const info = toolInfo(t.n);
+      const tag = "T" + t.n;
+      if (!info) { out.push(F("bad", "tool", tag + " is used by the program but has no tool or holder loaded.")); return; }
+      const depth = sb ? k(sb.max.z - t.minZ) : null;
+      const tipZ = t.minZ;                               /* program Z of the cutter tip at its lowest */
+      if (depth != null && depth > 1e-6 && info.loc > 0 && info.cat !== "chamfer" && info.cat !== "facemill" && info.cat !== "spotdrill") {
+        out.push(depth > info.loc + 1e-3
+          ? F("warn", "tool", tag + " (" + info.name + ") cuts " + len(depth) + " deep but its flutes are only " + len(info.loc) + " long.")
+          : F("ok", "tool", tag + " (" + info.name + "): " + len(depth) + " deep, flutes " + len(info.loc) + "."));
+      } else if (depth != null) {
+        out.push(F("ok", "tool", tag + " (" + info.name + ") reaches " + len(Math.max(depth, 0)) + " below the top of the blank."));
+      }
+      if (info.nose != null && sb) {
+        const noseZ = tipZ + info.nose / k(1);          /* scene units: mm back to the program's unit */
+        const r = info.holderR / k(1);
+        const foot = t.box.clone(); foot.min.x -= r; foot.min.y -= r; foot.max.x += r; foot.max.y += r;
+        const label = tag + " " + (info.holderLabel || "holder");
+        let hit = null;
+        if (noseZ < sb.max.z - 1e-4 && overlapXY(foot, sb, 0)) hit = "the blank by " + len(k(sb.max.z - noseZ));
+        else if (jb && noseZ < jb.max.z - 1e-4 && overlapXY(foot, jb, 0)) hit = "the jaws by " + len(k(jb.max.z - noseZ));
+        if (hit) out.push(F("bad", "holder", label + " would hit " + hit + " on its deepest cut. Use a longer stick-out or a shorter holder."));
+        else out.push(F("ok", "holder", label + " clears the work by " + len(k(Math.max(noseZ - sb.max.z, 0))) + " at the deepest cut."));
+      }
+      /* does this tool leave the blank altogether? */
+      if (sb && t.box) {
+        const m = info.dia * 2 / k(1);
+        const off = t.box.min.x > sb.max.x + m || t.box.max.x < sb.min.x - m || t.box.min.y > sb.max.y + m || t.box.max.y < sb.min.y - m;
+        if (off) out.push(F("warn", "program", tag + " cuts nowhere near the blank. Is work zero, or the blank, in the wrong place?"));
+      }
+    });
+
+    /* the jaws against the cuts. A move is a hazard only if it is below the jaw tops AND its cutter reaches past the blank's
+       own outline over the vise: a hole drilled inside the blank can never touch a jaw, an outside profile that swings out
+       over the bed can. */
+    try {
+      const vb = progBox(vise);
+      if (vb && sb && jb) {
+        const jawTop = jb.max.z, radius = new Map(), hits = new Map();
+        (allSegments || []).forEach(s => {
+          if (!s.start || !s.end || !CUTTING[s.type || "cut"]) return;
+          const z = Math.min(s.start.z, s.end.z);
+          if (z >= jawTop - 1e-6) return;
+          let n = null; try { n = getActiveToolAtLine(s.lineIdx); } catch (e) { /* none */ }
+          if (!radius.has(n)) { const ti = toolInfo(n); radius.set(n, ti ? ti.dia / 2 / k(1) : 0); }
+          const r = radius.get(n);
+          const x0 = Math.min(s.start.x, s.end.x) - r, x1 = Math.max(s.start.x, s.end.x) + r;
+          const y0 = Math.min(s.start.y, s.end.y) - r, y1 = Math.max(s.start.y, s.end.y) + r;
+          const past = x0 < sb.min.x - 1e-4 || x1 > sb.max.x + 1e-4 || y0 < sb.min.y - 1e-4 || y1 > sb.max.y + 1e-4;
+          if (!past || !(x0 < vb.max.x && x1 > vb.min.x && y0 < vb.max.y && y1 > vb.min.y)) return;
+          const line = s.origLineIdx != null ? s.origLineIdx : s.lineIdx;
+          const below = jawTop - z, prev = hits.get(line);
+          if (!prev || below > prev) hits.set(line, below);
+        });
+        if (hits.size) {
+          let worst = 0; hits.forEach(v => { worst = Math.max(worst, v); });
+          const m = JawClear.measure(), want = m.proud + worst + (inch() ? 0.05 : 1.25);
+          /* standing it that high must still leave the jaws a grip on the blank, or the fix would only trade one crash for another */
+          const grips = want <= (sb.max.z - sb.min.z) - (inch() ? 0.25 : 6);
+          out.push(F("bad", "vise", hits.size + " line" + (hits.size === 1 ? "" : "s") + " (" + Array.from(hits.keys()).sort((x, y) => x - y).slice(0, 4).map(l => "N" + (l + 1)).join(", ") + (hits.size > 4 ? "\u2026" : "") + ") swing the cutter out over the vise " + len(k(worst)) + " below the jaw tops. The cutter would find the vise." +
+            (grips ? "" : " The blank is too thin to stand clear of the jaws and still be held; keep the cutter over the blank, or use thicker stock."),
+            grips ? { label: "Stand blank proud", run: () => {
+              /* measured again now, not when the finding was made, so it never acts on a stale number */
+              const cur = JawClear.measure();
+              if (cur.ok) JawClear.setProud(cur.proud + worst + (inch() ? 0.05 : 1.25), "pars", false);
+            } } : null));
+        } else {
+          out.push(F("ok", "vise", "No cut reaches the jaws or the vise bed."));
+        }
+      }
+    } catch (e) { /* the jaw check is advisory */ }
+    return out;
+  }
+
+  /* ---------------- the chip and card ---------------- */
+  const left = document.getElementById("editor-header-left");
+  const css = document.createElement("style");
+  css.textContent =
+    "#sa-chip{display:inline-flex;align-items:center;gap:7px;margin-left:10px;padding:5px 10px;font:600 11px/1 'Inter',system-ui,sans-serif;letter-spacing:.02em;" +
+    "color:var(--text-dim);background:transparent;border:1px solid #3a3d42;border-radius:8px;cursor:pointer;white-space:nowrap;" +
+    "transition:color .18s ease,border-color .18s ease,transform .18s ease}" +
+    "#sa-chip:hover{color:var(--text);border-color:#5a5e65}#sa-chip:active{transform:scale(.97)}" +
+    "#sa-chip.warn{border-color:#c9a227;color:#e6c34a}#sa-chip.bad{border-color:#d8505a;color:#f08088}" +
+    "#sa-card{position:fixed;z-index:10050;width:min(440px,calc(100vw - 20px));max-height:min(60vh,520px);overflow:auto;padding:12px;" +
+    "background:#101113;border:1px solid #2b2e33;border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.6);font:500 12px/1.45 'Inter',system-ui,sans-serif;color:var(--text);" +
+    "opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .18s ease,transform .18s ease}" +
+    "#sa-card.on{opacity:1;transform:none;pointer-events:auto}" +
+    "#sa-card h4{margin:0 0 8px;font:700 11px/1 'Inter',system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}" +
+    ".sa-row{display:grid;grid-template-columns:18px 78px 1fr;gap:8px;align-items:start;padding:6px 0;border-top:1px solid #1d1f23}" +
+    ".sa-row:first-of-type{border-top:0}.sa-row i{font-size:12px;margin-top:2px;color:#cfd2d8}" +
+    ".sa-row b{font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:10px;color:var(--text-dim);margin-top:2px}" +
+    ".sa-row.warn i{color:#e6c34a}.sa-row.bad i{color:#f08088}" +
+    ".sa-fix{margin-top:6px;padding:5px 10px;font:600 11px 'Inter',system-ui,sans-serif;color:var(--text);background:transparent;border:1px solid #4a4e55;border-radius:7px;cursor:pointer;transition:border-color .18s ease,transform .18s ease}" +
+    ".sa-fix:hover{border-color:#8a8f98}.sa-fix:active{transform:scale(.97)}";
+  document.head.appendChild(css);
+
+  const ICON = { tool: "fa-wrench", holder: "fa-screwdriver-wrench", vise: "fa-compress", parallels: "fa-equals", fixture: "fa-layer-group", table: "fa-table-cells", program: "fa-code" };
+  const SEV = { ok: "fa-circle-check", warn: "fa-triangle-exclamation", bad: "fa-circle-xmark" };
+  let chip = null, card = null, last = [];
+  if (left) {
+    chip = document.createElement("button");
+    chip.type = "button"; chip.id = "sa-chip";
+    chip.innerHTML = '<i class="fa-solid fa-shield-halved"></i><span>Setup</span>';
+    left.appendChild(chip);
+    card = document.createElement("div");
+    card.id = "sa-card"; card.setAttribute("role", "dialog"); card.setAttribute("aria-label", "Setup check");
+    document.body.appendChild(card);
+    chip.addEventListener("click", e => { e.stopPropagation(); card.classList.contains("on") ? close() : open(); });
+    document.addEventListener("click", e => { if (card.classList.contains("on") && !card.contains(e.target)) close(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+    window.addEventListener("resize", () => { if (card.classList.contains("on")) place(); });
+  }
+  function place() {
+    const r = chip.getBoundingClientRect();
+    card.style.left = Math.max(10, Math.min(r.left, innerWidth - card.offsetWidth - 10)) + "px";
+    card.style.top = Math.max(10, r.top - card.offsetHeight - 8) + "px";
+  }
+  function open() { paint(true); card.classList.add("on"); place(); }
+  function close() { if (card) card.classList.remove("on"); }
+
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  function paint(force) {
+    if (!chip) return;
+    const n = { ok: 0, warn: 0, bad: 0 };
+    last.forEach(f => n[f.sev]++);
+    chip.className = n.bad ? "bad" : n.warn ? "warn" : "";
+    chip.id = "sa-chip";
+    chip.title = "Setup check: tool, holder, vise, parallels, fixture, table and program";
+    chip.querySelector("span").textContent = (n.bad ? n.bad + " problem" + (n.bad > 1 ? "s" : "") : n.warn ? n.warn + " warning" + (n.warn > 1 ? "s" : "") : n.ok + " ok");
+    if (!force && !card.classList.contains("on")) return;
+    const order = { bad: 0, warn: 1, ok: 2 };
+    const rows = last.slice().sort((a, b) => order[a.sev] - order[b.sev]);
+    card.innerHTML = "<h4>Setup check</h4>" + rows.map((f, i) =>
+      '<div class="sa-row ' + f.sev + '"><i class="fa-solid ' + SEV[f.sev] + '"></i><b><i class="fa-solid ' + ICON[f.part] + '" style="margin-right:5px"></i>' + f.part + "</b><div>" +
+      esc(f.text) + (f.fix ? '<br><button type="button" class="sa-fix" data-fix="' + last.indexOf(f) + '">' + esc(f.fix.label) + "</button>" : "") + "</div></div>").join("");
+    card.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", () => {
+      const f = last[+b.dataset.fix];
+      try { f.fix.run(); } catch (e) { console.warn("[SetupAware] fix:", e); }
+      setTimeout(refresh, 400);
+    }));
+    if (card.classList.contains("on")) place();
+  }
+
+  /* ---------------- staying aware ---------------- */
+  /* one cheap signature of everything the findings depend on; the check runs only when it changes */
+  function signature() {
+    const bits = [];
+    try {
+      bits.push(typeof unitMode !== "undefined" ? unitMode : "", scan().moves);
+      ["stock", "vise", "pars", "table"].forEach(w => {
+        const p = body(w);
+        bits.push(p ? [p.pos.x, p.pos.y, p.pos.z, p.rot.z, p.scale, p.visible, p.stock ? [p.stock.sx, p.stock.sy, p.stock.sz, p.stock.dia, p.stock.len] : 0,
+          (p.members || []).map(m => m.value).join(",")].join("|") : "-");
+      });
+      if (typeof toolTable !== "undefined") toolTable.forEach((d, t) => {
+        const r = window.ToolModels && ToolModels.get(t);
+        bits.push(t + ":" + d + ":" + (r ? JSON.stringify(r.params) : ""));
+      });
+      if (typeof programFrame !== "undefined") bits.push(programFrame.elements.map(v => v.toFixed(4)).join(","));
+    } catch (e) { bits.push("err"); }
+    return bits.join(";");
+  }
+  let sig = "", timer = 0;
+  /* A program that would drive the cutter into the vise is set up properly once, when it arrives: the parallels come up
+     under the blank until it stands clear. It is done once per program text, so it never fights a setup you then change. */
+  const api = { auto: false };
+  let fixedFor = null, fixing = false, lastChange = 0;
+  function refresh() {
+    /* while things are still moving (a blank sliding into the vise, a slider being dragged) the numbers are not true yet, so wait */
+    if (performance.now() - lastChange < 800) { clearTimeout(timer); timer = setTimeout(refresh, 450); return; }
+    try { last = check(); } catch (e) { console.warn("[SetupAware]", e); last = []; }
+    const ta = document.getElementById("gcode-input"), text = ta ? ta.value : "";
+    const fixable = last.find(f => f.sev === "bad" && f.fix);
+    /* only once the scene has settled: nothing has moved for a moment (a blank still sliding into the vise would give
+       numbers that are not true), and the blank is seated, on the parallels and in the jaws */
+    const seated = !last.some(f => f.sev === "bad" && !f.fix);
+    if (api.auto && fixable && text && fixedFor !== text && !fixing) {
+      if (!seated || performance.now() - lastChange < 1500) { setTimeout(refresh, 700); paint(false); return; }
+      fixedFor = text; fixing = true;
+      try {
+        fixable.fix.run();
+        if (typeof showToast === "function") showToast("Setup adjusted", "The program cuts out over the vise, so the parallels were raised until the blank stands clear of the jaws.");
+      } catch (e) { console.warn("[SetupAware] auto fix:", e); }
+      setTimeout(() => { fixing = false; refresh(); }, 1500);
+      return;
+    }
+    paint(false);
+  }
+  const soon = ms => { clearTimeout(timer); timer = setTimeout(refresh, ms || 220); };
+  /* every slider, field, tool and program edit asks for a re-check; the signature poll catches the rest (a part dragged, a sample loaded) */
+  document.addEventListener("input", () => soon(260), true);
+  document.addEventListener("change", () => soon(260), true);
+  document.addEventListener("pointerup", () => soon(300), true);
+  setInterval(() => { const s = signature(); if (s !== sig) { sig = s; lastChange = performance.now(); soon(120); } }, 400);
+  if (typeof loadGCode === "function") {
+    const prev = loadGCode;
+    window.loadGCode = loadGCode = function () { const r = prev.apply(this, arguments); soon(900); return r; };
+  }
+  soon(2800);
+
+  api.check = check; api.refresh = refresh; api.scan = scan; api.open = open; api.close = close;
+  window.SetupAware = api;
 })();
 </script>
 </body>
