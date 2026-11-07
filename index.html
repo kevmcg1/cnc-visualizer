@@ -24615,9 +24615,18 @@ function simSeekToTime(t) {
   if (stopType) {
     stopHud.className = stopType === 'm00' ? 'stop-m00' : 'stop-m01';
     stopHud.textContent = stopType === 'm00' ? '⏹ PROGRAM STOP — M00' : '⏸ OPTIONAL STOP — M01';
+    clearTimeout(stopHud._leave);
     stopHud.style.display = 'flex';
     stopHud.dataset.on = '1';
-  } else {
+  } else if (wasStop) {
+    /* leave smoothly: fade and slide out, then drop it from the layout */
+    stopHud.classList.add('leaving');
+    stopHud.dataset.on = '0';
+    clearTimeout(stopHud._leave);
+    stopHud._leave = setTimeout(() => {
+      if (stopHud.dataset.on !== '1') { stopHud.style.display = 'none'; stopHud.className = ''; }
+    }, 380);
+  } else if (!stopHud.classList.contains('leaving')) {
     stopHud.style.display = 'none';
     stopHud.className = '';
     stopHud.dataset.on = '0';
@@ -65231,7 +65240,25 @@ html body #toast .toast-body { grid-column: 2; }
 html body #toast.is-bare .sc-ico { grid-row: 1; }
 /* program complete */
 html body #program-complete-banner.show { display: flex !important; align-items: center; gap: 10px; }
-html body :is(#toast, #program-complete-banner).fading { opacity: 0; transition: opacity .4s ease; }
+/* entrance and exit: a soft rise and fade in, a gentler sink and fade out, all on the compositor (opacity and transform only) */
+@keyframes sc-in {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(16px) scale(.96); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+@keyframes sc-out {
+  0%   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(10px) scale(.97); }
+}
+html body :is(#toast, #program-complete-banner).show { animation: sc-in .55s cubic-bezier(.22, 1, .36, 1) both !important; }
+html body :is(#toast, #program-complete-banner).fading { animation: sc-out .4s cubic-bezier(.4, 0, .6, 1) both !important; opacity: 1; transition: none; }
+html body #stop-hud.stop-m00, html body #stop-hud.stop-m01 { animation: sc-in .5s cubic-bezier(.22, 1, .36, 1) both; }
+html body #stop-hud.leaving { animation: sc-out .36s cubic-bezier(.4, 0, .6, 1) both !important; }
+html body :is(#toast, #program-complete-banner, #stop-hud) { will-change: opacity, transform; }
+@media (prefers-reduced-motion: reduce) {
+  html body :is(#toast, #program-complete-banner, #stop-hud).show, html body #stop-hud.stop-m00, html body #stop-hud.stop-m01 { animation: none !important; }
+  html body :is(#toast, #program-complete-banner).fading, html body #stop-hud.leaving { animation: none !important; opacity: 0; }
+}
 html body #program-complete-banner .sc-ico { font-size: 16px; }
 html body #program-complete-banner > span:first-of-type { color: var(--text) !important; font-weight: 600; }
 html body #program-complete-banner .banner-x { color: var(--text-dim); cursor: pointer; transition: color .18s ease; }
@@ -65245,6 +65272,34 @@ html body #vp-mode-status .vms-dot { flex: 0 0 auto; width: auto; height: auto; 
 html body #vp-mode-status .vms-dot::before { display: block; font: 900 15px/1 "Font Awesome 6 Free"; content: "\f1b2"; }
 html body #vp-mode-status.is-sim .vms-dot::before { content: "\f144"; }
 /* fit note */
+/* ---- camera and display: one labelled row per kind of control, every button the same size, on one grid ---- */
+html body #hud-view #vp-dock { display: grid !important; grid-template-columns: minmax(0, 1fr) !important; gap: 0 !important; padding: 34px 14px 8px !important; align-content: start; }
+html body #hud-view #vp-dock > .vcat { display: contents !important; }
+html body #hud-view #vp-dock .vcat-head { display: none !important; }
+html body #hud-view #vp-dock .vcat-body { display: contents !important; }
+html body #hud-view #vp-dock :is(#vp-coolant, #vp-setup, #vp-cam, #vp-views, #vp-show) {
+  position: relative !important; display: grid !important; grid-template-columns: 96px repeat(4, minmax(30px, 36px)) !important; justify-content: start; column-gap: 8px !important; row-gap: 8px !important;
+  align-items: center; width: auto !important; max-width: none !important; margin: 0 !important; padding: 12px 0 !important; border: 0 !important; border-top: 1px solid #1c1f23 !important;
+  border-radius: 0 !important; background: none !important; box-shadow: none !important; transform: none !important; flex: none !important;
+}
+html body #hud-view #vp-dock > .vcat:first-child :is(#vp-coolant) { border-top: 0 !important; padding-top: 4px !important; }
+html body #hud-view #vp-dock :is(#vp-coolant, #vp-setup, #vp-cam, #vp-views, #vp-show)::before {
+  display: block !important; position: static !important; grid-column: 1; grid-row: 1; align-self: center; font: 600 10px/1.2 'Inter', system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--text-dim);
+}
+html body #hud-view #vp-dock #vp-coolant::before { content: "Coolant" !important; }
+html body #hud-view #vp-dock #vp-setup::before { content: "Workholding" !important; }
+html body #hud-view #vp-dock #vp-cam::before { content: "Camera" !important; }
+html body #hud-view #vp-dock #vp-views::before { content: "Layout" !important; }
+html body #hud-view #vp-dock #vp-show::before { content: "Show" !important; }
+/* the buttons of a row start in the first free cell after the label, wrapping onto matching rows below it */
+html body #hud-view #vp-dock :is(#vp-coolant, #vp-setup, #vp-cam, #vp-views, #vp-show) > :nth-child(4n+1) { grid-column: 2; }
+html body #hud-view #vp-dock :is(#vp-coolant, #vp-setup, #vp-cam, #vp-views, #vp-show) > :nth-child(4n+2) { grid-column: 3; }
+html body #hud-view #vp-dock :is(#vp-coolant, #vp-setup, #vp-cam, #vp-views, #vp-show) > :nth-child(4n+3) { grid-column: 4; }
+html body #hud-view #vp-dock :is(#vp-coolant, #vp-setup, #vp-cam, #vp-views, #vp-show) > :nth-child(4n+4) { grid-column: 5; }
+html body #hud-view #vp-dock :is(#vp-coolant, #vp-setup, #vp-cam, #vp-views, #vp-show) :is(button, .cool) {
+  width: 36px !important; height: 36px !important; min-width: 0 !important; padding: 0 !important; margin: 0 !important; display: grid !important; place-items: center;
+  border-radius: 9px !important; font-size: 14px !important; flex: none !important;
+}
 /* the always-on mode banner is calm: static outline, still icon */
 html body #vp-mode-status::before { animation: none !important; background: none !important; }
 html body #vp-mode-status .vms-dot::before { animation: none !important; }
