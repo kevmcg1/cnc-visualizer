@@ -4734,18 +4734,6 @@ body.cinematic.cin-idle #main-canvas { cursor: none; }
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
 
-/* ---------- collapse-all button ---------- */
-.collapse-all-btn {
-  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-  font-size: 10px; font-weight: 600; letter-spacing: .06em;
-  color: var(--text-dim); background: transparent;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 5px 10px; transition: color .15s var(--ease), border-color .15s var(--ease), background .15s var(--ease);
-}
-.collapse-all-btn:hover { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
-.collapse-all-btn.in-sidebar { margin-top: 10px; width: 100%; justify-content: center; }
-.collapse-all-btn i { font-size: 10px; }
-
 /* ---------- Inter everywhere (icon fonts excluded) ---------- */
 :root { --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; --font-mono: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; }
 html, body, *:not([class*="fa-"]):not(i), input, textarea, select, button, ::placeholder {
@@ -4945,7 +4933,7 @@ i[class*="fa-"] { display: inline-block; transform-origin: 50% 50%; }
 #sidebar .sec-body { padding: 0 16px 16px; }
 
 /* buttons */
-#sidebar .sec-body button:not(.tm-acts button):not(.tm-edit-btns button):not(.collapse-all-btn):not(.legend-skip-btn):not(.pt-chip):not(.qa-btn):not(.tool-unit-btn),
+#sidebar .sec-body button:not(.tm-acts button):not(.tm-edit-btns button):not(.legend-skip-btn):not(.pt-chip):not(.qa-btn):not(.tool-unit-btn),
 #sidebar .sec-body .btn, #sidebar .sample-card {
   background: var(--ctl-bg) !important;
   border: 1px solid var(--ctl-line) !important;
@@ -4955,7 +4943,7 @@ i[class*="fa-"] { display: inline-block; transform-origin: 50% 50%; }
   padding: 11px 12px;
   transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .12s var(--ease);
 }
-#sidebar .sec-body button:hover:not(.tm-acts button):not(.tm-edit-btns button):not(.collapse-all-btn):not(.legend-skip-btn):not(.pt-chip):not(.qa-btn):not(.tool-unit-btn),
+#sidebar .sec-body button:hover:not(.tm-acts button):not(.tm-edit-btns button):not(.legend-skip-btn):not(.pt-chip):not(.qa-btn):not(.tool-unit-btn),
 #sidebar .sec-body .btn:hover, #sidebar .sample-card:hover {
   background: var(--ctl-bg-hover) !important; border-color: var(--ctl-line-hover) !important;
 }
@@ -5083,7 +5071,7 @@ button, .btn, [role="button"], a, label, summary,
 input, select, textarea,
 .toggle-row, .toggle-track, .toggle-thumb, .tp-btn, .vt-btn, .cm-btn, .speed-preset,
 .sample-card, .pm-sample-row, .tm-card, .sec-head, .sb-cat-head, .vcat-head, .mc-chk,
-.pt-chip, .hp-btn, .bd-btn, .collapse-all-btn, .tool-unit-btn, .legend-skip-btn, .qa-btn {
+.pt-chip, .hp-btn, .bd-btn, .tool-unit-btn, .legend-skip-btn, .qa-btn {
   /* !important so a control's own older, shorter, narrower transition cannot win */
   transition-property: all !important;
   transition-duration: var(--t) !important;
@@ -60179,69 +60167,6 @@ window.HAAS_LATHE_CODES = {
 
 </script>
 <script>
-/* collapse-all.js — one button that folds every category in the HUD.
- *
- * It closes the sidebar's colored groups, any section left open inside them,
- * and the little category pop-ups over the 3D view. Pressed again it opens
- * the sidebar groups back up (sections stay closed, so nothing is suddenly
- * a wall of controls). It clicks the real headers rather than reaching into
- * their state, so each one's own saved open/closed memory stays correct.
- */
-(function () {
-  "use strict";
-
-  const sidebarHeads = () => Array.from(document.querySelectorAll("#sidebar .sb-cat-head"));
-  const sectionHeads = () => Array.from(document.querySelectorAll("#sidebar .sec-head.open"));
-  const viewportHeads = () => Array.from(document.querySelectorAll(".vcat:not(.collapsed) > .vcat-head"));
-
-  const anyOpen = () => sidebarHeads().some(h => !h.classList.contains("collapsed")) ||
-                        sectionHeads().length > 0 || viewportHeads().length > 0;
-
-  function collapseAll() {
-    sectionHeads().forEach(h => h.click());
-    sidebarHeads().forEach(h => { if (!h.classList.contains("collapsed")) h.click(); });
-    viewportHeads().forEach(h => h.click());
-  }
-  function expandAll() {
-    sidebarHeads().forEach(h => { if (h.classList.contains("collapsed")) h.click(); });
-  }
-
-  const buttons = [];
-  function paint() {
-    const open = anyOpen();
-    buttons.forEach(b => {
-      b.dataset.state = open ? "collapse" : "expand";
-      b.title = open ? "Collapse every category" : "Expand the categories again";
-      b.querySelector("span").textContent = open ? "Collapse all" : "Expand all";
-      b.querySelector("i").className = "fa-solid " + (open ? "fa-compress" : "fa-expand");
-    });
-  }
-
-  function make(extra) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "collapse-all-btn " + (extra || "");
-    b.innerHTML = '<i class="fa-solid fa-compress"></i><span>Collapse all</span>';
-    b.addEventListener("click", () => { anyOpen() ? collapseAll() : expandAll(); paint(); });
-    buttons.push(b);
-    return b;
-  }
-
-  function mount() {
-    const head = document.getElementById("sidebar-header");
-    if (head) head.appendChild(make("in-sidebar"));
-    const row = document.querySelector("#viewport-toolbar .vt-row");
-    if (row) { const v = make("vt-btn in-viewport"); row.appendChild(v); }
-    document.addEventListener("click", () => setTimeout(paint, 0), true);
-    paint();
-  }
-
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(mount, 0));
-  else setTimeout(mount, 0);
-})();
-
-</script>
-<script>
 /* view-cube.js — the view cube, rebuilt.
  *
  *  - 26 separate zones, like a CAD view cube: 6 labelled faces, 12 edges and
@@ -63797,17 +63722,17 @@ code,pre,kbd,samp,#gcode-input,#gcode-highlight,#gcode-comp-output,#gcode-comp-h
 .progress-label{font-family:var(--font-ui)!important}
 
 /* ---- controls: outlines, never fills ---- */
-button,.btn,.tp-btn,.vt-btn,.cm-btn,.speed-preset,.sample-card,.pt-chip,.qa-btn,.tool-unit-btn,.hp-btn,.bd-btn,.collapse-all-btn,.legend-skip-btn,
+button,.btn,.tp-btn,.vt-btn,.cm-btn,.speed-preset,.sample-card,.pt-chip,.qa-btn,.tool-unit-btn,.hp-btn,.bd-btn,.legend-skip-btn,
 .navbtn,.tp-toggle,.toggle-row,select,input[type="text"],input[type="number"],input[type="search"],textarea:not(#gcode-input){
   font-family:var(--font-ui)!important;font-weight:600;border-radius:8px!important;
   transition:background-color .22s var(--ease-ui),border-color .22s var(--ease-ui),color .22s var(--ease-ui),opacity .22s var(--ease-ui),transform .16s var(--ease-ui)!important}
 html body button:not(.tm-del):not(.x):not([class*="fa"]),html body .btn,html body .tp-btn,html body .vt-btn,html body .cm-btn,html body .speed-preset,html body .sample-card,
-html body .pt-chip,html body .qa-btn,html body .tool-unit-btn,html body .hp-btn,html body .bd-btn,html body .collapse-all-btn,html body .legend-skip-btn,html body .navbtn{
+html body .pt-chip,html body .qa-btn,html body .tool-unit-btn,html body .hp-btn,html body .bd-btn,html body .legend-skip-btn,html body .navbtn{
   background:transparent!important;color:var(--text)!important;border:1px solid var(--ctl-line)!important;box-shadow:none!important;background-image:none!important}
 html body #viewport button,html body #viewport .vt-btn,html body #transport-bar .tp-btn,html body #transport-bar .speed-preset,html body #transport-bar .cm-btn{
   background:rgba(10,11,13,.5)!important;border-color:var(--ctl-line-hi)!important}
 html body button:hover,html body .btn:hover,html body .tp-btn:hover,html body .vt-btn:hover,html body .cm-btn:hover,html body .speed-preset:hover,html body .sample-card:hover,
-html body .pt-chip:hover,html body .qa-btn:hover,html body .tool-unit-btn:hover,html body .hp-btn:hover,html body .bd-btn:hover,html body .navbtn:hover,html body .collapse-all-btn:hover{
+html body .pt-chip:hover,html body .qa-btn:hover,html body .tool-unit-btn:hover,html body .hp-btn:hover,html body .bd-btn:hover,html body .navbtn:hover{
   border-color:#fff!important;background:rgba(255,255,255,.1)!important;color:#fff!important;transform:none}
 html body button:active,html body .tp-btn:active,html body .vt-btn:active,html body .sample-card:active{transform:scale(.97)!important}
 html body button:focus-visible,html body .tp-btn:focus-visible,html body .vt-btn:focus-visible,html body .sample-card:focus-visible,html body input:focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px}
@@ -64192,7 +64117,7 @@ html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
     const el = document.getElementById(id);
     if (el && el.parentElement !== HOME[id]) HOME[id].appendChild(el);
   });
-  /* the sim / model mode banner lives in the left sidebar, under the tour buttons */
+  /* the sim / model mode banner lives in the left sidebar, at the top of the sidebar */
   const seatMode = () => {
     const el = document.getElementById('vp-mode-status'), sb = document.getElementById('sidebar');
     if (!el || !sb) return;
@@ -65956,122 +65881,10 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
 })();
 </script>
 <script>
-/* tour.js - a spotlight walkthrough of the screen. Launched from "Take the tour". */
-(function(){
-  "use strict";
-  var STEPS=[
-    {t:"Welcome",b:"A two minute look around: where the machine is, where the program is, and how to run it. Use the arrow keys or the buttons. Esc leaves at any time.",icon:"fa-compass"},
-    {sel:"#viewport",t:"The 3D view",b:"Your part, vise and cutter. Drag with the left mouse button to orbit, the right button to pan, and scroll to zoom. On a touch screen use one finger to orbit and two to pan and zoom.",icon:"fa-cube",pos:"bottom"},
-    {sel:"#cube-wrap",t:"View cube",b:"Click a face to swing square to that side. Double-click the cube to return to the isometric view.",icon:"fa-vector-square",pos:"left"},
-    {sel:"#editor-main",t:"G-code editor",b:"Paste or type a program here. Tools and setup are read from the comments, and problems are flagged as you type. The cursor line is the line the cutter is on.",icon:"fa-code",pos:"top"},
-    {sel:"#transport-bar",t:"Playback",b:"Play, step and scrub through the program. Jump between operations, stop at every M01, run one block at a time, or have the camera follow the tool.",icon:"fa-play",pos:"top"},
-    {sel:"#viewport-toolbar",t:"View controls",b:"Show or hide the grid, axes, toolpaths and cutter. Isolate or section the part, change graphics quality, and filter which kinds of move are drawn.",icon:"fa-sliders",pos:"left"},
-    {sel:"#sidebar",t:"Sidebar",b:"Machine state, tools, offsets, fixtures and samples live here, grouped in sections that open and close. Collapse all keeps it tidy.",icon:"fa-table-columns",pos:"right"},
-    {sel:"#btn-make-program",t:"Start from nothing",b:"How do I use it? walks you from an empty machine to a running job, one step at a time. Pick a sample from the sidebar first if you would rather see a finished program.",icon:"fa-flag-checkered",pos:"right"}
-  ];
-  var css=document.createElement("style");
-  css.textContent=
-  "#tour-root{position:fixed;inset:0;z-index:99990;pointer-events:none;font-family:'Inter',system-ui,sans-serif}"+
-  "#tour-root.on{pointer-events:auto}"+
-  "#tour-hole{position:fixed;left:0;top:0;border-radius:10px;box-shadow:0 0 0 100vmax rgba(6,7,9,.72);outline:1px solid var(--accent,#5b93ea);opacity:0;will-change:transform,width,height;transition:transform .45s cubic-bezier(.22,.61,.36,1),width .45s cubic-bezier(.22,.61,.36,1),height .45s cubic-bezier(.22,.61,.36,1),opacity .3s ease;pointer-events:none}"+
-  "#tour-root.on #tour-hole{opacity:1}"+
-  "#tour-card{position:fixed;left:0;top:0;width:min(340px,calc(100vw - 32px));box-sizing:border-box;padding:16px 16px 14px;border:1px solid var(--ctl-line,#2d3238);border-radius:12px;background:#111317;color:#e6e8eb;opacity:0;will-change:transform,opacity;transition:transform .45s cubic-bezier(.22,.61,.36,1),opacity .3s ease}"+
-  "#tour-root.on #tour-card{opacity:1}"+
-  "#tour-card .tr-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}"+
-  "#tour-card .tr-head i{font-size:14px;color:#fff;width:16px;text-align:center}"+
-  "#tour-card .tr-title{font-size:14px;font-weight:600;flex:1}"+
-  "#tour-card .tr-count{margin-right:24px;font-size:10.5px;color:#8b929b;letter-spacing:.06em}"+
-  "#tour-card .tr-body{font-size:12.5px;line-height:1.55;color:#aeb4bc;margin:0 0 14px;min-height:3.1em}"+
-  "#tour-card .tr-foot{display:flex;align-items:center;gap:8px}"+
-  "#tour-card .tr-dots{display:flex;gap:5px;flex:1}"+
-  "#tour-card .tr-dots b{width:6px;height:6px;border-radius:50%;background:#2d3238;transition:background .3s ease,transform .3s ease}"+
-  "#tour-card .tr-dots b.on{background:var(--accent,#5b93ea);transform:scale(1.25)}"+
-  "#tour-card button{font:600 11.5px 'Inter',system-ui,sans-serif;padding:0 12px;height:30px;border-radius:8px;border:1px solid #2d3238;background:transparent;color:#e6e8eb;cursor:pointer;transition:border-color .22s ease,color .22s ease,background-color .22s ease,transform .16s ease}"+
-  "#tour-card button:hover{border-color:#fff;background:rgba(255,255,255,.08)}"+
-  "#tour-card button:active{transform:scale(.97)}"+
-  "#tour-card button.pri{border-color:var(--accent,#5b93ea);color:var(--accent,#5b93ea)}"+
-  "#tour-card button:disabled{opacity:.35;cursor:default}"+
-  "#tour-card .tr-x{position:absolute;right:8px;top:8px;width:26px;height:26px;padding:0;border:0;color:#8b929b}"+
-  "html body #sidebar #tour-btn{margin:0 0 8px;width:100%;height:36px!important;min-height:36px!important;padding:0 12px!important;box-sizing:border-box;display:flex;font-size:12px;align-items:center;justify-content:center;gap:8px}"+
-  "@media (prefers-reduced-motion:reduce){#tour-hole,#tour-card{transition:none}}";
-  document.head.appendChild(css);
-
-  var root=document.createElement("div");root.id="tour-root";
-  root.innerHTML='<div id="tour-hole"></div><div id="tour-card" role="dialog" aria-live="polite"><button class="tr-x" aria-label="Close tour"><i class="fa-solid fa-xmark"></i></button><div class="tr-head"><i class="fa-solid"></i><span class="tr-title"></span><span class="tr-count"></span></div><p class="tr-body"></p><div class="tr-foot"><div class="tr-dots"></div><button class="tr-back">Back</button><button class="tr-next pri">Next</button></div></div>';
-  document.body.appendChild(root);
-  var hole=root.querySelector("#tour-hole"),card=root.querySelector("#tour-card");
-  var q=function(s){return card.querySelector(s)};
-  var dots=q(".tr-dots");STEPS.forEach(function(){dots.appendChild(document.createElement("b"))});
-  var i=0,open=false;
-
-  function place(){
-    var st=STEPS[i],vw=innerWidth,vh=innerHeight,cw=card.offsetWidth,ch=card.offsetHeight,pad=8;
-    var el=st.sel&&document.querySelector(st.sel),r=el&&el.getBoundingClientRect();
-    if(r&&(r.width<4||r.height<4))r=null;
-    var x,y;
-    if(r){
-      var hx=Math.max(4,r.left-pad),hy=Math.max(4,r.top-pad),hw=Math.min(vw-8,r.width+pad*2)-(hx<r.left-pad?0:0),hh=Math.min(vh-8,r.height+pad*2);
-      hole.style.transform="translate("+hx+"px,"+hy+"px)";hole.style.width=hw+"px";hole.style.height=hh+"px";
-      var small=vw<700,pos=st.pos||"bottom";
-      if(small){x=(vw-cw)/2;y=(r.top+r.height/2<vh/2)?Math.min(vh-ch-12,r.bottom+16):Math.max(12,r.top-ch-16)}
-      else{
-        var tries={left:[r.left-cw-16,r.top],right:[r.right+16,r.top],top:[r.left+r.width/2-cw/2,r.top-ch-16],bottom:[r.left+r.width/2-cw/2,r.bottom+16]};
-        var o=tries[pos];x=o[0];y=o[1];
-        if(x<12||x+cw>vw-12||y<12||y+ch>vh-12){var alt=["top","bottom","left","right"];for(var k=0;k<4;k++){var a=tries[alt[k]];if(a[0]>=12&&a[0]+cw<=vw-12&&a[1]>=12&&a[1]+ch<=vh-12){x=a[0];y=a[1];break}}}
-      }
-    }else{
-      hole.style.transform="translate("+(vw/2)+"px,"+(vh/2)+"px)";hole.style.width="0px";hole.style.height="0px";
-      x=(vw-cw)/2;y=(vh-ch)/2;
-    }
-    x=Math.max(12,Math.min(vw-cw-12,x));y=Math.max(12,Math.min(vh-ch-12,y));
-    card.style.transform="translate("+Math.round(x)+"px,"+Math.round(y)+"px)";
-  }
-  function show(n){
-    i=Math.max(0,Math.min(STEPS.length-1,n));var st=STEPS[i];
-    var el=st.sel&&document.querySelector(st.sel);
-    if(el&&el.scrollIntoView)el.scrollIntoView({block:"nearest",inline:"nearest"});
-    q(".tr-head i").className="fa-solid "+st.icon;
-    q(".tr-title").textContent=st.t;q(".tr-count").textContent=(i+1)+" / "+STEPS.length;
-    q(".tr-body").textContent=st.b;
-    q(".tr-back").disabled=i===0;
-    var nx=q(".tr-next");nx.textContent=i===STEPS.length-1?"Done":"Next";
-    [].forEach.call(dots.children,function(d,k){d.classList.toggle("on",k===i)});
-    place();
-  }
-  function start(){
-    if(open)return;open=true;root.classList.add("on");
-    card.style.transition="none";show(0);void card.offsetWidth;card.style.transition="";
-    try{document.activeElement&&document.activeElement.blur()}catch(e){}
-  }
-  function stop(){open=false;root.classList.remove("on")}
-  q(".tr-next").onclick=function(){i===STEPS.length-1?stop():show(i+1)};
-  q(".tr-back").onclick=function(){show(i-1)};
-  q(".tr-x").onclick=stop;
-  root.addEventListener("click",function(e){if(e.target===root)stop()});
-  addEventListener("keydown",function(e){
-    if(!open)return;
-    if(e.key==="Escape"){stop();e.preventDefault()}
-    else if(e.key==="ArrowRight"||e.key==="Enter"){q(".tr-next").click();e.preventDefault()}
-    else if(e.key==="ArrowLeft"){q(".tr-back").click();e.preventDefault()}
-  },true);
-  var rz;addEventListener("resize",function(){if(open){cancelAnimationFrame(rz);rz=requestAnimationFrame(place)}});
-
-  var wrap=document.getElementById("mkp-launch");
-  if(wrap){
-    var b=document.createElement("button");b.id="tour-btn";b.type="button";
-    b.innerHTML='<i class="fa-solid fa-compass"></i> Take the tour';
-    b.title="A short spotlight walkthrough of the screen. Nothing is erased.";
-    b.addEventListener("click",start);
-    wrap.insertBefore(b,wrap.firstChild);
-  }
-  window.Tour={start:start,stop:stop};
-})();
-</script>
-<script>
 /* changelog: the same card as the shop tool sim's "What's new" */
 (function(){
   var V={version:"1.4.0",changelog:[
-    {v:"1.4.0",date:"2026-11-07",title:"Alpha testing",items:["Starts with no program; Space plays and pauses; collision counts with red G-code lines; a guided tour; a bigger view cube; smoother camera switches; a more realistic loading estimate; and the tool changer arm is gone."]}
+    {v:"1.4.0",date:"2026-11-07",title:"Alpha testing",items:["Starts with no program; Space plays and pauses; collision counts with red G-code lines; a bigger view cube; smoother camera switches; a more realistic loading estimate; and the tool changer arm is gone."]}
   ]};
   var chip=document.getElementById("btn-whats-new");if(!chip)return;
   var esc=function(s){return String(s).replace(/[&<>]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c]})};
@@ -66098,7 +65911,7 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
     if(e.ctrlKey||e.metaKey||e.altKey||e.shiftKey||e.defaultPrevented||e.repeat)return;
     var t=e.target,tag=t&&t.tagName;
     if(tag==="TEXTAREA"||tag==="INPUT"&&!/^(checkbox|radio|button|range)$/.test(t.type)||tag==="SELECT"||(t&&t.isContentEditable))return;
-    if(t&&t.closest&&t.closest(".modal-overlay.on,#collision-modal.on,#tour-root.on,[role=dialog]"))return;
+    if(t&&t.closest&&t.closest(".modal-overlay.on,#collision-modal.on,[role=dialog]"))return;
     if(document.body.classList.contains("cinematic"))return;   /* cinematic mode has its own */
     var b=document.getElementById("btn-sim-play");
     if(!b||b.offsetParent===null)return;
@@ -66142,7 +65955,7 @@ html body #fit-note::after { content: "\f065"; position: absolute; right: 14px; 
 })();
 </script>
 <style id="hud-organize-css">
-/* ===== Left sidebar: the sim / model mode banner, a calm flat card under the tour buttons ===== */
+/* ===== Left sidebar: the sim / model mode banner, a calm flat card at the top of the sidebar ===== */
 html body #sidebar #vp-mode-status{display:flex!important;position:relative!important;inset:auto!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;transform:none!important;
   width:auto!important;max-width:none!important;margin:12px 12px 0!important;padding:12px 14px!important;gap:10px 12px!important;align-items:center;flex:none;flex-wrap:nowrap!important;flex-direction:row!important;box-sizing:border-box;
   background:#0b0c0e!important;border:1px solid #23272c!important;border-radius:10px!important;box-shadow:none!important;opacity:1;z-index:1}
