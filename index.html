@@ -64139,21 +64139,6 @@ html body .legend-cb{width:16px!important;height:16px!important}
 /* ---- small laptops: give the 3D view back its height; tighten the control deck ---- */
 @media (min-width:801px) and (max-height:780px){
   html body #editor-panel{height:clamp(250px,44vh,340px)!important}
-  html body #hud-side #vp-mode-status{display:none!important}
-  html body #hud-side{gap:8px;padding:8px 8px 0!important}
-  html body #hud-side #transport-bar{padding:24px 10px 8px!important;gap:5px!important}
-  html body #hud-side #viewport-toolbar{padding-top:22px!important}
-  html body #hud-side #vp-dock{padding:22px 8px 8px!important}
-  html body #hud-play,html body #hud-side{overflow-y:auto!important;scrollbar-width:thin}
-  html body #viewport-toolbar button,html body #viewport-toolbar .pt-chip{min-height:0!important;height:24px!important;padding-top:0!important;padding-bottom:0!important;font-size:10.5px!important}
-  html body #viewport-toolbar .vt-row,html body #viewport-toolbar .vt-grid,html body #viewport-toolbar .vt-quality,html body #viewport-toolbar .path-chips{gap:4px!important}
-  html body #viewport-toolbar .vt-iso{margin-top:3px!important}
-  html body #viewport-toolbar .path-chips{padding:3px 2px 0!important}
-  html body #hud-side #transport-bar button{min-height:0!important}
-  html body #viewport-toolbar > .vcat:first-child .vt-row{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))}
-  html body #viewport-toolbar > .vcat:first-child .vt-row button{padding:0 4px!important;letter-spacing:.02em!important;white-space:nowrap;gap:4px!important;justify-content:center}
-  html body #viewport-toolbar .vt-iso-head,html body #viewport-toolbar .pt-title{display:none!important}
-  html body #viewport-toolbar .pt-chip{padding:0 7px 0 6px!important;font-size:10px!important}
 }
 @media (min-width:801px) and (max-height:620px){
   html body #editor-panel{height:clamp(220px,38vh,280px)!important}
@@ -64269,25 +64254,28 @@ html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
 })();
 </script>
 <script id="hud-side-move">
-/* Move the controls that used to float over the 3D view into a panel to the right of the editor. */
+/* Move the controls that used to float over the 3D view (the View card and the Camera and Display card) into the
+   right-hand sidebar, a full-height column beside the 3D view and the editor, the mirror of the left sidebar. */
 (function () {
-  const panel = document.getElementById('editor-panel');
-  if (!panel || document.getElementById('hud-side')) return;
-  const main = document.createElement('div'); main.id = 'editor-main';
-  while (panel.firstChild) main.appendChild(panel.firstChild);
-  panel.appendChild(main);
-  const side = document.createElement('div'); side.id = 'hud-side'; side.setAttribute('aria-label', 'Controls');
-  panel.appendChild(side);
-  /* two columns that scroll on their own: playback and the mode banner on the left, the view controls on the right,
-     so wheeling through the view buttons never moves the transport */
-  const play = document.createElement('div'); play.id = 'hud-play'; play.setAttribute('aria-label', 'Playback');
-  const view = document.createElement('div'); view.id = 'hud-view'; view.setAttribute('aria-label', 'View controls');
-  side.appendChild(play); side.appendChild(view);
+  const app = document.getElementById('app'), col = document.getElementById('right-col'), panel = document.getElementById('editor-panel');
+  if (!app || !col || document.getElementById('right-sidebar')) return;
+  if (panel && !document.getElementById('editor-main')) {
+    const main = document.createElement('div'); main.id = 'editor-main';
+    while (panel.firstChild) main.appendChild(panel.firstChild);
+    panel.appendChild(main);
+  }
+  const side = document.createElement('aside'); side.id = 'right-sidebar'; side.setAttribute('aria-label', 'View controls');
+  const view = document.createElement('div'); view.id = 'hud-view';
+  side.appendChild(view);
+  col.insertAdjacentElement('afterend', side);
   const HOME = { 'viewport-toolbar': view, 'vp-dock': view };
-  const seat = () => Object.keys(HOME).forEach(id => {
-    const el = document.getElementById(id);
-    if (el && el.parentElement !== HOME[id]) HOME[id].appendChild(el);
-  });
+  const seat = () => {
+    /* View first, then Camera and Display */
+    ['viewport-toolbar', 'vp-dock'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement !== HOME[id]) HOME[id].appendChild(el);
+    });
+  };
   /* the sim / model mode banner lives in the left sidebar, at the top of the sidebar */
   const seatMode = () => {
     const el = document.getElementById('vp-mode-status'), sb = document.getElementById('sidebar');
@@ -66854,6 +66842,238 @@ html body #sidebar#sidebar #cr-root :is(.cr-row,.cr-item,.cr-code){ min-width:0;
 html body #sidebar#sidebar :is(.sample-badge,.sp-h,.fx-show-text,.jc-z-k,.jc-label,.jc-reset em,.dia-alt,.tm-empty,.tm-spin-title,.tm-note,.grid-field-row span,.mc-sub,#view-stats-content span,#view-stats-content div,#tool-table-container span,.sec-soon,.sf-tag,.cr-sim-badge,.cr-tag,.cr-kind,.cr-ghead span,.cr-ghead em,.cr-foot span,.pm-eye,.pm-name,.pm-tri,.pm-del,.sd-head,.sd-key,.sd-pill,.cr-tabs em,.sb-cat-head em,.sp-drop span,.gd-num,.gd-subcount,.gd-chev,.sd-val,.st-opt em,.st-foot,.sp-foot,.sp-foot *,.mkp-pick-note,.jc-verdict,.legend-col-hdr,#cr-count,#cr-foot,#cr-foot *){
   font-size:max(11px,.6875rem)!important; line-height:1.35;
 }
+</style>
+<style id="right-sidebar-css">
+/* ===================================================================================================
+   RIGHT SIDEBAR: the View card and the Camera and Display card, in a full-height column beside the 3D view
+   and the editor, built the way the left sidebar is (flat bands in a category colour, outlined buttons).
+   Category colours (same as the left sidebar):  step 3 view #35d4c7 · step 2 setup #4cc2ff
+                                                 live machine state #5fcf8a · step 4 check #ff6b6b
+   Wide screens: three columns.  Narrow screens: the sidebar stacks under the 3D view and the page scrolls.
+   =================================================================================================== */
+html body #right-sidebar#right-sidebar{
+  --sc:#35d4c7;
+  --rs-bg:#131416; --rs-line:#222428; --rs-btn:#3d4147; --rs-well:#0f1012;
+  --rs-ink:#ececee; --rs-soft:#b3b8c0; --rs-mute:#8a8f97;
+  --rs-ease:cubic-bezier(.22,.8,.25,1);
+  --rs-pad:clamp(12px,3.4vw,16px);
+  flex:0 0 clamp(256px,19vw,320px); width:clamp(256px,19vw,320px); min-width:256px; max-width:100%; height:100%;
+  box-sizing:border-box; order:3;
+  background:var(--rs-bg); border-left:1px solid var(--rs-line);
+  display:block; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin; scrollbar-color:#2c2f34 transparent;
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif; color:var(--rs-ink);
+  text-size-adjust:100%; -webkit-text-size-adjust:100%;
+}
+html body #right-sidebar#right-sidebar *,html body #right-sidebar#right-sidebar *::before,html body #right-sidebar#right-sidebar *::after{ box-sizing:border-box }
+html body #right-sidebar#right-sidebar #hud-view{
+  display:flex!important; flex-direction:column!important; gap:0!important; width:100%!important; max-width:100%!important;
+  min-width:0!important; min-height:0!important; padding:0!important; margin:0!important; overflow:visible!important;
+}
+
+/* ---------- the two cards: flat bands in their category colour ---------- */
+html body #right-sidebar#right-sidebar :is(#viewport-toolbar,#vp-dock){
+  --sc:#35d4c7;
+  container:rs / inline-size;
+  position:relative!important; inset:auto!important; transform:none!important;
+  display:flex!important; flex-direction:column!important; gap:12px!important;
+  width:100%!important; max-width:none!important; min-width:0!important; max-height:none!important; margin:0!important;
+  padding:40px var(--rs-pad) 18px!important;
+  border:0!important; border-bottom:1px solid var(--rs-line)!important; border-radius:0!important;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--sc) 15%,transparent) 0%,color-mix(in srgb,var(--sc) 6%,transparent) 45%,transparent 100%)!important;
+  box-shadow:inset 3px 0 0 color-mix(in srgb,var(--sc) 75%,transparent)!important;
+  overflow:visible!important; opacity:1;
+}
+html body #right-sidebar#right-sidebar :is(#viewport-toolbar,#vp-dock)::before{
+  position:absolute!important; left:var(--rs-pad)!important; right:var(--rs-pad)!important; top:14px!important; padding-bottom:9px;
+  font:800 12px/1 'Inter',system-ui,sans-serif!important; font-style:italic!important; letter-spacing:.1em!important; text-transform:uppercase;
+  color:var(--sc)!important; border-bottom:1px solid color-mix(in srgb,var(--sc) 30%,transparent);
+  display:block!important; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+html body #right-sidebar#right-sidebar #viewport-toolbar::before{ content:"View" }
+html body #right-sidebar#right-sidebar #vp-dock::before{ content:"Camera and display" }
+/* the card is always open: no category heads, no fold-away */
+html body #right-sidebar#right-sidebar .vcat{ display:contents!important }
+html body #right-sidebar#right-sidebar :is(.vcat-head,#vp-dock .vcat-head,#viewport-toolbar .vcat-head){ display:none!important }
+html body #right-sidebar#right-sidebar #vp-dock button.vcat-head{ display:none!important }
+html body #right-sidebar#right-sidebar .vcat-body{
+  display:contents!important; opacity:1!important; transform:none!important; visibility:visible!important;
+}
+
+/* ---------- small labels over each group ---------- */
+html body #right-sidebar#right-sidebar :is(.vt-slider-label,.vt-iso-head,.pt-title){
+  font:600 10.5px/1.2 'Inter',system-ui,sans-serif!important; letter-spacing:.14em!important; text-transform:uppercase;
+  color:var(--rs-mute)!important; margin:0!important; padding:0!important; display:block; min-width:0;
+}
+
+/* ---------- buttons: outlines, never fills; they light up in their group's colour ---------- */
+html body #right-sidebar#right-sidebar :is(button.vt-btn,button.pt-chip,#vp-dock button,#vp-dock .cool){
+  font-family:'Inter',system-ui,sans-serif!important;
+  background:transparent!important; color:var(--rs-ink)!important;
+  border:1px solid var(--rs-btn)!important; border-radius:8px!important; box-shadow:none!important; filter:none!important;
+  min-width:0!important; min-height:36px; margin:0!important; max-width:100%;
+  display:flex!important; align-items:center; justify-content:center; gap:6px; text-align:center; cursor:pointer;
+  font-size:11px!important; font-weight:600; line-height:1.2;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  transition:border-color .2s var(--rs-ease),background-color .2s var(--rs-ease),color .2s var(--rs-ease),transform .16s var(--rs-ease),opacity .2s var(--rs-ease)!important;
+  -webkit-tap-highlight-color:transparent; touch-action:manipulation;
+}
+html body #right-sidebar#right-sidebar :is(button.vt-btn,button.pt-chip,#vp-dock button):is(:hover,:focus-visible){
+  border-color:color-mix(in srgb,var(--sc) 70%,#8a8f97)!important;
+  background:color-mix(in srgb,var(--sc) 8%,transparent)!important; color:#fff!important;
+}
+html body #right-sidebar#right-sidebar :is(button.vt-btn,button.pt-chip,#vp-dock button):active{ transform:scale(.97) }
+html body #right-sidebar#right-sidebar :is(button.vt-btn,button.pt-chip,#vp-dock button,#vp-dock .cool):is(.on,.active,[aria-pressed="true"]){
+  border-color:var(--sc)!important; color:var(--sc)!important; box-shadow:none!important;
+  background:color-mix(in srgb,var(--sc) 13%,transparent)!important;
+}
+html body #right-sidebar#right-sidebar :is(button,[tabindex]):focus-visible{ outline:2px solid var(--sc); outline-offset:2px }
+html body #right-sidebar#right-sidebar button :is(i,svg){ color:inherit; flex:none }
+html body #right-sidebar#right-sidebar #vp-dock .cool{ cursor:default }
+
+/* ---------- View card: equal-width buttons, two to a row (more when the card is wide) ---------- */
+html body #right-sidebar#right-sidebar #viewport-toolbar :is(.vt-row,.vt-grid){
+  display:grid!important; gap:6px!important; width:100%!important; margin:0!important; padding:0!important;
+  border:0!important; background:none!important; align-items:stretch; min-width:0;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+}
+html body #right-sidebar#right-sidebar #viewport-toolbar :is(.vt-row,.vt-grid)>.vt-btn{ width:100%!important; height:36px!important; padding:0 6px!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar .vt-row:not(#vt-iso-axes):not(#vt-quality)>.vt-btn:last-child:nth-child(odd){ grid-column:1/-1 }
+html body #right-sidebar#right-sidebar #viewport-toolbar :is(#vt-iso-axes,#vt-quality){ grid-template-columns:repeat(3,minmax(0,1fr))!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar :is(#vt-iso-axes,#vt-quality)>.vt-slider-label{ grid-column:1/-1 }
+@container rs (min-width:420px){
+  html body #right-sidebar#right-sidebar #viewport-toolbar .vt-grid:not(#vt-iso .vt-grid){ grid-template-columns:repeat(4,minmax(0,1fr))!important }
+  html body #right-sidebar#right-sidebar #viewport-toolbar .vt-row:not(#vt-iso-axes):not(#vt-quality){ grid-template-columns:repeat(3,minmax(0,1fr))!important }
+  html body #right-sidebar#right-sidebar #viewport-toolbar .vt-row:not(#vt-iso-axes):not(#vt-quality)>.vt-btn:last-child:nth-child(odd){ grid-column:auto }
+}
+/* Isolate and section reads as its own group: the "check" colour */
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-iso{
+  --sc:#ff6b6b; display:flex!important; flex-direction:column; gap:8px!important; width:100%!important; min-width:0;
+  padding:14px 0 0!important; margin:0!important; border:0!important; border-top:1px solid var(--rs-line)!important; background:none!important; box-shadow:none!important;
+}
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-iso .vt-iso-head{ color:var(--sc)!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-iso :is(.vt-slider-label){ color:var(--rs-mute)!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-quality{ padding:14px 0 0!important; border-top:1px solid var(--rs-line)!important; row-gap:8px!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-quality>.vt-slider-label{ color:var(--sc)!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #path-chips{
+  display:flex!important; flex-wrap:wrap; gap:6px!important; width:100%!important; min-width:0; align-items:center;
+  padding:14px 0 0!important; margin:0!important; border:0!important; border-top:1px solid var(--rs-line)!important; background:none!important; box-shadow:none!important;
+}
+html body #right-sidebar#right-sidebar #viewport-toolbar #path-chips .pt-title{ flex:1 0 100%; margin-bottom:2px!important; color:var(--sc)!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #path-chips .pt-chip{ width:auto!important; flex:0 1 auto; padding:0 12px!important; min-height:32px }
+/* sliders: label, track, value */
+html body #right-sidebar#right-sidebar #viewport-toolbar .vt-slider{
+  display:grid!important; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:10px; width:100%!important; margin:0!important; padding:0!important; min-width:0;
+}
+html body #right-sidebar#right-sidebar #viewport-toolbar .vt-slider-val{ font:500 11px/1 'Inter',system-ui,sans-serif!important; color:var(--rs-soft)!important; text-align:right; white-space:nowrap }
+html body #right-sidebar#right-sidebar input[type=range]{ accent-color:var(--sc); width:100%!important; min-width:0; min-height:24px; margin:0; cursor:pointer }
+html body #right-sidebar#right-sidebar #vt-iso input[type=range]{ --sc:#ff6b6b }
+html body #right-sidebar#right-sidebar input[type=range]{ -webkit-appearance:none; appearance:none; height:24px; background:transparent!important; border:0!important; padding:0!important }
+html body #right-sidebar#right-sidebar input[type=range]::-webkit-slider-runnable-track{ height:4px; border-radius:2px; background:#2c2f34; border:0 }
+html body #right-sidebar#right-sidebar input[type=range]::-moz-range-track{ height:4px; border-radius:2px; background:#2c2f34; border:0 }
+html body #right-sidebar#right-sidebar input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; background:#131416; border:2px solid var(--sc); box-sizing:border-box; transition:transform .16s var(--rs-ease),background-color .2s var(--rs-ease) }
+html body #right-sidebar#right-sidebar input[type=range]::-moz-range-thumb{ width:14px; height:14px; border-radius:50%; background:#131416; border:2px solid var(--sc); box-sizing:border-box; transition:transform .16s var(--rs-ease),background-color .2s var(--rs-ease) }
+html body #right-sidebar#right-sidebar input[type=range]:hover::-webkit-slider-thumb{ transform:scale(1.15); background:color-mix(in srgb,var(--sc) 25%,#131416) }
+html body #right-sidebar#right-sidebar input[type=range]:hover::-moz-range-thumb{ transform:scale(1.15); background:color-mix(in srgb,var(--sc) 25%,#131416) }
+
+/* ---------- Camera and display card: one labelled group per block, buttons in a fluid grid ---------- */
+html body #right-sidebar#right-sidebar #vp-dock{ gap:0!important; padding-top:44px!important }
+html body #right-sidebar#right-sidebar #vp-dock :is(#vp-coolant,#vp-setup,#vp-cam,#vp-views,#vp-show){
+  --sc:#35d4c7;
+  position:relative!important; inset:auto!important; display:grid!important; grid-template-columns:repeat(auto-fill,minmax(40px,1fr))!important; gap:6px!important;
+  width:100%!important; max-width:none!important; min-width:0!important; margin:0!important; padding:14px 0 14px!important;
+  border:0!important; border-top:1px solid var(--rs-line)!important; border-radius:0!important; background:none!important; box-shadow:none!important; align-items:center; justify-content:stretch;
+}
+html body #right-sidebar#right-sidebar #vp-dock :is(#vp-coolant,#vp-setup,#vp-cam,#vp-views,#vp-show)::before{
+  position:static!important; inset:auto!important; grid-column:1/-1!important; margin:0 0 4px!important;
+  font:600 10.5px/1 'Inter',system-ui,sans-serif!important; letter-spacing:.14em!important; text-transform:uppercase; color:var(--sc)!important;
+  display:block!important; white-space:nowrap;
+}
+html body #right-sidebar#right-sidebar #vp-dock #vp-coolant{ --sc:#5fcf8a; border-top:0!important; padding-top:2px!important }
+html body #right-sidebar#right-sidebar #vp-dock #vp-setup{ --sc:#4cc2ff }
+html body #right-sidebar#right-sidebar #vp-dock #vp-coolant::before{ content:"Coolant" }
+html body #right-sidebar#right-sidebar #vp-dock #vp-setup::before{ content:"Workholding" }
+html body #right-sidebar#right-sidebar #vp-dock #vp-cam::before{ content:"Camera" }
+html body #right-sidebar#right-sidebar #vp-dock #vp-views::before{ content:"Layout" }
+html body #right-sidebar#right-sidebar #vp-dock #vp-show::before{ content:"Show" }
+html body #right-sidebar#right-sidebar #vp-dock :is(#vp-coolant,#vp-setup,#vp-cam,#vp-views,#vp-show)>:is(button,.cool){
+  grid-column:auto!important; width:100%!important; height:38px!important; min-height:38px; flex:none!important; padding:0!important; font-size:14px!important;
+}
+/* coolant is a read-out, not a control: dimmer, no hover */
+html body #right-sidebar#right-sidebar #vp-dock #vp-coolant .cool{ color:var(--rs-mute)!important; pointer-events:auto }
+html body #right-sidebar#right-sidebar #vp-dock #vp-coolant .cool.on{ color:var(--sc)!important; border-color:var(--sc)!important; background:color-mix(in srgb,var(--sc) 13%,transparent)!important }
+/* tooltips on the right-hand column open leftwards so the sidebar never clips them */
+html body #right-sidebar#right-sidebar [data-tip]::after{ max-width:min(240px,calc(100vw - 32px)) }
+html body #right-sidebar#right-sidebar [data-tip]:nth-child(even)::after{ left:auto; right:0 }
+
+@media (pointer:coarse){
+  html body #right-sidebar#right-sidebar :is(button.vt-btn,button.pt-chip){ min-height:44px }
+  html body #right-sidebar#right-sidebar #viewport-toolbar :is(.vt-row,.vt-grid)>.vt-btn{ height:44px!important }
+  html body #right-sidebar#right-sidebar #vp-dock :is(#vp-coolant,#vp-setup,#vp-cam,#vp-views,#vp-show)>:is(button,.cool){ height:44px!important; min-height:44px }
+}
+
+/* the camera buttons under the cube hug the cube's right edge, so a small cube never pushes them out of the 3D view */
+@media (min-width:801px) and (min-height:601px){
+  html body:not(.cc-on) #cube-wrap#cube-wrap .vc-bar{ left:auto; right:0; transform:scale(calc(1 / var(--cube-s))); transform-origin:top right }
+}
+
+/* the sidebar belongs to the full app, not to cinematic mode */
+body.cinematic #right-sidebar{ display:none!important }
+
+/* ---------- three columns need room: the transport strip tightens as the 3D column narrows ---------- */
+html body #play-bar{ container:pb / inline-size }
+@container pb (max-width:860px){
+  html body #play-bar #transport-row{ column-gap:10px!important; grid-template-columns:auto auto auto!important; justify-content:center }
+  html body #play-bar #transport-row :is(.tp-follow-pair,.tp-right-pair){ flex-wrap:nowrap!important }
+  html body #play-bar #transport-row .tp-op{ padding:0 10px!important }
+  html body #play-bar #transport-row .tp-op span{ display:none }
+  html body #play-bar #transport-row .tp-btn:not(.tp-icon):not(.tp-cluster .tp-btn){ padding:0 10px!important }
+}
+@container pb (max-width:680px){
+  html body #play-bar #transport-row{ grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important; row-gap:8px!important; column-gap:10px!important }
+  html body #play-bar #transport-row .tp-cluster{ grid-column:1/-1!important; grid-row:1!important; justify-self:center }
+  html body #play-bar #transport-row .tp-follow-pair{ grid-column:1!important; grid-row:2!important; justify-content:flex-end }
+  html body #play-bar #transport-row .tp-right-pair{ grid-column:2!important; grid-row:2!important; justify-content:flex-start }
+}
+@container pb (max-width:480px){
+  html body #play-bar #transport-row{ grid-template-columns:minmax(0,1fr)!important; justify-items:center }
+  html body #play-bar #transport-row :is(.tp-follow-pair,.tp-right-pair){ justify-content:center; grid-column:1!important }
+  html body #play-bar #transport-row .tp-follow-pair{ grid-row:2!important }
+  html body #play-bar #transport-row .tp-right-pair{ grid-row:3!important }
+  html body #play-bar #transport-row .tp-op span{ display:inline }
+  html body #play-bar #transport-bar>#cg-bar{ grid-row:4!important; justify-self:center }
+  html body #play-bar #transport-bar>#tp-bottom-row{ grid-row:5!important; justify-self:center }
+}
+@container pb (max-width:900px){
+  html body #play-bar :is(#op-row,#progress-row){ grid-template-columns:56px minmax(0,1fr) 112px!important; column-gap:8px!important }
+  html body #play-bar :is(#op-time,#viewport-progress-total){ min-width:0!important; width:auto!important; max-width:112px; white-space:nowrap }
+}
+
+/* ---------- stacked: under 1100 px the sidebars sit under the 3D view and the page scrolls ---------- */
+@media (max-width:1100px){
+  html body #app{ flex-direction:column!important; overflow-x:hidden!important; overflow-y:auto!important; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; scrollbar-width:thin; scrollbar-color:#2c2f34 transparent }
+  html body #right-col#right-col{ order:1!important; flex:0 0 auto!important; width:100%!important; min-width:0!important; height:auto!important; min-height:100%; overflow:visible!important }
+  html body #right-col#right-col #viewport{ flex:0 0 auto!important; height:clamp(240px,42dvh,640px)!important; min-height:0!important }
+  html body #right-col#right-col #play-bar{ max-height:none!important; overflow:visible!important; flex:0 0 auto!important }
+  html body #right-col#right-col #editor-resize-handle{ display:none!important }
+  html body #cube-wrap#cube-wrap{ display:block!important }
+  html body #vp-mode-status{ display:flex!important }
+  html body #right-col#right-col #editor-panel{ flex:0 0 auto!important; height:clamp(240px,36dvh,420px)!important; max-height:none!important; min-height:0!important; overflow:hidden!important }
+  html body #right-col#right-col #editor-panel>#editor-main{ flex:1 1 auto!important; max-height:none!important; min-height:0!important; overflow:hidden }
+  html body #right-sidebar#right-sidebar{
+    order:2!important; flex:0 0 auto!important; width:100%!important; min-width:0!important; max-width:100%!important; height:auto!important;
+    overflow:visible!important; border-left:0!important; border-top:1px solid var(--rs-line)!important;
+  }
+  html body #right-sidebar#right-sidebar #hud-view{ display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))!important; align-items:stretch }
+  html body #right-sidebar#right-sidebar #hud-view>*{ grid-column:auto!important; grid-row:auto!important }
+  html body #right-sidebar#right-sidebar #viewport-toolbar+#vp-dock{ border-left:1px solid var(--rs-line)!important }
+  html body #sidebar#sidebar{
+    order:3!important; flex:0 0 auto!important; width:100%!important; min-width:0!important; max-width:100%!important; height:auto!important; max-height:none!important;
+    overflow:visible!important; border-right:0!important; border-top:1px solid var(--rs-line)!important;
+  }
+}
+
+@media (prefers-reduced-motion:reduce){ html body #right-sidebar#right-sidebar *,html body #right-sidebar#right-sidebar *::before,html body #right-sidebar#right-sidebar *::after{ transition-duration:.01s!important; animation-duration:.01s!important } }
 </style>
 </body>
 </html>
