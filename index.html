@@ -21157,6 +21157,15 @@ function updateMainCamera() {
   );
   mainCam.lookAt(camTarget);
   mainCam.up.set(0, 0, 1);
+  /* The depth buffer has a fixed number of steps; spread over +-10000 units each
+     one is a thousandth of a unit and two faces a hair apart (a toolpath on the
+     blank's top, a jaw flush with the blank) flicker between each other in the
+     top view. The machine fits inside a few hundred units of the target, so the
+     range is fitted to that and every step gets far finer. */
+  const near = Math.max(-5, r - 900), far = r + 900;
+  if (Math.abs(mainCam.near - near) > 1e-3 || Math.abs(mainCam.far - far) > 1e-3) {
+    mainCam.near = near; mainCam.far = far; mainCam.updateProjectionMatrix();
+  }
   mainCam.updateMatrixWorld();
 }
 
@@ -24277,11 +24286,16 @@ function simSeekToTime(t) {
 
   currentToolTipWorld = tipDrawn ? tipDrawn.add(stageOffset) : null;
 
+  /* A tap's tip runs round a tiny helix; the tool itself only goes up and down
+     its axis. The way the tool is heading is the axis's, or the follow camera
+     would be spun round at the thread's pitch and the whole picture shake. */
+  const headingOf = (sg) => (sg.axisStart && sg.axisEnd)
+    ? sg.axisEnd.clone().sub(sg.axisStart).normalize()
+    : sg.end.clone().sub(sg.start).normalize();
   if (partialSeg) {
-    currentToolDir = partialSeg.end.clone().sub(partialSeg.start).normalize();
+    currentToolDir = headingOf(partialSeg);
   } else if (completedCount > 0 && segTimeline[completedCount-1]) {
-    const s = segTimeline[completedCount-1].seg;
-    currentToolDir = s.end.clone().sub(s.start).normalize();
+    currentToolDir = headingOf(segTimeline[completedCount-1].seg);
   } else {
     currentToolDir = null;
   }
@@ -24571,13 +24585,13 @@ function setGridVisible(on) {
    erasure runs to the last — rather than blinking off in one frame. */
 let pathFade = 1, _pathFadeRaf = 0;
 
-function setPathsVisible(on) {
+function setPathsVisible(on, ms) {
   const want = !!on;
   if (want === pathsVisible && !_pathFadeRaf) return;
 
   if (_pathFadeRaf) { cancelAnimationFrame(_pathFadeRaf); _pathFadeRaf = 0; }
 
-  const MS = 850;
+  const MS = ms > 0 ? ms : 850;
   const t0 = performance.now();
   const ease = t => t * t * (3 - 2 * t);
 
@@ -25757,7 +25771,7 @@ M30
 const ENGRAVE_DEMO_GCODE = `%
 O01010 (TEXT ENGRAVING DEMO - G47)
 G00 G17 G20 G40 G49 G80 G90
-T1 M06
+T1 M06 (#2 CENTER DRILL - 60 DEG)
 G00 G54 X0. Y0.
 G43 Z1.0 H01 M03 S5000
 (--- Line 1: HELLO WORLD at 0.4 inch tall ---)
@@ -26216,11 +26230,8 @@ document.getElementById('btn-load-multiaxis').addEventListener('click', () => {
 document.getElementById('btn-load-engrave').addEventListener('click', () => {
   loadGCode(ENGRAVE_DEMO_GCODE);
   loadSampleStock('engrave');
-  /* a 90 degree V engraver on a 1/8 shank, in the smallest collet that takes it */
-  setSampleTool(1, 0.125, 'chamfer', {
-    category: 'chamfer', coneAngle: 90, tipDia: 0.1, shankDia: 3.175, oal: 38,
-    holder: 'er11', name: '\u00D8.125 90\u00B0 engraving tool',
-  });
+  /* a #2 center drill: 3/16 body, 5/64 pilot, 60 degree point, held in an ER16 collet */
+  setSampleTool(1, 0.1875, 'drill', { category: 'spotdrill', pointAngle: 60, flutes: 2, helix: 20, shankDia: 4.763, loc: 11, oal: 50.8, holder: 'er16', name: '#2 center drill (5/64 \u00D7 3/16, 60\u00B0)' });
   rewindSimToStart();
   showToast('Engraving demo loaded',
     'Four lines of G47 text cut five thou deep into a 5 \u00D7 6 \u00D7 \u00BD aluminum nameplate.');
@@ -27267,7 +27278,7 @@ window.addEventListener('mouseup',()=>{rDrag=false;});
 function applyIsoFollow(dt) {
   if (!isoFollowEnabled || !currentToolTipWorld) return;
 
-  const panSpeed = 1 - Math.pow(0.002, dt);
+  const panSpeed = 1 - Math.pow(0.02, dt);              /* eased, so tiny moves of the tip never jitter the view */
   camTarget.lerp(currentToolTipWorld, panSpeed);
 
   const dir = currentToolDirWorld;
@@ -27275,7 +27286,7 @@ function applyIsoFollow(dt) {
     const dx = dir.x;
     const dy = dir.y;
     const movLen = Math.sqrt(dx*dx + dy*dy);
-    if (movLen > 0.0001) {
+    if (movLen > 0.02) {                               /* a mostly vertical move (drilling, tapping) leaves the view where it is */
       const targetTheta = Math.atan2(dx, dy) + Math.PI;
       let dTheta = targetTheta - camSphere.theta;
       while (dTheta >  Math.PI) dTheta -= 2 * Math.PI;
@@ -34169,6 +34180,23 @@ const Stock = (() => {
       return e;
     }
 
+    // The bright line a bevel catches: where the surface normal turns quickly over
+    // a short step and the turn is convex (a rounded outside edge), not an inside corner.
+    float edgeGlow(vec3 p, vec3 n){
+      if (uFast == 1) return 0.0;
+      float w = 0.006 * (uHalf.z + 2.0) + 0.03;
+      vec3 up = abs(n.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+      vec3 t1 = normalize(cross(n, up));
+      vec3 t2 = cross(n, t1);
+      float k = 0.0;
+      k = max(k, 1.0 - dot(n, calcN(p + t1 * w)));
+      k = max(k, 1.0 - dot(n, calcN(p - t1 * w)));
+      k = max(k, 1.0 - dot(n, calcN(p + t2 * w)));
+      k = max(k, 1.0 - dot(n, calcN(p - t2 * w)));
+      float convex = step(w * 0.9, sdPart(p + n * w));      // an outside edge stands off the part by at least w
+      return smoothstep(0.015, 0.20, k) * convex;
+    }
+
     vec3 shade(vec3 p, vec3 n, vec3 rd, bool cutFace){
 
       // --- how far along the sweep does this point sit? 0 start, 1 end ---
@@ -34210,6 +34238,7 @@ const Stock = (() => {
       float dif = max(dot(n, L), 0.0);
       float amb = 0.19 + 0.11 * max(n.z, 0.0);
       float occ = ao(p, n);
+      float edgeL = edgeGlow(p, n);
       vec3 h = normalize(L - rd);
       float spe = pow(max(dot(n, h), 0.0), max(shine, 1.0)) * (cutFace ? 0.52 : 0.20);
       float fres = pow(1.0 - max(dot(n, -rd), 0.0), 4.0) * (cutFace ? 0.15 : 0.07);
@@ -34247,6 +34276,8 @@ const Stock = (() => {
         col = mix(col, env * tint * 0.95, refl);
         if (cutFace) col += spec * pow(max(dot(n, h), 0.0), shine * 4.0 + 40.0) * 0.9;
       }
+      // bevels catch the light: a thin bright line along every outside edge
+      col = mix(col, vec3(1.02, 1.03, 1.05), edgeL * 0.62);
 
       // --- the construction front: cells lighting up in the incoming metal,
       //     tinted with that metal rather than pushed toward white ---
@@ -34310,7 +34341,7 @@ const Stock = (() => {
       vec3 col = shade(p, n, rd, cutFace);
 
       vec4 clip = uProjView * (uModel * vec4(p, 1.0));
-      gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5;
+      gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5 + 0.000012;   // a hair behind a coplanar line or flush jaw
       outColor = vec4(col, uOpacity);
     }`.replace(/EB/g, EDGE_BREAK.toFixed(3));
 
@@ -35170,13 +35201,15 @@ const Store = (() => {
            studio's soft boxes and shows them as a gradient across each face */
         color: BODY_COLOR, metalness: 1, roughness: 0.22, envMapIntensity: 1.0,
         side: THREE.DoubleSide, transparent: false, opacity: 1, depthWrite: true,
+        /* faces sit a step behind their own edge lines and anything drawn flush on them */
+        polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
       })));
     let edges = null;
 
     if (opts.edges !== false && Geo.triCount(geometry) < EDGE_LIMIT) {
       edges = new THREE.LineSegments(
         new THREE.EdgesGeometry(geometry, 24),
-        new THREE.LineBasicMaterial({ color: 0x0d0f12, transparent: true, opacity: 0.3 }));
+        new THREE.LineBasicMaterial({ color: 0xf4f7fb, transparent: true, opacity: 0.6 }));
     }
     return { mesh, edges };
   }
@@ -38715,7 +38748,7 @@ const MakeProgram = (() => {
   SAMPLES.engrave = {
     name: "Text engrave",
     note: "G47 — a part number and a serial cut 0.008 into the faced top",
-    tools: [[1, 0.75, "flat"], [8, 0.125, "chamfer"]], dias: { 1: 0.75, 8: 0.125 },
+    tools: [[1, 0.75, "flat"], [8, 0.1875, "drill"]], dias: { 1: 0.75, 8: 0.1875 },
     code: () => {
       const L = HEAD("1110", "FACE THEN ENGRAVE - G47 TEXT");
       L.push("(=== T1 .750 FLAT - FACE THE TOP SO THERE IS SOMETHING TO CUT INTO ===)",
@@ -38728,7 +38761,7 @@ const MakeProgram = (() => {
       }
       L.push("G00 Z1.", "M09", "M05",
         "", "(=== T8 .125 ENGRAVER ===)",
-        "T8 M06 (.125 90 DEG ENGRAVING TOOL)", "S9000 M03", "G43 H8 Z1.", "M08",
+        "T8 M06 (#2 CENTER DRILL - 60 DEG)", "S9000 M03", "G43 H8 Z1.", "M08",
         "(--- G47: I IS THE ANGLE, J THE LETTER HEIGHT, R THE RETRACT ---)",
         "G47 P0 X.4 Y2.9 I0. J.35 R.05 Z-.008 F24. (PART 5X4X1)",
         "G00 Z.25",
@@ -38759,7 +38792,7 @@ const MakeProgram = (() => {
     bore:    [[1, 0.5, "flat", EM("\u00D8.500 4FL end mill", 4, 32, 80, "hydraulic")]],
     chamfer: [[1, 0.5, "chamfer", { category: "chamfer", coneAngle: 90, tipDia: 1.5, oal: 64, holder: "er25", name: "\u00D8.500 90\u00B0 chamfer mill" }]],
     engrave: [[1, 0.75, "flat", EM("\u00D8.750 4FL end mill", 4, 32, 90, "er32")],
-              [8, 0.125, "chamfer", { category: "chamfer", coneAngle: 90, tipDia: 0.1, shankDia: 3.175, oal: 38, holder: "er11", name: "\u00D8.125 90\u00B0 engraving tool" }]],
+              [8, 0.1875, "drill", { category: "spotdrill", pointAngle: 60, flutes: 2, helix: 20, shankDia: 4.763, loc: 11, oal: 50.8, holder: "er16", name: "#2 center drill (5/64 \u00D7 3/16, 60\u00B0)" }]],
   };
 
   function loadSample(key) {
@@ -60468,11 +60501,14 @@ window.HAAS_LATHE_CODES = {
 
   function render() {
     const keys = PATH_TYPES.filter(t => activePaths && activePaths.has(t.key));
-    const s = keys.map(t => t.key + (pathVisibility[t.key] !== false ? 1 : 0)).join(",");
+    const s = (pathsVisible ? "A" : "a") + keys.map(t => t.key + (pathVisibility[t.key] !== false ? 1 : 0)).join(",");
     if (s === sig) return;
     sig = s;
     row.style.display = keys.length ? "" : "none";
-    row.innerHTML = '<span class="pt-title">Path types</span>' + keys.map(t => {
+    row.innerHTML = '<span class="pt-title">Path types</span>' +
+      '<button type="button" class="pt-chip pt-all' + (pathsVisible ? " on" : "") + '" data-all="1" style="--c:#ececee" aria-pressed="' + !!pathsVisible +
+      '" data-tip="All paths&#10;Dissolves every toolpath away slowly, first move to last, or rebuilds them the same way.">' +
+      '<i></i>All</button>' + keys.map(t => {
       const on = pathVisibility[t.key] !== false;
       return '<button type="button" class="pt-chip' + (on ? " on" : "") + '" data-key="' + t.key +
         '" style="--c:' + t.color + '" aria-pressed="' + on + '" title="' + t.label +
@@ -60483,6 +60519,12 @@ window.HAAS_LATHE_CODES = {
   row.addEventListener("click", e => {
     const b = e.target.closest(".pt-chip");
     if (!b) return;
+    if (b.dataset.all) {
+      /* the master toggle: the path dissolves in program order, slowly, or is built back the same way */
+      setPathsVisible(!pathsVisible, 2600);
+      sig = ""; render();
+      return;
+    }
     const k = b.dataset.key;
     pathVisibility[k] = !(pathVisibility[k] !== false);
     /* keep the legend's own checkbox in step */
@@ -63421,6 +63463,20 @@ html body #cube-wrap{top:14px!important;right:14px!important}
   html body #vp-mode-status{display:none!important}
   html body #cube-wrap{display:none!important}
 }
+
+/* ---- the HUD controls live beside the G-code editor, off the 3D view ---- */
+html body #editor-panel{display:flex!important;flex-direction:row!important;height:clamp(280px,42vh,440px)!important;max-height:none!important}
+html body #editor-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column}
+html body #hud-side{flex:0 0 clamp(520px,50%,760px);min-width:0;display:flex;flex-wrap:wrap;gap:8px;align-content:flex-start;align-items:flex-start;
+  padding:8px;overflow:auto;background:var(--hud-card);border-left:1px solid var(--border)}
+html body #hud-side > *{position:relative!important;inset:auto!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+  transform:none!important;margin:0!important;max-width:100%!important;box-shadow:none!important;z-index:auto!important}
+html body #hud-side > #vp-mode-status{flex:1 1 100%;width:auto!important}
+html body #hud-side > #transport-bar{flex:1 1 100%;width:auto!important;min-width:0!important}
+html body #hud-side > #viewport-toolbar{flex:1 1 300px;width:auto!important}
+html body #hud-side > #vp-dock{flex:0 0 auto;width:auto!important}
+html body #hud-side > #transport-bar{position:relative!important;padding-top:26px!important}
+html body #hud-side > #transport-bar::before{content:"PLAYBACK";position:absolute;left:12px;top:8px;font:600 10px/1 'Inter',system-ui,sans-serif;letter-spacing:.16em;color:var(--text-dim)}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}}
 
 </style>
@@ -63451,6 +63507,32 @@ html body #cube-wrap{top:14px!important;right:14px!important}
   new ResizeObserver(queue).observe(bar); new ResizeObserver(queue).observe(vp);
   ['cube-wrap', 'vp-cam'].forEach(id => { const el = document.getElementById(id); if (el) new ResizeObserver(queue).observe(el); });
   window.addEventListener('resize', queue); set();
+})();
+</script>
+<script id="hud-side-move">
+/* Move the controls that used to float over the 3D view into a panel to the right of the editor. */
+(function () {
+  const panel = document.getElementById('editor-panel');
+  if (!panel || document.getElementById('hud-side')) return;
+  const main = document.createElement('div'); main.id = 'editor-main';
+  while (panel.firstChild) main.appendChild(panel.firstChild);
+  panel.appendChild(main);
+  const side = document.createElement('div'); side.id = 'hud-side'; side.setAttribute('aria-label', 'Controls');
+  panel.appendChild(side);
+  ['vp-mode-status', 'transport-bar', 'viewport-toolbar', 'vp-dock'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) side.appendChild(el);
+  });
+  /* the banner and the dock are built a little after load: move them in when they appear */
+  let tries = 0;
+  const t = setInterval(() => {
+    ['vp-mode-status', 'viewport-toolbar', 'vp-dock', 'transport-bar'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement !== side) side.appendChild(el);
+    });
+    if (++tries > 40) clearInterval(t);
+  }, 250);
+  window.dispatchEvent(new Event('resize'));
 })();
 </script>
 </body>
