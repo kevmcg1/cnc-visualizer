@@ -17783,6 +17783,13 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
   "use strict";
 
   var ASSET_HINT = 66;      /* <link rel=stylesheet> + <script src> in this file */
+  /* Nearly all of this page is inline script and style, so the wait is the browser
+     reading and running it. The bar counts those characters as the parser delivers
+     them. TOTAL_TEXT is a build-time guess; once a load has finished, the real total
+     is kept and used from then on, so the estimate tightens after the first visit. */
+  var TOTAL_TEXT = 2749853;
+  var parsed = 0, totalText = TOTAL_TEXT;
+  try { var kept = parseFloat(localStorage.getItem("cnc.bootText")); if (kept > 1e5) totalText = kept; } catch (e) {  }
   var HARD_STOP  = 20000;   /* never sit behind a stuck bar longer than this */
 
   var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
@@ -17802,9 +17809,10 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
 
   function fraction() {
     var byAsset = done / Math.max(found, ASSET_HINT, 1);
-    /* Fetching is ninety per cent of the job. The last tenth is the app
+    var byText  = parsed / Math.max(totalText, parsed, 1);
+    /* Reading the page is ninety per cent of the job. The last tenth is the app
        building its scene, which only the milestones below can speak for. */
-    return Math.max(floor, byAsset * 0.9);
+    return Math.max(floor, Math.max(byAsset, byText) * 0.9);
   }
 
   function label(node) {
@@ -17821,15 +17829,16 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
     fillEl.style.width = (shown * 100).toFixed(1) + "%";
     pctEl.textContent  = Math.round(shown * 100) + "%";
     trackEl.setAttribute("aria-valuenow", String(Math.round(shown * 100)));
+    if (!step && !finished) step = shown < 0.30 ? "reading the page\u2026" : shown < 0.62 ? "loading the engine\u2026" : shown < 0.88 ? "loading the tools and models\u2026" : "";
     if (step) stepEl.textContent = step;
 
     var t = now(), left;
     if (shown >= 0.999)   left = 0;
-    else if (shown > 0.06) left = t * (1 - shown) / shown;
+    else if (shown > 0.03) left = t * (1 - shown) / shown;
     else if (priorMs)      left = Math.max(priorMs - t, 0);
     else                   left = null;
 
-    if (left === null) { etaEl.textContent = "estimating…"; return; }
+    if (left === null) { etaEl.textContent = "estimating the time\u2026"; return; }
 
     /* Smoothed, so the number counts down instead of jittering. */
     eta = (eta === null) ? left : eta * 0.7 + left * 0.3;
@@ -17873,7 +17882,10 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
     if (tick) clearInterval(tick);
     floor = 1;
     paint("ready");
-    try { localStorage.setItem("cnc.bootMs", String(Math.round(now()))); } catch (e) {  }
+    try {
+      localStorage.setItem("cnc.bootMs", String(Math.round(now())));
+      if (parsed > 1e5) localStorage.setItem("cnc.bootText", String(parsed));
+    } catch (e) {  }
     if (!screenEl) return;
     screenEl.classList.add("boot-done");
     setTimeout(function () {
@@ -17897,7 +17909,9 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
           var added = recs[i].addedNodes;
           for (var j = 0; j < added.length; j++) {
             var n = added[j];
+            if (n.nodeType === 3) { parsed += n.data.length; continue; }   /* text arriving inside a script or style */
             if (n.nodeType !== 1) continue;
+            if ((n.tagName === "SCRIPT" || n.tagName === "STYLE") && n.textContent) parsed += n.textContent.length;
             watch(n);
             if (n.querySelectorAll) scan(n);
           }
@@ -63533,6 +63547,249 @@ html body #hud-side > #transport-bar::before{content:"PLAYBACK";position:absolut
     if (++tries > 40) clearInterval(t);
   }, 250);
   window.dispatchEvent(new Event('resize'));
+})();
+</script>
+<script id="collision-guard">
+/* Collision guard: the cutter and its holder against the vise and the parallels.
+ *
+ * Nothing here runs while the program plays. When the program, the tools or the
+ * workholding change, the whole run is walked once in short slices: along every
+ * move the cutter's outline (rings at its tip and up its flutes) and the holder's
+ * nose are tested against the fixture solids, a point being "in" a solid when a
+ * ray out of it crosses the surface an odd number of times. The first crash is
+ * remembered with its time, line and which part it hit; when playback reaches it
+ * the run stops and asks whether to continue anyway. The blank is never tested:
+ * cutting it is the job. */
+(function () {
+  if (typeof THREE === 'undefined' || typeof segTimeline === 'undefined') return;
+
+  const modal = document.createElement('div');
+  modal.id = 'collision-modal';
+  modal.setAttribute('role', 'alertdialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.innerHTML = '<div class="cg-card"><div class="cg-head"><i class="fa-solid fa-triangle-exclamation"></i><span>Collision</span></div>' +
+    '<p class="cg-what"></p><p class="cg-where"></p><p class="cg-ask">Continue anyway?</p>' +
+    '<div class="cg-row"><button type="button" class="cg-stop">Stop here</button><button type="button" class="cg-go">Continue anyway</button></div></div>';
+  document.body.appendChild(modal);
+  const css = document.createElement('style');
+  css.textContent = `
+#collision-modal{position:fixed;inset:0;z-index:5000;display:flex;align-items:center;justify-content:center;background:rgba(5,6,8,.62);opacity:0;visibility:hidden;
+  transition:opacity .22s ease,visibility 0s linear .22s}
+#collision-modal.on{opacity:1;visibility:visible;transition:opacity .22s ease,visibility 0s}
+#collision-modal .cg-card{width:min(440px,calc(100vw - 32px));padding:16px 18px 18px;background:#0b0c0e;border:1px solid #ff7a6e;border-radius:10px;box-shadow:0 18px 48px rgba(0,0,0,.6);
+  font:500 13px/1.5 'Inter',system-ui,sans-serif;color:#ececee;transform:translateY(8px) scale(.985);transition:transform .22s cubic-bezier(.2,.8,.2,1)}
+#collision-modal.on .cg-card{transform:none}
+#collision-modal .cg-head{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:#ff7a6e}
+#collision-modal p{margin:8px 0 0}#collision-modal .cg-where{color:#8a8f97;font-size:12px}
+#collision-modal .cg-ask{margin-top:12px;font-weight:650}
+#collision-modal .cg-row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+#collision-modal button{height:34px;padding:0 14px;border-radius:8px;background:transparent;border:1px solid #3d4147;color:#ececee;font:600 12.5px 'Inter',system-ui,sans-serif;cursor:pointer;
+  transition:border-color .22s ease,background-color .22s ease,color .22s ease}
+#collision-modal button:hover,#collision-modal button:focus-visible{border-color:#fff;background:rgba(255,255,255,.08);outline:none}
+#collision-modal .cg-go{border-color:#ff7a6e;color:#ff7a6e}
+#collision-modal .cg-go:hover{background:rgba(255,122,110,.14);border-color:#ff7a6e}
+#progress-row .cg-tick{position:absolute;top:-3px;width:2px;height:10px;background:#ff7a6e;border-radius:1px;pointer-events:none}`;
+  document.head.appendChild(css);
+
+  const raycaster = new THREE.Raycaster();
+  raycaster.firstHitOnly = false;
+  const DIR = new THREE.Vector3(0, 0, 1);
+  const _n = new THREE.Vector3();
+  const crashes = [];             /* { t, seg, part, what, tool } */
+  const acknowledged = new Set();
+  let key = '', timer = 0, working = false, runId = 0;
+
+  const U = () => (typeof unitMode !== 'undefined' && unitMode === 'inch') ? 1 / 25.4 : 1;
+
+  function fixtures() {
+    const out = [];
+    const PM = window.PartModels;
+    if (!PM || !PM.all) return out;
+    PM.all().forEach(p => {
+      if (!p.visible || !p.node || p.role !== 'fixture') return;
+      p.node.updateMatrixWorld(true);
+      p.node.traverse(o => {
+        if (o.isMesh && o.geometry && !o.isLineSegments) {
+          const bb = new THREE.Box3().setFromObject(o);
+          if (!bb.isEmpty()) out.push({ mesh: o, box: bb, name: p.name || 'fixture', role: p.role });
+        }
+      });
+    });
+    return out;
+  }
+
+  function toolAt(lineIdx) {
+    let t = null;
+    for (let i = 0; i < toolChanges.length; i++) { if (toolChanges[i].lineIdx <= lineIdx) t = toolChanges[i].tool; else break; }
+    return t;
+  }
+  function toolShape(n) {
+    const u = U();
+    let dia = toolTable.get(n) || 0.5, loc = dia * 3, holderR = 0, holderAt = loc + 8 * u;
+    try {
+      const code = window.ToolModels && ToolModels.code(n);
+      const d = code && window.ToolModel && ToolModel.decode(code);
+      if (d && d.params) {
+        const pr = d.params;
+        if (pr.loc) loc = pr.loc * u;
+        holderAt = loc + 6 * u;
+        const H = window.ToolModel && ToolModel.HOLDERS && ToolModel.HOLDERS[pr.holder];
+        if (H && H.body) holderR = (H.body / 2) * u;
+        else if (pr.holder) holderR = 14 * u;
+      }
+    } catch (e) {  }
+    return { r: dia / 2, loc, holderR, holderAt };
+  }
+
+  /* A point is in a solid when the first surface a ray going straight up meets is the
+     inside of it (a back face). That holds for a closed body and for a pocket cut into
+     one, and an open seam cannot flip the answer the way counting crossings can. */
+  function inside(pt, fx) {
+    if (!fx.box.containsPoint(pt)) return false;
+    raycaster.set(pt, DIR);
+    const hits = raycaster.intersectObject(fx.mesh, false);
+    if (!hits.length) return false;
+    const h = hits[0];
+    if (!h.face) return false;
+    _n.copy(h.face.normal).transformDirection(fx.mesh.matrixWorld);
+    return _n.dot(DIR) > 0.05;
+  }
+
+  function analyse() {
+    const my = ++runId;
+    crashes.length = 0; acknowledged.clear();
+    paintTicks();
+    const fxs = fixtures();
+    if (!fxs.length || !segTimeline.length) { working = false; return; }
+    working = true;
+    const reach = fxs.map(f => f.box.clone());
+    let i = 0, lastCrashT = -1e9;
+    const pts = [];
+    const v = new THREE.Vector3(), wp = new THREE.Vector3();
+    const tl = segTimeline.slice();           /* the run as it stands now; a rebuild mid-walk starts a new one */
+    const total = tl.length;
+    /* budget: about 1500 steps along the whole run */
+    let totalLen = 0; for (let k = 0; k < total; k++) totalLen += tl[k].seg.length || 0;
+    const stepLen = Math.max(0.02, totalLen / 1500);
+
+    function slice() {
+      if (my !== runId) return;
+      const t0 = performance.now();
+      while (i < total && performance.now() - t0 < 8) {
+        const { tStart, tEnd, seg } = tl[i++];
+        if (!seg || seg.isMarker || seg.length < 1e-9 || !seg.start || !seg.end) continue;
+        const tn = toolAt(seg.lineIdx); if (tn == null) continue;
+        const sh = toolShape(tn);
+        const n = Math.max(1, Math.min(60, Math.ceil(seg.length / stepLen)));
+        for (let k = 0; k <= n; k++) {
+          const f = k / n;
+          /* program coordinates -> where that point is in the scene (work offset and frame) */
+          wp.set(seg.start.x + (seg.end.x - seg.start.x) * f, seg.start.y + (seg.end.y - seg.start.y) * f, seg.start.z + (seg.end.z - seg.start.z) * f);
+          if (typeof programFrame !== 'undefined') wp.applyMatrix4(programFrame);
+          if (typeof stageOffset !== 'undefined') wp.add(stageOffset);
+          const cx = wp.x, cy = wp.y, cz = wp.z;
+          /* far from every fixture: nothing to test */
+          let near = false;
+          const reachR = Math.max(sh.r, sh.holderR) + 0.02;
+          for (let b = 0; b < reach.length; b++) {
+            const bx = reach[b];
+            if (cx > bx.min.x - reachR && cx < bx.max.x + reachR && cy > bx.min.y - reachR && cy < bx.max.y + reachR && cz - 0.02 < bx.max.z && cz + sh.holderAt + 0.5 > bx.min.z) { near = true; break; }
+          }
+          if (!near) continue;
+          pts.length = 0;
+          pts.push([cx, cy, cz + 0.002]);
+          for (let a = 0; a < 8; a++) {
+            const an = a / 8 * Math.PI * 2, ca = Math.cos(an) * sh.r, sa = Math.sin(an) * sh.r;
+            pts.push([cx + ca, cy + sa, cz + 0.002], [cx + ca, cy + sa, cz + sh.loc * 0.5], [cx + ca, cy + sa, cz + sh.loc]);
+          }
+          if (sh.holderR > 0) for (let a = 0; a < 12; a++) {
+            const an = a / 12 * Math.PI * 2;
+            pts.push([cx + Math.cos(an) * sh.holderR * 0.98, cy + Math.sin(an) * sh.holderR * 0.98, cz + sh.holderAt]);
+          }
+          let hit = null;
+          for (let q = 0; q < pts.length && !hit; q++) {
+            v.set(pts[q][0], pts[q][1], pts[q][2]);
+            for (let b = 0; b < fxs.length; b++) if (inside(v, fxs[b])) { hit = { fx: fxs[b], holder: q >= 25 }; break; }
+          }
+          if (hit) {
+            const t = tStart + (tEnd - tStart) * f;
+            if (t - lastCrashT > 0.4) {
+              crashes.push({ t, seg, part: hit.fx.name, holder: hit.holder, tool: tn, at: [cx, cy, cz] });
+            }
+            lastCrashT = t;
+            break;
+          }
+        }
+      }
+      if (i < total) setTimeout(slice, 0);
+      else { working = false; paintTicks(); }
+    }
+    setTimeout(slice, 0);
+  }
+
+  function paintTicks() {
+    const row = document.getElementById('progress-row'); if (!row) return;
+    row.querySelectorAll('.cg-tick').forEach(e => e.remove());
+    const sl = document.getElementById('viewport-progress-slider'); if (!sl || !simTotalTime) return;
+    row.style.position = row.style.position || 'relative';
+    crashes.forEach(c => {
+      const tk = document.createElement('i'); tk.className = 'cg-tick';
+      const r = sl.getBoundingClientRect(), rr = row.getBoundingClientRect();
+      tk.style.left = (r.left - rr.left + (c.t / simTotalTime) * r.width - 1) + 'px';
+      row.appendChild(tk);
+    });
+  }
+
+  function keyNow() {
+    const fx = (window.PartModels && PartModels.all) ? PartModels.all().filter(p => p.role === 'fixture' && p.visible).map(p => {
+      const b = p.node ? new THREE.Box3().setFromObject(p.node) : null;
+      return p.id + ':' + (b ? [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z].map(x => x.toFixed(2)).join(',') : '');
+    }).join('|') : '';
+    return segTimeline.length + ':' + simTotalTime.toFixed(2) + ':' + Array.from(toolTable.entries()).join(';') + ':' + fx;
+  }
+
+  function show(c) {
+    simPlaying = false;
+    if (typeof PlaybackUI !== 'undefined' && PlaybackUI.refresh) PlaybackUI.refresh();
+    const sh = toolShape(c.tool);
+    const fmt = v => (Math.round(v * 1000) / 1000).toFixed(3);
+    modal.querySelector('.cg-what').textContent = 'T' + c.tool + (c.holder ? ' (the holder)' : ' (the cutter)') + ' runs into the ' + c.part + '.';
+    modal.querySelector('.cg-where').textContent = 'Line ' + ((c.seg.origLineIdx != null ? c.seg.origLineIdx : c.seg.lineIdx) + 1) + ' · X' + fmt(c.at[0]) + ' Y' + fmt(c.at[1]) + ' Z' + fmt(c.at[2]);
+    modal.classList.add('on');
+    modal.querySelector('.cg-go').focus();
+    modal._c = c;
+  }
+  modal.querySelector('.cg-go').addEventListener('click', () => {
+    const c = modal._c; modal.classList.remove('on');
+    if (c) { acknowledged.add(c); simActive = true; simPlaying = true; if (typeof PlaybackUI !== 'undefined' && PlaybackUI.refresh) PlaybackUI.refresh(); }
+  });
+  modal.querySelector('.cg-stop').addEventListener('click', () => {
+    const c = modal._c; modal.classList.remove('on');
+    if (c) acknowledged.add(c);
+    simPlaying = false;
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal.classList.contains('on')) modal.querySelector('.cg-stop').click(); });
+
+  /* the watch: re-analyse when something changed, stop the run at the next crash */
+  let lastT = 0;
+  function loop() {
+    const k = (function () { try { return keyNow(); } catch (e) { return key; } })();
+    if (k !== key) { key = k; clearTimeout(timer); timer = setTimeout(analyse, 350); }
+    if (simPlaying && crashes.length) {
+      for (const c of crashes) {
+        if (acknowledged.has(c)) continue;
+        if (simTime >= c.t - 1e-3 && lastT < c.t + 0.5 && simTime - c.t < 2) {
+          simSeekToTime(c.t); show(c); break;
+        }
+      }
+    }
+    lastT = simTime;
+    setTimeout(loop, 100);
+  }
+  /* a restart, or a seek back before an acknowledged crash, asks again */
+  document.addEventListener('click', e => { if (e.target.closest && e.target.closest('#btn-sim-reset')) acknowledged.clear(); });
+  setTimeout(loop, 1500);
+  window.CollisionGuard = { crashes, analyse, get working() { return working; } };
 })();
 </script>
 </body>
