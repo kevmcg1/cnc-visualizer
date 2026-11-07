@@ -4868,10 +4868,10 @@ i[class*="fa-"] { display: inline-block; transform-origin: 50% 50%; }
 
 /* ---------- hud-guard ---------- */
 .hud-yield { opacity: 0 !important; pointer-events: none !important; visibility: hidden !important; }
-#viewport.hud-compact #tp-bottom-row,
+/* the transport lives in its own panel now: its speed row and toggles stay whatever the width */
 #viewport.hud-compact #mouse-hints { display: none !important; }
-#viewport.hud-compact .tp-right-pair .tp-toggle:not(#btn-single-block) { display: none; }
 #viewport-toolbar { overflow-y: auto; scrollbar-width: none; }
+#hud-view #viewport-toolbar { overflow: visible; max-height: none; }
 #viewport-toolbar::-webkit-scrollbar { display: none; }
 /* the dock is never clipped or scrolled: when it is too tall it spreads into columns (hud-guard) */
 #vp-dock { overflow: visible; }
@@ -22538,7 +22538,7 @@ function parseGCode(text) {
       }
       lineHasStateChange = true;
     }
-    if (mcodes.includes(9) && coolantOn) {
+    if ((mcodes.includes(9) || mcodes.includes(30) || mcodes.includes(2)) && coolantOn) {
       mCodeEvents.push({ lineIdx: li, type: 'coolant', state: 'off' });
       coolantOn = false;
       coolantState = 'off';
@@ -61090,7 +61090,8 @@ window.HAAS_LATHE_CODES = {
       if (P && P.r > v.width - 6) { transport.style.left = ""; transport.style.maxWidth = ""; }
     }
     P = rect(transport);
-    if (P && (P.w < 460 || v.height < 480)) vp.classList.add("hud-compact");
+    /* the controls live in their own panel now, so the 3D view's height no longer decides how much of the transport shows */
+    if (P && P.w < 460) vp.classList.add("hud-compact");
     P = rect(transport);
 
     /* 4. the mode banner rides above the transport bar */
@@ -61791,7 +61792,7 @@ window.HAAS_LATHE_CODES = {
         col += foam * 0.12 + fr * 0.18;
         float spec = pow(max(dot(reflect(-V, N), normalize(vec3(0.3, 0.5, 0.8))), 0.0), 40.0);
         col += spec * 0.55;
-        float a = (0.86 + 0.1 * fr + 0.06 * streak) * smoothstep(0.0, 0.03, vUv.x) * uFade;
+        float a = (0.86 + 0.1 * fr + 0.06 * streak) * smoothstep(0.04, 0.26, vUv.x) * uFade;
         gl_FragColor = vec4(col, clamp(a, 0.0, 0.96));
       }`
   });
@@ -61969,8 +61970,15 @@ window.HAAS_LATHE_CODES = {
     if (!Q) return 1;
     return Q.mode === "low" ? 0.38 : (Q.mode === "auto" && Q.scale < 0.8) ? 0.65 : 1;
   }
+  function clearParticles() { for (let i = 0; i < MAXP; i++) P[i].alive = false; }
+  /* the program is over: M30 stops the coolant on a real machine, so it stops here even if the lamp was left lit */
+  function programOver() {
+    try { return typeof simTime === "number" && typeof simTotalTime === "number" && simTotalTime > 0 && simTime >= simTotalTime - 1e-3; }
+    catch (e) { return false; }
+  }
   function lamp() {
     if (S.force !== null) return !!S.force;
+    if (programOver()) return false;
     const f = document.getElementById("cool-flood"), m = document.getElementById("cool-mist");
     return !!((f && f.classList.contains("on")) || (m && m.classList.contains("on")));
   }
@@ -62057,6 +62065,8 @@ window.HAAS_LATHE_CODES = {
     const iy0 = Math.max(0, Math.floor((Math.min(c.ay, c.by) - r - hf.y0) / cell)), iy1 = Math.min(ny - 1, Math.ceil((Math.max(c.ay, c.by) + r - hf.y0) / cell));
     const bax = c.bx - c.ax, bay = c.by - c.ay, bb = bax * bax + bay * bay, L = Math.sqrt(bb);
     const ty = c.type | 0;
+    /* a drill's point angle rides in the fraction of its type (see the stock shader): 0.6 is the stock 118 degrees */
+    const sl = (ty === 2 && c.type - 2 > 0.001) ? 0.3 + (c.type - 2) * 4 : 0.6;
     for (let iy = iy0; iy <= iy1; iy++) for (let ix = ix0; ix <= ix1; ix++) {
       const px = hf.x0 + (ix + 0.5) * cell, py = hf.y0 + (iy + 0.5) * cell;
       const pax = px - c.ax, pay = py - c.ay;
@@ -62072,7 +62082,7 @@ window.HAAS_LATHE_CODES = {
         tz = c.az + (c.bz - c.az) * Math.max(0, Math.min(1, h + (c.az > c.bz ? span : -span)));
       }
       let zb;
-      if (ty === 2) { const rr = Math.hypot(pax, pay); if (rr >= r) continue; zb = tz + rr * 0.6; }   /* drill point */
+      if (ty === 2) { zb = tz + dc * sl; }                                                           /* drill point, swept along the move */
       else if (ty === 0) zb = tz + r - Math.sqrt(Math.max(r * r - dc * dc, 0));                    /* ball end */
       else zb = tz;                                                                                  /* flat end */
       const k = iy * nx + ix;
@@ -62289,6 +62299,23 @@ window.HAAS_LATHE_CODES = {
     else { q.stuck = false; q.v.copy(_gt).multiplyScalar(q.slide); }
   }
 
+  /* A bead of coolant sits on the metal. When a cut then takes that metal away (the cutter has passed through where the bead
+     was resting) the bead must not hang in the air over the new surface: it is let go and falls onto what is left. */
+  const _bp = new THREE.Vector3();
+  function beadUnsupported(q, list) {
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (!o.hf) continue;
+      const b = o.box;
+      if (q.p.x < b.min.x || q.p.x > b.max.x || q.p.y < b.min.y || q.p.y > b.max.y || q.p.z < b.min.z || q.p.z > b.max.z) continue;
+      _bp.copy(q.p).applyMatrix4(o.inv);
+      const h = hfH(o.hf, _bp.x, _bp.y);
+      if (h < -1e8) continue;
+      if (_bp.z > h + 1.5 * o.hf.cell) return true;
+    }
+    return false;
+  }
+
   /* tool pose in world space: tip, axis (pointing up the tool toward the spindle) and radius */
   function toolPose() {
     const m = (typeof toolCylinderMesh !== "undefined") ? toolCylinderMesh : null;
@@ -62438,6 +62465,12 @@ window.HAAS_LATHE_CODES = {
   function update(now) {
     const dt = Math.min(0.05, Math.max(0.001, (now - (S.last || now)) / 1000)); S.last = now;
     S.time += dt;
+    /* a seek, a rewind or a restart: whatever was sitting on the blank belongs to a moment that is gone */
+    if (typeof simTime === "number") {
+      const dsim = simTime - (S.simLast == null ? simTime : S.simLast);
+      if (dsim < -1e-3 || dsim > 4) clearParticles();
+      S.simLast = simTime;
+    }
     const wantOn = S.enabled && lamp();
     if (wantOn) S.mode = modeNow() || S.mode;
     const pose = toolPose();
@@ -62453,7 +62486,11 @@ window.HAAS_LATHE_CODES = {
     _up.set(0, 0, 1);
 
     const obs = obstacles(now);
-    for (let i = 0; i < OB.hfs.length; i++) hfRefresh(OB.hfs[i][0], OB.hfs[i][1]);
+    for (let i = 0; i < OB.hfs.length; i++) {
+      const before = OB.hfs[i][0].n;
+      hfRefresh(OB.hfs[i][0], OB.hfs[i][1]);
+      if (OB.hfs[i][1].cuts.length < before) clearParticles();        /* the material was restored or rewound */
+    }
     let floorZ = -60 * U;
     if (obs.length) { floorZ = 1e9; obs.forEach(o => { if (o.box.min.z < floorZ) floorZ = o.box.min.z; }); floorZ -= 30 * U; }
 
@@ -62513,8 +62550,8 @@ window.HAAS_LATHE_CODES = {
       jetMat.uniforms.uTime.value = S.time; jetMat.uniforms.uFade.value = S.fade * (S.mode === "mist" ? 0.08 : 1);
       jet.visible = S.fade > 0.02;
 
-      /* nozzle + loc-line hose, curving back up to the head */
-      nozzle.visible = true;
+      /* the nozzle and its loc-line hose are not drawn: only the coolant itself is */
+      nozzle.visible = false;
       /* the clamp block hangs off to the side of the spindle head and must clear the holder's flange
          and drive slots: its inner edge is 20 mm (x the hose scale) in from this point */
       const headStand = Math.max(standoff, (32 + 20.1 * SZ + 6) * U);
@@ -62650,6 +62687,7 @@ window.HAAS_LATHE_CODES = {
       if (q.life <= 0) { q.alive = false; pAlpha[i] = 0; pSize[i] = 0; continue; }
       q.pv.copy(q.p);
       let grow = 1;
+      if (q.stuck && beadUnsupported(q, obs)) { q.stuck = false; q.v.set(0, 0, 0); q.slide = 0; q.life = Math.min(q.life, 0.6); }
       if (q.stuck) {
         if (q.sn.z < -0.5) { q.stuck = false; q.p.addScaledVector(q.sn, 0.05 * U); q.v.set(0, 0, 0); }   /* underside: lets go */
         else if (q.sn.z < 0.6) slideBead(q, dt, g, U, obs);
@@ -62708,6 +62746,7 @@ window.HAAS_LATHE_CODES = {
     _state: S,
     _P: P,
     _ob: OB,
+    _unsupported: q => beadUnsupported(q, OB.list),
   };
 })();
 
@@ -63906,7 +63945,6 @@ html body #sidebar code,html body #sidebar kbd{color:var(--text)!important;backg
 
 /* the view dock sits bottom-left; on a narrower view the transport card rides above it */
 @media (max-width:1100px){html body #transport-bar{bottom:58px!important}}
-@media (max-height:760px){html body #tp-bottom-row{display:none!important}}
 /* ---- phones and small tablets: the 3D view on top, the sidebar under it ---- */
 @media (max-width:800px){
   html body #app{flex-direction:column!important}
@@ -63922,7 +63960,6 @@ html body #sidebar code,html body #sidebar kbd{color:var(--text)!important;backg
   html body #editor-hint,html body #editor-resize-handle{display:none!important}
   html body #sidebar{flex-basis:30dvh!important;max-height:30dvh!important}
   html body .foot-strip{display:none!important}
-  html body #tp-bottom-row{display:none!important}
   html body #stop-hud,html body #mouse-hints{display:none!important}
   html body #viewport-toolbar{max-width:calc(100% - 16px)}
 }
@@ -63935,8 +63972,8 @@ html body #site-header a{position:relative;z-index:1;display:block;--cut:14px;pa
 html body #site-header a::before{content:"";position:absolute;inset:0 1px 1px;z-index:-1;background:#08090a;clip-path:polygon(0 0,100% 0,calc(100% - var(--cut) + .5px) 100%,calc(var(--cut) - .5px) 100%)}
 html body #site-header a:hover,html body #site-header a:focus-visible{color:var(--accent)!important;outline:none}
 html body #site-header a .brk{display:none}
-html body .foot-strip{position:relative;flex:none;display:flex;justify-content:center;padding-bottom:12px;background:#08090a}
-html body .foot-strip::before{content:"";position:absolute;left:0;right:0;bottom:0;height:24px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V12H24L16 2H0Z' fill='%2308090a'/%3E%3Cpath d='M34 11.5H24L16 1.5H0' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") left bottom/34px 24px no-repeat,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V2H18L10 12H0Z' fill='%2308090a'/%3E%3Cpath d='M0 11.5H10L18 1.5H34' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") right bottom/34px 24px no-repeat,linear-gradient(#3c3f46,#3c3f46) left 34px bottom 12px/calc(100% - 68px) 1px no-repeat}
+html body .foot-strip{position:relative;flex:none;display:flex;justify-content:center;padding-bottom:0;overflow:hidden;background:#08090a}
+html body .foot-strip::before{content:"";position:absolute;left:0;right:0;bottom:-12px;height:24px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V12H24L16 2H0Z' fill='%2308090a'/%3E%3Cpath d='M34 11.5H24L16 1.5H0' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") left bottom/34px 24px no-repeat,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='24' viewBox='0 0 34 24'%3E%3Cpath d='M0 24H34V2H18L10 12H0Z' fill='%2308090a'/%3E%3Cpath d='M0 11.5H10L18 1.5H34' fill='none' stroke='%233c3f46' stroke-width='1'/%3E%3C/svg%3E") right bottom/34px 24px no-repeat,linear-gradient(#3c3f46,#3c3f46) left 34px bottom 12px/calc(100% - 68px) 1px no-repeat}
 html body .foot-strip .foot,html body #site-footer.foot{--cut:16px;position:relative;z-index:1;flex:0 1 auto;max-width:100%;padding:10px 28px 4px!important;border:0!important;background:#3c3f46!important;
   clip-path:polygon(var(--cut) 0,calc(100% - var(--cut)) 0,100% 100%,0 100%);border-radius:0!important;box-shadow:none!important;text-align:center;color:var(--text-dim)!important}
 html body #site-footer.foot::before{content:"";position:absolute;inset:1px 1px 0;z-index:-1;background:#08090a;clip-path:polygon(calc(var(--cut) - .5px) 0,calc(100% - var(--cut) + .5px) 0,100% 100%,0 100%)}
@@ -64002,29 +64039,46 @@ html body #editor-panel{display:flex!important;flex-direction:row!important;heig
 html body #editor-main{flex:1 1 0;min-width:0;display:flex;flex-direction:column}
 html body #hud-side{flex:0 0 clamp(520px,50%,760px);min-width:0;display:flex;flex-wrap:wrap;gap:8px;align-content:flex-start;align-items:flex-start;
   padding:8px;overflow:auto;background:var(--hud-card);border-left:1px solid var(--border)}
-html body #hud-side > *{position:relative!important;inset:auto!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+html body #hud-side :is(#vp-mode-status,#transport-bar,#viewport-toolbar,#vp-dock){position:relative!important;inset:auto!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
   transform:none!important;margin:0!important;max-width:100%!important;box-shadow:none!important;z-index:auto!important}
-html body #hud-side > #vp-mode-status{flex:1 1 100%;width:auto!important}
-html body #hud-side > #transport-bar{flex:1 1 100%;width:auto!important;min-width:0!important}
-html body #hud-side > #viewport-toolbar{flex:1 1 300px;width:auto!important}
-html body #hud-side > #vp-dock{flex:0 0 auto;width:auto!important}
-html body #hud-side > #transport-bar{position:relative!important;padding-top:26px!important}
-html body #hud-side > #transport-bar::before{content:"PLAYBACK";position:absolute;left:12px;top:8px;font:600 10px/1 'Inter',system-ui,sans-serif;letter-spacing:.16em;color:var(--text-dim)}
+html body #hud-side #vp-mode-status{flex:1 1 100%;width:auto!important}
+html body #hud-side #transport-bar{flex:1 1 100%;width:auto!important;min-width:0!important}
+html body #hud-side #viewport-toolbar{flex:1 1 300px;width:auto!important}
+html body #hud-side #vp-dock{flex:0 0 auto;width:auto!important}
+html body #hud-side #transport-bar{position:relative!important;padding-top:26px!important}
+html body #hud-side #transport-bar::before{content:"PLAYBACK";position:absolute;left:12px;top:8px;font:600 10px/1 'Inter',system-ui,sans-serif;letter-spacing:.16em;color:var(--text-dim)}
 
 /* ---- the control panel, organised: playback on the left, view controls on the right ---- */
-html body #editor-panel{height:clamp(300px,46vh,480px)!important}
-html body #hud-side{display:grid!important;grid-template-columns:minmax(330px,1fr) minmax(280px,1fr);grid-auto-rows:min-content;gap:10px;align-content:start;
-  flex:0 0 clamp(680px,58%,960px)!important;padding:10px!important}
-html body #hud-side > #vp-mode-status{grid-column:1;grid-row:1;flex:none!important}
-html body #hud-side > #transport-bar{grid-column:1;grid-row:2 / span 2;align-self:start;flex:none!important}
-html body #hud-side > #viewport-toolbar{grid-column:2;grid-row:1 / span 2;align-self:start;flex:none!important}
-html body #hud-side > #vp-dock{grid-column:2;grid-row:3;display:flex!important;flex-direction:row!important;flex-wrap:wrap;gap:6px!important;align-self:start;flex:none!important;padding:26px 8px 8px!important}
-html body #hud-side > #vp-dock > *{width:auto!important;flex:1 1 auto}
-html body #hud-side > #viewport-toolbar,html body #hud-side > #vp-dock{position:relative!important}
-html body #hud-side > #viewport-toolbar{padding-top:26px!important}
-html body #hud-side > #viewport-toolbar::before,html body #hud-side > #vp-dock::before{position:absolute;left:12px;top:8px;font:600 10px/1 'Inter',system-ui,sans-serif;letter-spacing:.16em;color:var(--text-dim)}
-html body #hud-side > #viewport-toolbar::before{content:"VIEW"}
-html body #hud-side > #vp-dock::before{content:"CAMERA AND DISPLAY"}
+html body #editor-panel{height:clamp(340px,48vh,500px)!important}
+html body #hud-side{display:grid!important;grid-template-columns:minmax(330px,1fr) minmax(280px,1fr);grid-template-rows:minmax(0,1fr);gap:10px;align-content:stretch;align-items:stretch;
+  flex:0 0 clamp(680px,58%,960px)!important;padding:10px!important;overflow:hidden!important}
+html body #hud-side #vp-mode-status{flex:none!important}
+html body #hud-side #transport-bar{align-self:start;flex:none!important}
+html body #hud-side #viewport-toolbar{align-self:start;flex:none!important}
+html body #hud-side #vp-dock{display:flex!important;flex-direction:row!important;flex-wrap:wrap;gap:6px!important;align-self:start;flex:none!important;padding:26px 8px 8px!important}
+html body #hud-side #vp-dock > *{width:auto!important;flex:1 1 auto}
+html body #hud-side #viewport-toolbar,html body #hud-side #vp-dock{position:relative!important}
+html body #hud-side #viewport-toolbar{padding-top:26px!important}
+html body #hud-side #viewport-toolbar::before,html body #hud-side #vp-dock::before{position:absolute;left:12px;top:8px;font:600 10px/1 'Inter',system-ui,sans-serif;letter-spacing:.16em;color:var(--text-dim)}
+html body #hud-side #viewport-toolbar::before{content:"VIEW"}
+html body #hud-side #vp-dock::before{content:"CAMERA AND DISPLAY"}
+/* each column owns its own scroll: the view controls scroll, the playback column stays put */
+html body #hud-play,html body #hud-view{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:#3a3d42 transparent}
+html body #hud-play{padding-right:2px}
+html body #hud-play > #vp-mode-status{order:-1}
+html body #editor-header-left{flex-wrap:wrap!important;row-gap:6px}
+html body #td-wrap{overflow:visible!important;flex:0 0 auto!important}
+html body #hud-view{padding-right:4px}
+html body #hud-play::-webkit-scrollbar,html body #hud-view::-webkit-scrollbar{width:6px}
+html body #hud-play::-webkit-scrollbar-thumb,html body #hud-view::-webkit-scrollbar-thumb{background:#3a3d42;border-radius:3px}
+html body #hud-play > *,html body #hud-view > *{flex:none!important;width:auto!important;max-width:100%!important}
+/* phones and narrow windows: playback, then the view controls, one column that scrolls as a whole inside the panel */
+@media (max-width:800px){
+  html body #hud-side{flex:1 1 100%!important;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:none!important;grid-auto-rows:min-content;overflow-y:auto!important;overscroll-behavior:contain}
+  html body #hud-play,html body #hud-view{overflow:visible}
+}
+}
 /* playback: transport in the middle, the op buttons and run options on one line, the two bars, then speed */
 html body #transport-row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;row-gap:8px}
 html body #transport-row .tp-cluster{order:1;flex:1 1 100%;justify-content:center}
@@ -64124,19 +64178,20 @@ html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
   panel.appendChild(main);
   const side = document.createElement('div'); side.id = 'hud-side'; side.setAttribute('aria-label', 'Controls');
   panel.appendChild(side);
-  ['vp-mode-status', 'transport-bar', 'viewport-toolbar', 'vp-dock'].forEach(id => {
+  /* two columns that scroll on their own: playback and the mode banner on the left, the view controls on the right,
+     so wheeling through the view buttons never moves the transport */
+  const play = document.createElement('div'); play.id = 'hud-play'; play.setAttribute('aria-label', 'Playback');
+  const view = document.createElement('div'); view.id = 'hud-view'; view.setAttribute('aria-label', 'View controls');
+  side.appendChild(play); side.appendChild(view);
+  const HOME = { 'vp-mode-status': play, 'transport-bar': play, 'viewport-toolbar': view, 'vp-dock': view };
+  const seat = () => Object.keys(HOME).forEach(id => {
     const el = document.getElementById(id);
-    if (el) side.appendChild(el);
+    if (el && el.parentElement !== HOME[id]) HOME[id].appendChild(el);
   });
+  seat();
   /* the banner and the dock are built a little after load: move them in when they appear */
   let tries = 0;
-  const t = setInterval(() => {
-    ['vp-mode-status', 'viewport-toolbar', 'vp-dock', 'transport-bar'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el && el.parentElement !== side) side.appendChild(el);
-    });
-    if (++tries > 40) clearInterval(t);
-  }, 250);
+  const t = setInterval(() => { seat(); if (++tries > 40) clearInterval(t); }, 250);
   window.dispatchEvent(new Event('resize'));
 })();
 </script>
@@ -65084,6 +65139,57 @@ const HaasSamples = (function () {
     const jaw = v.members && v.members.find(m => m.name === "Jaw");
     return progBox(jaw && jaw.node ? { node: jaw.node } : v);
   }
+  /* The solid volumes of the work holding, each with its real thickness and height, in the program's frame: the fixed jaw, the
+     moving jaw, the vise bed and the two parallels. A cutter that passes over one of them, or beside it, is fine; only touching it counts. */
+  function volumes() {
+    const out = [], inv = frameInv();
+    const add = (name, node, bx, shift) => {
+      if (!node || !bx) return;
+      node.updateMatrixWorld(true);
+      const M = new THREE.Matrix4().multiplyMatrices(inv, node.matrixWorld);
+      const lo = bx.min.clone(), hi = bx.max.clone();
+      if (shift) { lo.add(shift); hi.add(shift); }
+      const b = new THREE.Box3(), c = new THREE.Vector3();
+      for (let i = 0; i < 8; i++) { c.set(i & 1 ? hi.x : lo.x, i & 2 ? hi.y : lo.y, i & 4 ? hi.z : lo.z).applyMatrix4(M); b.expandByPoint(c); }
+      if (!b.isEmpty() && isFinite(b.max.z)) out.push({ name, box: b });
+    };
+    const geoBox = g => { if (!g) return null; if (!g.boundingBox) g.computeBoundingBox(); return g.boundingBox; };
+    try {
+      const v = body("vise"), jaw = v && v.members && v.members.find(m => m.name === "Jaw");
+      if (v && jaw) {
+        const G = geoBox(v.geometry), J = geoBox(jaw.geometry);
+        const ax = jaw.axis || "x", sh = new THREE.Vector3(); sh[ax] = jaw.value || 0;
+        const fixedEnd = jaw.fixedFace != null ? jaw.fixedFace : 0;
+        /* the fixed jaw runs from the back of the casting to its face; the moving jaw is the member, slid out by its value */
+        add("fixed jaw", v.node, new THREE.Box3(new THREE.Vector3(G.min.x, J.min.y, J.min.z), new THREE.Vector3(fixedEnd, J.max.y, J.max.z)));
+        add("moving jaw", v.node, J, sh);
+        add("vise bed", v.node, new THREE.Box3(new THREE.Vector3(G.min.x, G.min.y, G.min.z), new THREE.Vector3(G.max.x, G.max.y, jaw.bedZ != null ? jaw.bedZ : J.min.z)));
+      }
+    } catch (e) { /* what was found is used */ }
+    try {
+      const par = body("pars"), bar = par && par.members && par.members.find(m => m.name === "Bar");
+      if (par && bar) {
+        const sh = new THREE.Vector3(); sh[bar.axis || "x"] = bar.value || 0;
+        add("parallels", par.node, geoBox(par.geometry));
+        add("parallels", par.node, geoBox(bar.geometry), sh);
+      }
+    } catch (e) { /* ditto */ }
+    return out;
+  }
+  /* distance in plan from a point to a box's outline (0 inside) */
+  const distXY = (x, y, b) => Math.hypot(Math.max(b.min.x - x, 0, x - b.max.x), Math.max(b.min.y - y, 0, y - b.max.y));
+  /* does a cutter of radius r, tip at z, flutes loc tall, travelling a to b touch the box? */
+  function touches(b, ax, ay, bx, by, z, r, loc, tol) {
+    if (z >= b.max.z - tol || z + loc <= b.min.z) return false;
+    if (Math.min(ax, bx) - r > b.max.x || Math.max(ax, bx) + r < b.min.x || Math.min(ay, by) - r > b.max.y || Math.max(ay, by) + r < b.min.y) return false;
+    const L = Math.hypot(bx - ax, by - ay), n = Math.max(1, Math.ceil(L / Math.max(r * 0.5, 1e-6)));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      if (distXY(ax + (bx - ax) * t, ay + (by - ay) * t, b) < r - 1e-6) return true;
+    }
+    return false;
+  }
+
   const overlapXY = (a, b, pad) => a.min.x < b.max.x + pad && a.max.x > b.min.x - pad && a.min.y < b.max.y + pad && a.max.y > b.min.y - pad;
 
   /* every tool's reach in the program: deepest Z and the footprint of its cutting moves (cached) */
@@ -65208,7 +65314,10 @@ const HaasSamples = (function () {
         const label = tag + " " + (info.holderLabel || "holder");
         let hit = null;
         if (noseZ < sb.max.z - 1e-4 && overlapXY(foot, sb, 0)) hit = "the blank by " + len(k(sb.max.z - noseZ));
-        else if (jb && noseZ < jb.max.z - 1e-4 && overlapXY(foot, jb, 0)) hit = "the jaws by " + len(k(jb.max.z - noseZ));
+        else {
+          const v = volumes().find(q => q.name !== "parallels" && noseZ < q.box.max.z - 1e-4 && overlapXY(foot, q.box, 0));
+          if (v) hit = "the " + v.name + " by " + len(k(v.box.max.z - noseZ));
+        }
         if (hit) out.push(F("bad", "holder", label + " would hit " + hit + " on its deepest cut. Use a longer stick-out or a shorter holder."));
         else out.push(F("ok", "holder", label + " clears the work by " + len(k(Math.max(noseZ - sb.max.z, 0))) + " at the deepest cut."));
       }
@@ -65220,45 +65329,49 @@ const HaasSamples = (function () {
       }
     });
 
-    /* the jaws against the cuts. A move is a hazard only if it is below the jaw tops AND its cutter reaches past the blank's
-       own outline over the vise: a hole drilled inside the blank can never touch a jaw, an outside profile that swings out
-       over the bed can. */
+    /* the work holding against the cuts, by real contact. Passing over a jaw is fine, so is passing beside it: a move is a hazard only
+       if the cutter's own body, with its radius, reaches into the thickness of the fixed jaw, the moving jaw, the bed or a parallel. */
     try {
-      const vb = progBox(vise);
-      if (vb && sb && jb) {
-        const jawTop = jb.max.z, radius = new Map(), hits = new Map();
+      const vs = volumes();
+      if (vs.length && sb) {
+        const tol = inch() ? 0.002 : 0.05, tinfo = new Map(), hits = new Map();
         (allSegments || []).forEach(s => {
           if (!s.start || !s.end || !CUTTING[s.type || "cut"]) return;
-          const z = Math.min(s.start.z, s.end.z);
-          if (z >= jawTop - 1e-6) return;
           let n = null; try { n = getActiveToolAtLine(s.lineIdx); } catch (e) { /* none */ }
-          if (!radius.has(n)) { const ti = toolInfo(n); radius.set(n, ti ? ti.dia / 2 / k(1) : 0); }
-          const r = radius.get(n);
-          const x0 = Math.min(s.start.x, s.end.x) - r, x1 = Math.max(s.start.x, s.end.x) + r;
-          const y0 = Math.min(s.start.y, s.end.y) - r, y1 = Math.max(s.start.y, s.end.y) + r;
-          const past = x0 < sb.min.x - 1e-4 || x1 > sb.max.x + 1e-4 || y0 < sb.min.y - 1e-4 || y1 > sb.max.y + 1e-4;
-          if (!past || !(x0 < vb.max.x && x1 > vb.min.x && y0 < vb.max.y && y1 > vb.min.y)) return;
-          const line = s.origLineIdx != null ? s.origLineIdx : s.lineIdx;
-          const below = jawTop - z, prev = hits.get(line);
-          if (!prev || below > prev) hits.set(line, below);
+          if (!tinfo.has(n)) { const ti = toolInfo(n); tinfo.set(n, ti ? { r: ti.dia / 2 / k(1), loc: Math.max(ti.loc, ti.dia) / k(1) } : { r: 0, loc: 0 }); }
+          const ti = tinfo.get(n);
+          if (!(ti.r > 0)) return;
+          const z = Math.min(s.start.z, s.end.z);
+          for (const q of vs) {
+            if (!touches(q.box, s.start.x, s.start.y, s.end.x, s.end.y, z, ti.r, ti.loc, tol)) continue;
+            const line = s.origLineIdx != null ? s.origLineIdx : s.lineIdx;
+            const key = q.name, rec = hits.get(key) || hits.set(key, new Map()).get(key);
+            const into = q.box.max.z - z;
+            if (!rec.has(line) || into > rec.get(line)) rec.set(line, into);
+          }
         });
-        if (hits.size) {
-          let worst = 0; hits.forEach(v => { worst = Math.max(worst, v); });
-          const m = JawClear.measure(), want = m.proud + worst + (inch() ? 0.05 : 1.25);
-          /* standing it that high must still leave the jaws a grip on the blank, or the fix would only trade one crash for another */
-          const grips = want <= (sb.max.z - sb.min.z) - (inch() ? 0.25 : 6);
-          out.push(F("bad", "vise", hits.size + " line" + (hits.size === 1 ? "" : "s") + " (" + Array.from(hits.keys()).sort((x, y) => x - y).slice(0, 4).map(l => "N" + (l + 1)).join(", ") + (hits.size > 4 ? "\u2026" : "") + ") swing the cutter out over the vise " + len(k(worst)) + " below the jaw tops. The cutter would find the vise." +
-            (grips ? "" : " The blank is too thin to stand clear of the jaws and still be held; keep the cutter over the blank, or use thicker stock."),
-            grips ? { label: "Stand blank proud", run: () => {
-              /* measured again now, not when the finding was made, so it never acts on a stale number */
-              const cur = JawClear.measure();
-              if (cur.ok) JawClear.setProud(cur.proud + worst + (inch() ? 0.05 : 1.25), "pars", false);
-            } } : null));
+        if (!hits.size) {
+          out.push(F("ok", "vise", "No cut touches the jaws, the vise bed or the parallels."));
         } else {
-          out.push(F("ok", "vise", "No cut reaches the jaws or the vise bed."));
+          hits.forEach((rec, name) => {
+            let worst = 0; rec.forEach(v => { worst = Math.max(worst, v); });
+            const lines = Array.from(rec.keys()).sort((x, y) => x - y);
+            const part = name === "parallels" ? "parallels" : "vise";
+            const m = window.JawClear ? JawClear.measure() : { ok: false };
+            const want = m.ok ? m.proud + worst + (inch() ? 0.05 : 1.25) : 0;
+            const grips = m.ok && want <= (sb.max.z - sb.min.z) - (inch() ? 0.25 : 6);
+            const canFix = /jaw|bed/.test(name) && grips;
+            out.push(F("bad", part, "The cutter touches the " + name + " on " + lines.length + " line" + (lines.length === 1 ? "" : "s") + " (" +
+              lines.slice(0, 4).map(l => "N" + (l + 1)).join(", ") + (lines.length > 4 ? "\u2026" : "") + "), up to " + len(k(worst)) + " into it." +
+              (/jaw|bed/.test(name) && !grips ? " The blank is too thin to stand clear and still be held; keep the cutter off it, or use thicker stock." : ""),
+              canFix ? { label: "Stand blank proud", run: () => {
+                const cur = JawClear.measure();
+                if (cur.ok) JawClear.setProud(cur.proud + worst + (inch() ? 0.05 : 1.25), "pars", false);
+              } } : null));
+          });
         }
       }
-    } catch (e) { /* the jaw check is advisory */ }
+    } catch (e) { console.warn("[SetupAware] contact:", e); }
     return out;
   }
 
@@ -65388,7 +65501,7 @@ const HaasSamples = (function () {
   }
   soon(2800);
 
-  api.check = check; api.refresh = refresh; api.scan = scan; api.open = open; api.close = close;
+  api.vols = volumes; api.touches = touches; api.check = check; api.refresh = refresh; api.scan = scan; api.open = open; api.close = close;
   window.SetupAware = api;
 })();
 </script>
