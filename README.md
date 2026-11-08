@@ -23,6 +23,12 @@ A single-file G-code simulator for a Haas-style mill. Open `index.html` in a bro
 - Tooltips are drawn on one page-level card that never overlaps its control or leaves the window.
 - One design language throughout (Inter, outlined controls, flat dark HUD cards).
 
+## Sidebar steps, empty state and work zero
+
+- **Load a program** is its own group at the top of the left sidebar and is not numbered. The numbered steps are the job itself: **Step 1 Set up the job**, **Step 2 Look around**, **Step 3 Check your work**.
+- **Empty state**: while there is no program and no blank, a card in the middle of the view reads "Nothing here? Click here to load a sample or click here to get set up with a custom program". The first link opens the samples, the second opens Step 1. It disappears as soon as anything is loaded.
+- **Work zero (origin) setter** in Step 1, under the blank's size: a diagram of the blank with the four corners and the face center. Flip between the **Top face** and **Bottom face** to reach all 8 corners. The chosen point is highlighted, the sim and the G-code positions measure from it, the metal does not move, and a corner stays a corner when the blank is resized. Sizes show inches with millimeters in parentheses.
+
 ## Page-wide UX stress test (backtick)
 
 Press the backtick key (`) to open or close the **UX Stress** panel. That key is the only way in: no address parameter, no global function and no button on the page, and while it is closed the page pays for one keydown listener. The key is ignored while you type in a field.
