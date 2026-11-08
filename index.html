@@ -19331,13 +19331,13 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
           <div class="stk-head">Job kit</div>
           <div class="stk-row stk-row-1">
             <button id="kit-toggle" class="stk-btn" type="button" aria-pressed="false"
-                    title="Lay out the blank, the parallels, every tool with its holder and the setup sheet in the 3D view">
+                    title="Lay out the trial piece, the stock, the parallels, every tool with its holder, the setup sheet and the shop supplies in the 3D view">
               <i class="fa-solid fa-boxes-stacked" aria-hidden="true"></i>
               <span id="kit-toggle-text">Show the job kit</span>
             </button>
           </div>
           <div class="stk-note" id="kit-note">
-            Everything the operator needs, laid out in the 3D view: the blank, the parallels, each tool with its holder, and the setup sheet.
+            Everything the operator needs, laid out in the 3D view in the single layout: the trial piece (cut the first piece only, then cut the rest of the stock while it machines), the parallels, each tool with its holder, the setup sheet, IPA, a Scotch-Brite pad, wipes, WD-40 and a dead blow hammer.
           </div>
         </div>
       </div>
@@ -69433,6 +69433,10 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
 #jk-layer[data-mode="mini"] .jk-label .jk-k i { display: none; }
 #jk-layer:not([data-mode="full"]) .jk-label { padding-top: 5px; padding-bottom: 5px; }
 #jk-layer[data-mode="mini"] .jk-label .jk-t { font-size: 11px; }
+/* tiny: the name alone, for a small window that has to show every item at once */
+#jk-layer[data-mode="tiny"] .jk-label { display: flex; align-items: center; padding: 0 6px; border-radius: 6px; }
+#jk-layer[data-mode="tiny"] .jk-label .jk-t, #jk-layer[data-mode="tiny"] .jk-label .jk-k i { display: none; }
+#jk-layer[data-mode="tiny"] .jk-label .jk-k { font-size: 10.5px; color: #e8eaed; }
 .jk-label .jk-d { display: block; margin-top: 2px; font-size: 10.5px; line-height: 1.3; color: #b4bac2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #sidebar .jk-side-btn {
   display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 36px; margin-top: 10px; padding: 0 10px;
@@ -69458,8 +69462,10 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
 <script id="job-kit">
 /* job-kit.js: the Check your work showcase.
 
-   One button in the sidebar lays out, in the 3D view, everything an operator needs for the job: the part blank, the
-   parallels, every tool standing next to its holder, and the setup sheet. Nothing in the real scene is touched. The kit
+   One button in the sidebar lays out, in the 3D view, everything an operator needs for the job: the trial piece and the
+   stock still to cut, the parallels, every tool standing next to its holder, the setup sheet, and the shop supplies (IPA,
+   Scotch-Brite pad, wipes, WD-40 and a dead blow hammer). The kit always opens in the single layout: the camera layout
+   that was showing is put back when it closes. Nothing in the real scene is touched. The kit
    is its own group that is drawn instead of the scene while it is open (the render call is wrapped, nothing is hidden
    for good), the camera is put back exactly where it was on close, and the program keeps running underneath.
 
@@ -69492,6 +69498,36 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
   let transition = 0, scrolled = false;
   let sheetCanvas = null, sheetTex = null;
   const labelEls = new Map();
+  /* the kit is always drawn in the single layout; this remembers what to put back */
+  function quietly(fn) {
+    const ts = window.showToast;
+    try { window.showToast = function () {}; fn(); } finally { window.showToast = ts; }
+  }
+  function singleOn() {
+    const M = window.MultiCam;
+    if (!M) return null;
+    const was = { layout: M.layout, cam: (M.state.assign && M.state.assign.single && M.state.assign.single[0]) || "main" };
+    forceSingle();
+    return was;
+  }
+  function forceSingle() {
+    const M = window.MultiCam;
+    if (!M) return;
+    quietly(() => {
+      if (M.layout !== "single") M.setLayout("single");
+      const a = M.state.assign && M.state.assign.single;
+      if (a && a[0] && a[0] !== "main") M.setCamera(0, "main");
+    });
+  }
+  function singleOff(was) {
+    const M = window.MultiCam;
+    if (!M || !was) return;
+    quietly(() => {
+      M.setLayout("single");
+      M.setCamera(0, was.cam);
+      if (was.layout !== "single") M.setLayout(was.layout);
+    });
+  }
 
   const el = id => document.getElementById(id);
   const inchMode = () => !(typeof unitMode !== "undefined" && unitMode === "mm");
@@ -69636,6 +69672,118 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
     return { group: g, w: b.sx, d: b.sy, h: b.sz };
   }
 
+  /* The stock bar the trial piece is cut from. The first piece is only a trial run; the rest of the bar is cut to size
+     while that piece is being machined, so the shop does not wait on the saw. */
+  function makeStock(b) {
+    const g = new THREE.Group();
+    const look = METAL[b.metal] || METAL.aluminum;
+    const mat = new THREE.MeshStandardMaterial({ color: look.color, roughness: look.rough, metalness: look.metal });
+    const mark = matFlat(0x9aa0a6, { roughness: 0.5, metalness: 0.3 });
+    const L = b.sx * 2, cutX = -L / 2 + b.sx;
+    if (b.round) {
+      const geo = new THREE.CylinderGeometry(b.sy / 2, b.sy / 2, L, 64);
+      geo.rotateZ(Math.PI / 2);
+      const m = new THREE.Mesh(geo, mat); m.position.z = b.sy / 2; g.add(m);
+      const cg = new THREE.CylinderGeometry(b.sy / 2 + 0.4, b.sy / 2 + 0.4, 1.4, 64);
+      cg.rotateZ(Math.PI / 2);
+      const c = new THREE.Mesh(cg, mark); c.position.set(cutX, 0, b.sy / 2); g.add(c);
+      return { group: g, w: L, d: b.sy, h: b.sy };
+    }
+    g.add(box(L, b.sy, b.sz, mat, 0, 0, b.sz / 2));
+    g.add(box(1.4, b.sy + 0.8, b.sz + 0.8, mark, cutX, 0, b.sz / 2, false));
+    return { group: g, w: L, d: b.sy, h: b.sz };
+  }
+
+  /* shop supplies: simple flat-shaded forms, built in millimeters like everything else */
+  function cyl(r0, r1, h, mat, z0, edge) {
+    const geo = new THREE.CylinderGeometry(r1, r0, h, 48);   /* r0 at the bottom, r1 at the top */
+    geo.rotateX(Math.PI / 2);
+    const m = new THREE.Mesh(geo, mat);
+    m.position.z = z0 + h / 2;
+    if (edge !== false) m.add(edgesOf(geo, 0.2));
+    return m;
+  }
+
+  function makeIPA() {
+    const g = new THREE.Group();
+    const body = matFlat(0x39424f, { roughness: 0.5, metalness: 0.05 });
+    const label = matFlat(0xcfd3d8, { roughness: 0.8, metalness: 0 });
+    const cap = matFlat(0x16181b, { roughness: 0.6, metalness: 0.1 });
+    g.add(cyl(27, 27, 120, body, 0));
+    g.add(cyl(27.4, 27.4, 48, label, 34, false));
+    g.add(cyl(27, 11, 22, body, 120));
+    g.add(cyl(11, 11, 12, body, 142));
+    g.add(cyl(13, 13, 18, cap, 154));
+    g.add(box(4, 30, 4, cap, 0, 14, 168, false));   /* the spray nozzle */
+    return { group: g, w: 56, d: 56, h: 172 };
+  }
+
+  function makeScotchBrite() {
+    const g = new THREE.Group();
+    const mat = matFlat(0x4a5a4c, { roughness: 0.95, metalness: 0 });
+    const lower = box(152, 102, 12, mat, 0, 0, 6);
+    const upper = box(152, 102, 12, matFlat(0x566a58, { roughness: 0.95, metalness: 0 }), 0, 0, 18);
+    upper.rotation.z = 0.12;
+    g.add(lower); g.add(upper);
+    return { group: g, w: 164, d: 124, h: 24 };
+  }
+
+  function makeWipes() {
+    const g = new THREE.Group();
+    const tub = matFlat(0x2b4a5a, { roughness: 0.6, metalness: 0.05 });
+    const lid = matFlat(0x16181b, { roughness: 0.6, metalness: 0.1 });
+    const paper = matFlat(0xdfe3e8, { roughness: 0.95, metalness: 0 });
+    g.add(cyl(50, 50, 130, tub, 0));
+    g.add(cyl(52, 52, 14, lid, 130));
+    const sheet = box(62, 1, 70, paper, 0, 0, 144 + 26, false);
+    sheet.rotation.z = 0.2;
+    g.add(sheet);
+    return { group: g, w: 104, d: 104, h: 214 };
+  }
+
+  function makeWD40() {
+    const g = new THREE.Group();
+    const body = matFlat(0x1d3b63, { roughness: 0.45, metalness: 0.3 });
+    const band = matFlat(0xc9a227, { roughness: 0.5, metalness: 0.1 });
+    const dark = matFlat(0x16181b, { roughness: 0.6, metalness: 0.1 });
+    g.add(cyl(33, 33, 160, body, 0));
+    g.add(cyl(33.4, 33.4, 56, band, 52, false));
+    g.add(cyl(33, 18, 16, body, 160));
+    g.add(cyl(17, 17, 30, dark, 176));
+    g.add(box(3, 30, 3, matFlat(0xdfe3e8, { roughness: 0.6, metalness: 0 }), 0, 12, 208, false));   /* the straw */
+    return { group: g, w: 68, d: 68, h: 210 };
+  }
+
+  function makeHammer() {
+    const g = new THREE.Group();
+    const headM = matFlat(0x30343a, { roughness: 0.5, metalness: 0.2 });
+    const faceM = matFlat(0x8a5a2e, { roughness: 0.7, metalness: 0.05 });
+    const gripM = matFlat(0x1f2226, { roughness: 0.9, metalness: 0 });
+    const shaftM = matFlat(0x8d96a0, { roughness: 0.4, metalness: 0.6 });
+    const R = 28, hx = 120, ox = 11;
+    const along = (r, len, mat, x, edge) => {   /* a cylinder lying along X */
+      const geo = new THREE.CylinderGeometry(r, r, len, 40);
+      geo.rotateZ(Math.PI / 2);
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x + ox, 0, R);
+      if (edge !== false) m.add(edgesOf(geo, 0.2));
+      return m;
+    };
+    const across = (r, len, mat, y) => {       /* a cylinder lying along Y */
+      const geo = new THREE.CylinderGeometry(r, r, len, 48);
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(hx + ox, y, R);
+      m.add(edgesOf(geo, 0.2));
+      return m;
+    };
+    g.add(along(7, 290, shaftM, -25));
+    g.add(along(14.5, 110, gripM, -115, false));
+    g.add(across(R, 92, headM, 0));
+    g.add(across(R + 0.6, 16, faceM, 54));
+    g.add(across(R + 0.6, 16, faceM, -54));
+    return { group: g, w: 340, d: 124, h: 2 * R + 1.2 };
+  }
+
   function makeParallels(p) {
     const g = new THREE.Group();
     const mat = matFlat(0x2a2f35, { roughness: 0.65, metalness: 0.2 });
@@ -69707,6 +69855,7 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
     rows.push(["Material", b && b.metal ? cap(b.metal) : "Not set up yet"]);
     rows.push(["Blank size", b ? one(sizePair([b.sx, b.sy, b.sz], 3)) : "Not set up yet"]);
     rows.push(["Work zero", [p.wcs, b && b.zero ? b.zero : ""].filter(Boolean).join(" · ") || "Not set"]);
+    rows.push(["Plan", "Trial piece first, cut the stock during the run"]);
     rows.push(["Run time", clock(typeof simTotalTime === "number" ? simTotalTime : 0)]);
     rows.push(["Program lines", String(p.lines || 0)]);
     rows.forEach(r => { y += 46; row(r[0], r[1], y); });
@@ -69728,7 +69877,7 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
     y += 34;
     head.forEach((h, i) => text(h, 22, DIM, cols[i], y));
     y += 12; rule(y); y += 6;
-    const foot = 250;
+    const foot = 340;
     const maxRows = Math.max(1, Math.floor((H - foot - y) / 56));
     const list = job.tools;
     if (!list.length) { y += 46; text("No tools in the program yet", 26, DIM, M, y); }
@@ -69751,7 +69900,7 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
     let fy = H - foot + 40;
     rule(fy - 38);
     text("Before you run", 26, DIM, M, fy);
-    ["Parallels seated and the blank clamped", "Work zero set on the blank", "Every tool in its holder and touched off"].forEach((s, i) => {
+    ["Wipe the vise, parallels and blank with IPA", "Parallels seated and the trial piece clamped", "Work zero set, every tool touched off", "Cut the rest of the stock while the trial runs"].forEach((s, i) => {
       const yy = fy + 48 + i * 44;
       x.strokeStyle = INK; x.lineWidth = 3; x.strokeRect(M, yy - 24, 26, 26);
       text(s, 25, INK, M + 46, yy);
@@ -69799,7 +69948,9 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
     if (job.blank) {
       const b = job.blank, o = makeBlank(b);
       const sz = sizePair([b.sx, b.sy, b.sz], 3);
-      add("blank", "fa-cube", o, { kicker: "Part blank", title: (b.metal ? cap(b.metal) + " " : "") + (b.round ? "round bar" : "block"), lines: [sz[0], sz[1]] });
+      add("blank", "fa-cube", o, { kicker: "Trial piece", title: (b.metal ? cap(b.metal) + " " : "") + (b.round ? "round bar" : "block"), lines: [sz[0], sz[1]] });
+      const so = makeStock(b), len = lenPair(b.sx * 2);
+      add("stock", "fa-scissors", so, { kicker: "Stock", title: "Cut during the run", lines: ["About " + len[0] + " " + len[1], "Cut while the trial runs"] });
     }
     if (job.pars) {
       const o = makeParallels(job.pars), sz = sizePair([job.pars.t, job.pars.h, job.pars.len], 3);
@@ -69817,6 +69968,15 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
         lines: [dia[0] + " " + dia[1], t.rec ? hold : "No tool picture chosen yet"],
       });
     });
+    const sup = (key, icon, o, kicker, title, use) => {
+      const sz = sizePair([o.w, o.d, o.h], 1);
+      add(key, icon, o, { kicker, title, lines: [use, sz[0] + " " + sz[1]] });
+    };
+    sup("ipa", "fa-bottle-droplet", makeIPA(), "IPA", "Isopropyl alcohol", "Clean the vise and blank");
+    sup("scotch", "fa-broom", makeScotchBrite(), "Scotch-Brite", "Abrasive pad", "Deburr and polish");
+    sup("wipes", "fa-box-tissue", makeWipes(), "Wipes", "Lint-free wipes", "Dry the parts and parallels");
+    sup("wd40", "fa-spray-can", makeWD40(), "WD-40", "Spray lubricant", "Protect bare steel");
+    sup("hammer", "fa-hammer", makeHammer(), "Hammer", "Dead blow hammer", "Tap the blank down flat");
     const sheet = makeSheet(job);
     const pn = job.prog.number || "Program";
     const ss = sizePair([SHEET_W, SHEET_H], 1);
@@ -69832,8 +69992,8 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
   function labelModes() {
     const vw = (viewportEl() || document.body).clientWidth;
     return vw < 560
-      ? [{ mode: "full", w: 132, h: 76, bias: 1.35 }, { mode: "compact", w: 120, h: 46, bias: 1 }, { mode: "mini", w: 104, h: 42, bias: 0.85 }]
-      : [{ mode: "full", w: 160, h: 86, bias: 1.35 }, { mode: "compact", w: 136, h: 48, bias: 1 }, { mode: "mini", w: 112, h: 42, bias: 0.85 }];
+      ? [{ mode: "full", w: 132, h: 76, bias: 1.35 }, { mode: "compact", w: 120, h: 46, bias: 1 }, { mode: "mini", w: 104, h: 42, bias: 0.85 }, { mode: "tiny", w: 88, h: 26, bias: 0.7 }]
+      : [{ mode: "full", w: 160, h: 86, bias: 1.35 }, { mode: "compact", w: 136, h: 48, bias: 1 }, { mode: "mini", w: 112, h: 42, bias: 0.85 }, { mode: "tiny", w: 96, h: 26, bias: 0.7 }];
   }
   const labelPx = () => (layout && layout.lp) || labelModes()[0];
 
@@ -69908,10 +70068,10 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
       if (!chosen || score > chosen.score) chosen = Object.assign(r, { lp, score });
     });
     if (!chosen) {
-      /* Nothing fits this window. Show the smallest cards at a scale that is still worth looking at and let the
-         person pan and zoom for the rest. */
-      const lp = labelModes()[2];
-      const r = fitMode(list, lp, useW, useH, 0.3);
+      /* Nothing fits this window at a full card size. Use the smallest cards and keep shrinking the objects until
+         everything is on screen at once; the person can still zoom in on any one of them. */
+      const lp = labelModes()[3];
+      const r = fitMode(list, lp, useW, useH, 0.02);
       chosen = Object.assign(r, { lp });
     }
     /* flow() writes positions onto the items, so settle them on the winner last */
@@ -70164,7 +70324,7 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
       veil.classList.add("on");
       setTimeout(() => {
         if (token !== transition) return;
-        saved = { cam: CamView.state(), iso: isoOff() };
+        saved = { cam: CamView.state(), iso: isoOff(), lay: singleOn() };
         focusKey = pendingFocus; pendingFocus = null;
         build();
         active = true;
@@ -70192,6 +70352,7 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
         labelEls.forEach(e => e.remove()); labelEls.clear();
         items = []; layout = null; focusKey = null;
         if (saved) {
+          singleOff(saved.lay);
           CamView.to(saved.cam, 0);
           isoBack(saved.iso);
           saved = null;
@@ -70216,6 +70377,7 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
 
   function poll() {
     if (!active) return;
+    try { if (window.MultiCam && (window.MultiCam.layout !== "single" || window.MultiCam.state.assign.single[0] !== "main")) { forceSingle(); relayout(); } } catch (e) { /* keep going */ }
     let job;
     try { job = gather(); } catch (e) { return; }
     const s = signature(job);
