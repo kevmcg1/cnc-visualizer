@@ -18174,11 +18174,14 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
 </div>
 
 <div id="site-header" class="title-strip">
-  <a href="https://kevmcg1.github.io" target="_blank" rel="noopener" aria-label="kevmcg1.github.io"><span>KEVMCG1.GITHUB.IO</span></a>
-  <button type="button" id="wipe-data" aria-label="Wipe data: hold for 3 seconds to erase everything saved on this computer" title="Hold for 3 seconds to erase all saved data (program, tools, setup, settings). Space or Enter held works too.">
-    <span class="wd-fill" aria-hidden="true"></span>
-    <i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="wd-label">Wipe data</span>
-  </button>
+  <a class="site-link" href="https://kevmcg1.github.io" target="_blank" rel="noopener" aria-label="kevmcg1.github.io">KEVMCG1.GITHUB.IO</a>
+  <p class="title-tab" aria-label="CNC Mill Visualizer"><span><b class="tw">CNC</b> <b class="tw">MILL</b> <b class="tw">VISUALIZER</b></span></p>
+  <div class="hdr-actions">
+    <button type="button" id="wipe-data" aria-label="Wipe data: hold for 3 seconds to erase everything saved on this computer" title="Hold for 3 seconds to erase all saved data (program, tools, setup, settings). Space or Enter held works too.">
+      <span class="wd-fill" aria-hidden="true"></span>
+      <i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="wd-label">Wipe data</span>
+    </button>
+  </div>
 </div>
 <div id="app">
 
@@ -70428,7 +70431,7 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
 <style id="gs-css">
 /* Global search: one field in the page header that finds anything on the page and takes you to it. */
 #gs, #gs *, #gs-panel, #gs-panel *, #gs-ring, #gs-note { box-sizing: border-box; font-family: 'Inter', system-ui, sans-serif !important; }
-#gs { position: fixed; top: 4px; left: 12px; z-index: 2000; height: 26px; display: flex; align-items: center; }
+#gs { position: relative; display: flex; align-items: center; }
 #gs-field {
   position: relative; display: flex; align-items: center; gap: 8px; width: 232px; height: 26px; padding: 0 8px;
   color: #d8d8dc; background: #08090a; border: 1px solid #3d4147; border-radius: 8px;
@@ -70514,25 +70517,85 @@ html body #gs #gs-input, html body #gs #gs-input:focus, html body #gs #gs-input:
 #gs-note.show { opacity: 1; transform: translate(-50%, 0); }
 .gs-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-/* the wipe button shares the search field's height, edges and fill so the two read as a pair */
-html body #site-header #wipe-data { top: 4px; background: #08090a !important; border-radius: 8px !important; border-color: #3d4147; }
-html body #site-header #wipe-data:hover, html body #site-header #wipe-data:focus-visible { border-color: #e5484d; }
 body.cinematic #gs, body.cinematic #gs-panel { display: none !important; }
 
-@media (max-width: 900px) { #gs-field { width: 176px; } }
-@media (max-width: 640px) {
-  #gs { left: 8px; }
+/* ---- header: the Shop Tool Sim's title strip. A silver italic title tab hangs from the top rule, the portfolio link sits top left,
+   and slanted outlined plates (search, wipe data) sit top right. The rule and its corner dips are the page's own. ---- */
+html body #site-header.title-strip { position: relative; z-index: 30; flex: none; display: flex; justify-content: center; align-items: flex-start; width: 100%; padding: 12px 0 0 !important; background: #08090a !important; border: 0 !important; min-height: 0; }
+html body #site-header .title-tab {
+  --cut: 18px; position: relative; z-index: 1; flex: none; margin: 0; min-width: min(270px, 86vw); height: 34px; display: flex; align-items: center; justify-content: center; padding: 0 30px;
+  background: #3c3f46; clip-path: polygon(0 0, 100% 0, calc(100% - var(--cut)) 100%, var(--cut) 100%);
+  font-family: "Bebas Neue", "Inter", sans-serif; font-size: 22px; font-weight: 400; line-height: 1; letter-spacing: .08em; white-space: nowrap; font-style: italic; color: #c9cdd4;
+}
+html body #site-header .title-tab::before { content: ""; position: absolute; inset: 0 1px 1px; background: #08090a; clip-path: polygon(0 0, 100% 0, calc(100% - var(--cut) + .5px) 100%, calc(var(--cut) - .5px) 100%); }
+html body #site-header .title-tab span { position: relative; display: flex; align-items: center; gap: .3em; padding-top: .06em; text-rendering: geometricPrecision; -webkit-font-smoothing: antialiased; }
+html body #site-header .title-tab .tw { display: inline-block; font-weight: 400; padding-right: .08em; background: linear-gradient(180deg, #fbfcfd 0%, #e2e5eb 28%, #acb2bb 50%, #c0c5ce 68%, #d2d6dd 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+html body #site-header a.site-link {
+  position: absolute; left: 56px; top: 12px; bottom: 0; z-index: 1; display: flex; align-items: center; --cut: 0px; padding: 0; background: none; clip-path: none;
+  color: #fff !important; font: 600 12.5px/1 'Inter', system-ui, sans-serif !important; letter-spacing: .02em; text-decoration: none; white-space: nowrap; transition: color .2s ease, opacity .2s ease;
+}
+html body #site-header a.site-link::before { display: none; }
+html body #site-header a.site-link:hover, html body #site-header a.site-link:focus-visible { color: #fff !important; opacity: .75; text-decoration: underline; text-underline-offset: 3px; outline: none; }
+
+html body #site-header .hdr-actions { position: absolute; right: 56px; top: 12px; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: flex-end; gap: 20px; }
+/* the plates: a thin outline in the button's own colour, dark inside, Bebas italic labels */
+html body #site-header #wipe-data, html body #site-header #gs-field, html body #site-header #gs-open {
+  --c: 9px; position: relative; top: auto; right: auto; display: flex; align-items: center; justify-content: center; gap: 8px; width: auto; height: 26px; margin: 4px 0; padding: 0 24px 0 22px;
+  border: 0 !important; border-radius: 0 !important; overflow: hidden; clip-path: polygon(var(--c) 0, 100% 0, calc(100% - var(--c)) 100%, 0 100%); box-shadow: none;
+  font: italic 400 14px/1 "Bebas Neue", "Inter", sans-serif !important; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; text-decoration: none; cursor: pointer;
+  transition: background-color .25s ease, color .25s ease;
+}
+html body #site-header #wipe-data::after, html body #site-header #gs-field::after, html body #site-header #gs-open::after {
+  content: ""; position: absolute; inset: 1px; z-index: 0; pointer-events: none; background: #0a0b0d;
+  clip-path: polygon(calc(var(--c) - .4px) 0, 100% 0, calc(100% - var(--c) + .4px) 100%, 0 100%);
+}
+html body #site-header #wipe-data > *, html body #site-header #gs-field > *, html body #site-header #gs-open > * { position: relative; z-index: 2; }
+html body #site-header #wipe-data { background: #6a2f2d !important; color: #f2b3b0; touch-action: none; }
+html body #site-header #wipe-data:hover, html body #site-header #wipe-data:focus-visible, html body #site-header #wipe-data.is-holding { background: #f04a45 !important; color: #fff; outline: none; }
+html body #site-header #wipe-data .wd-fill { position: absolute; inset: 1px; z-index: 1; width: auto; background: rgba(240, 74, 69, .5); }
+html body #site-header #wipe-data svg, html body #site-header #wipe-data i { font-size: 13px; }
+html body #site-header #gs-field, html body #site-header #gs-open { background: #3c3f46 !important; color: #c9cdd4; width: 264px; cursor: text; }
+html body #site-header #gs-open { display: none; width: auto; cursor: pointer; padding: 0 16px 0 14px; }
+html body #site-header #gs-field:hover, html body #site-header #gs-open:hover, html body #site-header #gs-open:focus-visible { background: #6b6f78 !important; outline: none; }
+html body #site-header #gs-field:focus-within, html body #site-header #gs.open #gs-field { background: #4cc2ff !important; }
+html body #site-header #gs-field > i.fa-magnifying-glass, html body #site-header #gs-open i { color: #c9cdd4; font-size: 12px; }
+html body #site-header #gs-field:focus-within > i.fa-magnifying-glass { color: #4cc2ff; }
+html body #site-header #gs-field #gs-input { font: italic 400 15px/1 "Bebas Neue", "Inter", sans-serif !important; letter-spacing: .1em; text-transform: uppercase; color: #ececee; }
+html body #site-header #gs-field #gs-input::placeholder { font: italic 400 14px/1 "Bebas Neue", "Inter", sans-serif; letter-spacing: .1em; text-transform: uppercase; color: #c9cdd4; }
+html body #site-header #gs-kbd { color: #8a8f98; border-color: #3c3f46; }
+html body #site-header #gs-clear, html body #site-header #gs-close { margin: 0; }
+
+/* below this the search is a plate with just its icon; it opens into a field when used */
+@media (max-width: 1280px) {
+  html body #site-header .hdr-actions { gap: 14px; right: 46px; }
+  html body #site-header a.site-link { left: 46px; }
   #gs:not(.open) #gs-field { display: none; }
-  #gs:not(.open) #gs-open { display: inline-flex; }
-  #gs.open { left: 8px; right: 8px; }
-  #gs.open #gs-field { width: 100%; height: 30px; }
-  #gs.open { height: 30px; top: 2px; }
+  html body #site-header #gs:not(.open) #gs-open { display: flex; }
+  html body #site-header #gs.open #gs-open { display: flex; visibility: hidden; }
+  html body #site-header #gs.open #gs-field { position: fixed; z-index: 2000; top: 10px; right: 46px; width: min(440px, calc(100vw - 92px)); height: 30px; margin: 0; }
   #gs.open #gs-close { display: inline-flex; }
   #gs.open #gs-kbd { display: none; }
-  #gs-panel { left: 8px; top: 38px; width: calc(100vw - 16px); max-height: calc(100dvh - 50px); }
+}
+@media (max-width: 860px) {
+  html body #site-header a.site-link { font-size: 10.5px; left: 40px; }
+  html body #site-header .hdr-actions { right: 40px; }
+  html body #site-header #wipe-data .wd-label { display: none; }
+  html body #site-header #wipe-data { padding: 0 16px 0 14px; }
+}
+@media (max-width: 640px) {
+  html body #site-header .title-tab { --cut: 12px; height: 30px; font-size: 19px; padding: 0 28px; min-width: 0; }
+  html body #site-header a.site-link { display: none; }
+  html body #site-header.title-strip { justify-content: flex-start; padding-left: 40px !important; }
+  html body #site-header .hdr-actions { gap: 8px; right: 40px; }
+  html body #site-header #wipe-data, html body #site-header #gs-open { padding: 0 13px 0 11px; }
+  html body #site-header #gs.open #gs-field { left: 8px; right: 8px; width: auto; top: 6px; }
+  #gs-panel { left: 8px; top: 40px; width: calc(100vw - 16px); max-height: calc(100dvh - 52px); }
   #gs-foot .gs-keys { display: none; }
   #gs-foot { justify-content: flex-end; }
 }
+@media (max-width: 400px) { html body #site-header .title-tab { --cut: 10px; font-size: 15px; padding: 0 18px; } html body #site-header #wipe-data, html body #site-header #gs-open { padding: 0 11px 0 9px; } }
+@media (max-height: 700px) { html body #site-header .title-tab { height: 28px; font-size: 19px; } }
 @media (prefers-reduced-motion: reduce) {
   #gs-field, #gs-panel, #gs-note, .gs-row, #gs-ring { transition-duration: .01s !important; }
   #gs-ring i { animation: none; }
@@ -70542,7 +70605,7 @@ body.cinematic #gs, body.cinematic #gs-panel { display: none !important; }
   <button type="button" id="gs-open" aria-label="Search the whole page"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></button>
   <div id="gs-field">
     <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-    <input id="gs-input" type="search" placeholder="Search everything" aria-label="Search every panel, setting, button and help text" role="combobox" aria-expanded="false" aria-controls="gs-list" aria-autocomplete="list" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go">
+    <input id="gs-input" type="search" placeholder="Search" aria-label="Search every panel, setting, button and help text" role="combobox" aria-expanded="false" aria-controls="gs-list" aria-autocomplete="list" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go">
     <button type="button" id="gs-clear" aria-label="Clear the search"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     <span id="gs-kbd" aria-hidden="true">/</span>
     <button type="button" id="gs-close" aria-label="Close the search"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
@@ -70562,6 +70625,9 @@ body.cinematic #gs, body.cinematic #gs-panel { display: none !important; }
   var wrap = $("gs"), input = $("gs-input"), panel = $("gs-panel"), list = $("gs-list"), count = $("gs-count"),
       ring = $("gs-ring"), note = $("gs-note"), live = $("gs-live");
   if (!wrap || !input || !panel) return;
+  var COMPACT = 1280;
+  /* the search lives in the header, left of the wipe button */
+  (function () { var host = document.querySelector("#site-header .hdr-actions"); if (host) host.insertBefore(wrap, host.firstChild); })();
   var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /* ---------------------------------------------------------- the index ---------------------------------------------------------- */
@@ -70865,7 +70931,9 @@ body.cinematic #gs, body.cinematic #gs-panel { display: none !important; }
     else wrap.classList.remove("open");
   }
   function focusSearch() {
-    if (window.innerWidth <= 640) wrap.classList.add("open");
+    var mo = document.querySelectorAll(".modal-overlay.show");
+    for (var k = 0; k < mo.length; k++) mo[k].classList.remove("show");
+    if (window.innerWidth <= COMPACT) wrap.classList.add("open");
     input.focus({ preventScroll: true }); input.select();
     openPanel();
   }
@@ -70999,7 +71067,7 @@ body.cinematic #gs, body.cinematic #gs-panel { display: none !important; }
   }
 
   /* ---------------------------------------------------------- events ---------------------------------------------------------- */
-  input.addEventListener("focus", function () { if (window.innerWidth <= 640) wrap.classList.add("open"); openPanel(); });
+  input.addEventListener("focus", function () { if (window.innerWidth <= COMPACT) wrap.classList.add("open"); openPanel(); });
   input.addEventListener("input", function () { if (!isOpen) openPanel(); else { render(); } });
   input.addEventListener("keydown", function (ev) {
     var k = ev.key;
@@ -71038,7 +71106,7 @@ body.cinematic #gs, body.cinematic #gs-panel { display: none !important; }
     if ((k === "k" || k === "K") && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey) { ev.preventDefault(); focusSearch(); return; }
     if (k === "/" && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !typing) { ev.preventDefault(); focusSearch(); }
   }, true);
-  window.addEventListener("resize", function () { if (isOpen) placePanel(); if (window.innerWidth > 640 && !isOpen) wrap.classList.remove("open"); });
+  window.addEventListener("resize", function () { if (isOpen) placePanel(); if (window.innerWidth > COMPACT && !isOpen) wrap.classList.remove("open"); });
   var warm = function () { setTimeout(function () { if (!index.length) refreshSoon(); }, 3000); };
   if (document.readyState === "complete") warm(); else window.addEventListener("load", warm);
   window.GlobalSearch = { show: function (i) { if (!index.length) build(); var e = index[i]; return e ? locate(e).then(function () { return { label: e.label, where: e.ctx, kind: e.kind }; }) : Promise.resolve(null); }, entry: function (i) { return index[i] && index[i].el; }, blocked: function (i) { return !index[i] || !index[i].el.isConnected || blocked(index[i].el); }, open: focusSearch, close: closePanel, rebuild: build, get size() { return index.length; }, query: function (q) { if (!index.length) build(); return search(q).map(function (e) { return { label: e.label, where: e.ctx, kind: e.kind }; }); } };
