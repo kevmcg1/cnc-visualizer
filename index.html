@@ -18196,7 +18196,8 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </h1>
       <div class="stable-row"><span class="stable-tag" title="This build is in alpha testing">Alpha testing</span></div>
       <div class="shop-vrow"><button type="button" class="shop-vchip" id="btn-whats-new" title="Version 1.4.0 and the changelog">v1.4.0 &middot; What&rsquo;s new</button></div>
-      <div class="hdr-rule"></div>
+      <div class="hdr-rule" aria-hidden="true"></div>
+      <div class="logo-foot"><span class="logo-range">3-axis &middot; G-code &middot; in / <span class="u-mm">MM</span></span></div>
     </div>
 
     <div id="sb-setup">
@@ -18360,7 +18361,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
 
       <div class="ms-step" data-needs-stock>
         <div class="ms-q">Want to change how it's held?</div>
-        <div class="ms-sub">The vise grips the metal; the two bars underneath it — the parallels — set how far it stands up out of the jaws.</div>
+        <div class="ms-sub"><span class="hx-p">The vise grips the metal. Under it sit two flat bars called <b>parallels</b>, which lift the work to the right height above the jaws.</span></div>
         <div class="ms-row">
           <button class="ms-btn" data-doclick="#vp-stock-auto">
             <span class="ms-btn-t">Sort it out for me</span>
@@ -18383,7 +18384,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
 
       <div class="ms-step">
         <div class="ms-q">Want something else in the scene?</div>
-        <div class="ms-sub">Ready-made vises, blanks and whole example setups, or a file from your own computer.</div>
+        <div class="ms-sub"><span class="hx-p">Pick a ready-made vise, blank or whole example setup, or bring a file from your own computer.</span></div>
         <div class="ms-row">
           <button class="ms-btn" data-doclick="#pm-import">
             <span class="ms-btn-t">Open a file from my computer</span>
@@ -18410,7 +18411,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
 
       <div class="ms-step ms-finish">
         <div class="ms-q">Finished setting up?</div>
-        <div class="ms-sub">Go back to watching the program cut. Nothing you've arranged is lost.</div>
+        <div class="ms-sub"><span class="hx-p">Head back to watching the program cut. Nothing you arranged is lost.</span></div>
         <button class="ms-btn ms-go" id="ms-done">
           <span class="ms-btn-t">Take me back to the program</span>
         </button>
@@ -18466,10 +18467,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
                  (and data-cyl-off) on the [data-cyl-off] controls to bring them back. -->
             <button id="pm-stock-cyl" class="stk-btn" data-cyl-off hidden>Round bar</button>
           </div>
-          <div class="stk-note" id="stock-empty" hidden>
-            Nothing to cut yet — drop a blank in with one of those, or load a
-            scenario from the Library.
-          </div>
+          <div class="stk-note" id="stock-empty" hidden><span class="hx-p">Nothing to cut yet. Drop in a blank with one of the buttons above, or load a scenario from the Library.</span></div>
         </div>
 
         <div id="pm-bank" hidden>
@@ -18502,16 +18500,13 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
               <button data-metal="brass">Brass</button>
               <button data-metal="stainless">Stainless</button>
             </div>
-            <div class="stk-note">
-              The blank blends to the new metal in a fraction of a second.
-              Machining already done is kept.
-            </div>
+            <div class="stk-note"><span class="hx-p">Swap the material and the blank fades to the new metal in a blink. Any cuts you already made stay.</span></div>
           </div>
 
           <div class="stk-group">
             <div class="stk-head">Size <span class="stk-unit">(<span class="pm-unit">mm</span>)</span></div>
             <div id="pm-stock-size"></div>
-            <div class="stk-note">Type and the blank resizes as you go — the machining is kept.</div>
+            <div class="stk-note"><span class="hx-p">Type a size and the blank resizes as you go. Your cuts stay put.</span></div>
           </div>
 
           <div class="stk-group">
@@ -18539,15 +18534,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
                 <label>Angle</label><input id="pm-dt-a" type="number" step="1">
               </div>
             </div>
-            <div class="stk-note">
-              Machined into the bottom of the blank itself, not parked underneath
-              it — the cutter can reach it and the raymarcher draws it. It runs
-              along the axis you pick, so the jaws close across the other one:
-              <b>↔ X</b> puts the jaws on Y. <b>Foot</b> is the width across the
-              widest part, at the bottom; the root comes out narrower by the depth
-              times the angle, which is what stops it lifting out.
-              1.250 × .125 at 45° is the usual prep.
-            </div>
+            <div class="stk-note"><span class="hx-t">Cutting a dovetail</span><ul class="hx-l"><li>The shape is machined into the bottom of the blank itself, so the cutter can reach it. Pick <b>&harr; X</b> or <b>&varr; Y</b> for the direction it runs. The jaws close across the other direction.</li><li><b>Foot</b> is the width across the widest part, at the bottom.</li><li><b>Depth</b> and <b>Angle</b> set how tall and how steep. The root comes out narrower by the depth times the angle, and that taper is what stops the part lifting out.</li></ul><span class="hx-tip"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i><span>A common starting point: a 1.250 in foot and 0.125 in depth (31.75 &times; 3.18 mm) at 45&deg;.</span></span></div>
           </div>
 
           <div class="stk-group">
@@ -18560,12 +18547,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             <div class="stk-row stk-row-1">
               <button id="pm-stock-reset" class="stk-btn">Restore material</button>
             </div>
-            <div class="stk-note">
-              The cutter takes this away as the program runs. Every surface is a
-              live equation solved per pixel — no voxels, no mesh, exact at any
-              zoom. More solve steps means deeper pockets resolve cleanly; fewer
-              is faster.
-            </div>
+            <div class="stk-note"><span class="hx-t">How the metal is cut away</span><ul class="hx-l"><li>The cutter removes metal as the program runs. Every surface is worked out per pixel, so it stays exact at any zoom.</li><li><b>More solve steps:</b> deep pockets stay clean and sharp.</li><li><b>Fewer solve steps:</b> playback is faster.</li></ul></div>
           </div>
 
         </div>
@@ -18588,9 +18570,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             </span>
           </div>
           <div class="mkp-rows" id="fx-vises"></div>
-          <div class="pm-note" id="fx-empty" hidden>
-            No vise in the scene — pick one above, or load a scenario from the Library.
-          </div>
+          <div class="pm-note" id="fx-empty" hidden><span class="hx-p">No vise yet. Pick one above, or load a scenario from the Library.</span></div>
         </div>
 
         <div class="fx-group">
@@ -18646,10 +18626,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </span>
           </div>
-          <div class="pm-note" id="fx-table-note">
-            The VF-1 work surface under the vise — 26 × 14, three 5/8 T-slots on
-            4.92 centers. It arrives with a scenario or with the vise in build mode.
-          </div>
+          <div class="pm-note" id="fx-table-note"><span class="hx-p">This is the VF-1 work surface under the vise: 26 &times; 14 in (660 &times; 356 mm), with three 5/8 in (16 mm) T-slots 4.92 in (125 mm) apart. It shows up with a scenario, or with the vise in build mode.</span></div>
         </div>
       </div>
     </div>
@@ -18715,10 +18692,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
               <div class="sample-desc">G47 · part number and serial</div>
             </div>
           </div>
-          <div class="pm-note">
-            Each one brings its own blank, tools and work origin, set in
-            the vise and ready to play.
-          </div>
+          <div class="pm-note"><span class="hx-p">Each example arrives ready to run. Its blank, tools and work origin are already set in the vise.</span></div>
 
           <div class="mkp-label">Or bring your own</div>
           <div id="mkp-drop">
@@ -18770,12 +18744,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             <em>Re-cuts the pair to the jaws as they stand, sets them flush on
             both sides and banks one against each jaw face.</em>
           </button>
-          <div class="pm-note">
-            The bars arrive with the vise, banked on its jaw faces and
-            sitting on the bed. Anything you change here re-cuts them and
-            re-banks — they are flush against both jaws whatever the vise
-            is opened to.
-          </div>
+          <div class="pm-note"><span class="hx-t">Good to know</span><ul class="hx-l"><li>The bars arrive with the vise, snug against both jaws and resting on the bed.</li><li>Change a number here and they resize and re-seat themselves, however wide the vise is open.</li></ul></div>
         </div>
 
         <div class="mkp-step">
@@ -18833,11 +18802,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             <span><b>Recommended tooling</b><em>Whatever the program calls for, and Ø½ where it does not say. Off lets you set each diameter.</em></span>
           </label>
           <div id="mkp-tool-list"></div>
-          <div class="pm-note">
-            Cutters are drawn as plain cylinders of the stated diameter.
-            The builder that draws real flutes from a code lives in
-            <b>Tool Models</b>, outside build mode.
-          </div>
+          <div class="pm-note"><span class="hx-p">Cutters show as plain cylinders at the diameter you give. For real flutes, use <b>Tool Models</b> when you are out of build mode.</span></div>
         </div>
 
         <div class="mkp-step">
@@ -18856,19 +18821,12 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
               <button data-mkpslide="center" class="on">Center</button>
               <button data-mkpslide="right">Right</button>
             </div>
-            <div class="pm-note">
-              Flush with that end of the parallels, standing on top of
-              them, jaws closed on the blank's own width.
-            </div>
+            <div class="pm-note"><span class="hx-p">The blank sits flush with that end of the parallels, standing on top of them, with the jaws closed on its width.</span></div>
           </div>
 
           <div id="mkp-origin-block">
             <div class="mkp-label">Work origin</div>
-            <div class="pm-note" style="margin-top:0;">
-              The origin is the corner the whole program measures from —
-              the machine's X0 Y0 Z0. Pick what kind of point you want it
-              on, press Set origin, then click that point in the view.
-            </div>
+            <div class="pm-note" style="margin-top:0;"><span class="hx-t">What is an origin?</span><span class="hx-p">The origin is the corner every program measures from: the machine's X0 Y0 Z0. Think of it as the &ldquo;you are here&rdquo; dot on a map.</span><ol class="hx-l hx-n"><li>Pick what kind of point you want, such as a corner or the center.</li><li>Press <b>Set origin</b>.</li><li>Click that point in the view.</li></ol></div>
             <div class="pm-mini" id="mkp-origin-modes">
               <button data-mkporigin="vertex" class="on">A corner</button>
               <button data-mkporigin="edgemid">Middle of an edge</button>
@@ -18876,11 +18834,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             </div>
             <button id="mkp-set-origin" class="pm-wide">Set origin</button>
             <div class="mkp-out" id="mkp-origin-out"></div>
-            <div class="pm-note">
-              The grid and the X/Y/Z arrows move onto the point you click,
-              and the program follows — the metal itself does not budge.
-              Shift-click keeps picking, Esc cancels.
-            </div>
+            <div class="pm-note"><ul class="hx-l"><li>The grid and the X, Y and Z arrows jump to the point you click, and the program follows. The metal itself does not move.</li><li><b>Shift</b>-click keeps picking. <b>Esc</b> cancels.</li></ul></div>
           </div>
         </div>
 
@@ -18894,10 +18848,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             <button id="mkp-fit">Fit view</button>
           </div>
           <div class="mkp-out" id="mkp-scene-out"></div>
-          <div class="pm-note" id="mkp-saved-note">
-            Leaving build mode saves this setup, and the page opens with
-            it from then on — after a refresh, and after closing the tab.
-          </div>
+          <div class="pm-note" id="mkp-saved-note"><span class="hx-p">Leaving build mode keeps this setup in the scene for this visit only. The page always opens empty.</span></div>
           <button id="mkp-restart" class="pm-wide mkp-red">Start over — clear this setup</button>
           <button id="mkp-forget" class="pm-wide mkp-red">Leave build mode — clear the screen</button>
         </div>
@@ -19077,15 +19028,14 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
               <span class="toggle-thumb"></span>
             </span>
           </div>
-          <div class="hint">When ON, future moves draw at 20% opacity. When OFF, they draw at full brightness.</div>
+          <div class="hint"><span class="hx-p"><b>On:</b> future moves look faint (20% opacity) so you can see what is still to come. <b>Off:</b> they draw at full brightness.</span></div>
           <div class="toggle-row" style="margin-top:8px;" id="dim-comp-future-label">
             <span class="toggle-text" style="color:var(--text-dim);">Dim future comp moves</span>
             <span class="toggle-track on" id="dim-comp-future-track">
               <span class="toggle-thumb"></span>
             </span>
           </div>
-          <div class="hint">The magenta compensated path follows the switch above by default.
-            Turn this off to keep the whole compensated path at full brightness.</div>
+          <div class="hint"><span class="hx-p">The magenta compensated path follows the switch above. Turn this one off to keep the whole path bright.</span></div>
         </div>
         <!-- Optional stop is a playback control, not a display option, so it
              now sits on the transport card beside Single Block. The switch it
@@ -19096,11 +19046,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
           <button data-rotary="tool" class="on">Tool moves</button>
           <button data-rotary="part">Part rotates</button>
         </div>
-        <div class="hint">
-          <strong>Tool moves</strong> — the path wraps around a billet that stands still.
-          <strong>Part rotates</strong> — a trunnion carries the work round under an upright spindle.
-          The choice is built into the toolpath, so changing it re-reads the program and rewinds to the first line.
-        </div>
+        <div class="hint"><span class="hx-t">Two ways to turn</span><ul class="hx-l"><li><strong>Tool moves:</strong> the cutter swings around a billet that stands still.</li><li><strong>Part rotates:</strong> a trunnion (a tilting, spinning table) carries the work round under an upright spindle.</li><li>The choice is built into the toolpath, so switching re-reads the program and rewinds to the first line.</li></ul></div>
 
         <div class="sub-head">Center of Rotation</div>
         <div class="pm-grid" id="rot-pivot-grid">
@@ -19111,11 +19057,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
         <div class="pm-mini" style="margin-top:6px;">
           <button id="rot-pivot-follow" class="on">Follow work origin</button>
         </div>
-        <div class="hint">
-          What A, B and C swing about, in program units. It tracks the selected
-          part's work origin until you type a value here — then it stays where you
-          put it, and <strong>Follow work origin</strong> hands it back.
-        </div>
+        <div class="hint"><span class="hx-t">Pivot point</span><ul class="hx-l"><li>A, B and C swing about this point, in program units.</li><li>It follows the selected part's work origin until you type your own value.</li><li>Press <strong>Follow work origin</strong> to hand control back.</li></ul></div>
 
         </div>
         <div class="sub-head">Linear Axes (X / Y)</div>
@@ -19123,11 +19065,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
           <button data-linear="tool" class="on">Tool moves</button>
           <button data-linear="table">Table moves</button>
         </div>
-        <div class="hint">
-          <strong>Table moves</strong> — what a VF-1 actually does: the saddle carries
-          X and Y under a spindle that only goes up and down. Z always moves the head.
-          Display only; the cut is identical either way.
-        </div>
+        <div class="hint"><span class="hx-t">Who moves, the table or the tool?</span><ul class="hx-l"><li><strong>Tool moves:</strong> the cutter travels in X and Y over a table that stays still.</li><li><strong>Table moves:</strong> what a VF-1 really does. The table slides in X and Y under a spindle that only goes up and down. Z always moves the head.</li><li>This only changes what you see. The cut is identical.</li></ul></div>
 
         <div class="sub-head">Scene Visibility</div>
         <div class="toggle-row" id="show-grid-label">
@@ -19180,7 +19118,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
               placeholder="T1 1/2 endmill 4 flute in ER16&#10;T2 spot drill, T3 drill 5/16, T4 1/4-20 tap&#10;or TOOL 1, endmill flat, dia 0.5, holder shrink"></textarea>
             <div id="tool-table-type-msg" class="tt-msg"></div>
           </div>
-          <div class="hint">Edits update tool cylinder</div>
+          <div class="hint"><span class="hx-p">Change a diameter and the tool cylinder updates right away.</span></div>
         </div>
       </div>
     </div>
@@ -19191,15 +19129,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
         <span class="sec-chev">&#9654;</span>
       </div>
       <div class="sec-body">
-        <div class="pm-note" id="tm-howto">
-          To add the tool to the sim, just insert T# at the beginning, like
-          <b>"T1, 1/2 inch endmill, 4 flute"</b>. <b>"T20, touch probe"</b>
-          works the same way — that one measures the part and cuts nothing.
-          Say what it is held in and you get that too:
-          <b>"in an ER16 collet"</b>, <b>"shrink fit"</b>, <b>"Weldon"</b>,
-          <b>"hydraulic"</b>, <b>"keyless drill chuck"</b>. A tool in a holder
-          is the only kind the changer arm can take a proper hold of.
-        </div>
+        <div class="pm-note" id="tm-howto"><span class="hx-t">Add a tool in one line</span><ul class="hx-l"><li>Start with <b>T</b> and a number, then say what the tool is: <b>&ldquo;T1, 1/2 inch endmill, 4 flute&rdquo;</b>.</li><li><b>&ldquo;T20, touch probe&rdquo;</b> works too. A probe measures the part and cuts nothing.</li><li>Add how it is held if you like: <b>&ldquo;in an ER16 collet&rdquo;</b>, <b>&ldquo;shrink fit&rdquo;</b>, <b>&ldquo;Weldon&rdquo;</b>, <b>&ldquo;hydraulic&rdquo;</b> or <b>&ldquo;keyless drill chuck&rdquo;</b>.</li></ul></div>
 
         <textarea id="tool-model-code" spellcheck="false" rows="3"
                   placeholder="Type or paste anything: T1 1/2 endmill 4 flute in ER16, or TOOL 1, endmill flat, dia 0.5, holder shrink, or a CT1.… code. It updates as you type."></textarea>
@@ -19221,7 +19151,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
           </div>
         </div>
         <div class="tm-note" id="tool-spin-note"></div>
-        <div class="tm-note">Replaces the placeholder cylinder for that tool number. Codes also go in the TOOL_MODELS list at the bottom of this file.</div>
+        <div class="tm-note"><span class="hx-p">This replaces the plain cylinder for that tool number. Developers can also add codes to the TOOL_MODELS list at the bottom of this file.</span></div>
       </div>
     </div>
 
@@ -19248,20 +19178,14 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
 
         <div class="sub-head" id="pm-scene-head">In the scene <span id="pm-count">0</span></div>
         <div id="pm-list" class="pm-list"></div>
-        <div class="pm-note" id="pm-scene-empty">
-          Nothing in the scene yet — pick a shelf above and click anything on it.
-        </div>
+        <div class="pm-note" id="pm-scene-empty"><span class="hx-p">Nothing here yet. Pick a shelf above and click anything on it.</span></div>
         <div id="pm-msg" class="pm-msg"></div>
 
         <div id="pm-edit" hidden>
 
           <div class="pm-sub">
             <div class="pm-sub-title">Placing <span class="pm-title-name" id="pm-title"></span></div>
-            <div class="pm-note" style="margin-top:0;">
-              X/Y/Z is where the <b>base point</b> sits, and rotation and
-              scale act about it. Set the base to a bore center and the part
-              spins about that bore.
-            </div>
+            <div class="pm-note" style="margin-top:0;"><span class="hx-t">Base point</span><span class="hx-p">X, Y and Z say where the <b>base point</b> sits. Rotation and scale happen around it, like a record spinning on its spindle. Set the base to a bore center and the part spins about that bore.</span></div>
             <div class="pm-grid">
               <label>X</label><input id="pm-px" type="number" step="0.1">
               <label>Y</label><input id="pm-py" type="number" step="0.1">
@@ -19338,12 +19262,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             </div>
             <div id="pm-base-out" class="pm-out dim"></div>
             <div id="pm-zero-out" class="pm-out"></div>
-            <div class="pm-note">
-              Shift-click keeps picking, Esc cancels, right-drag still orbits
-              while armed. Face mode floods the whole flat face, so a round
-              face gives you its center. Faces on a moving part can be picked
-              too — the point is taken where that part is standing.
-            </div>
+            <div class="pm-note"><span class="hx-t">Picking tips</span><ul class="hx-l"><li><b>Shift</b>-click keeps picking. <b>Esc</b> cancels.</li><li>Right-drag still orbits the view while picking is on.</li><li><b>Face</b> mode picks the whole flat face. On a round face you get its center.</li><li>Faces on a moving part can be picked too, at the spot where that part is standing now.</li></ul></div>
           </div>
 
           <div class="pm-sub">
@@ -19371,20 +19290,12 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </div>
       <div class="sec-body">
         <div id="d-offset-table-container">
-          <div class="pm-note">
-            These rows look after themselves. Every <b>D</b> word the parser finds
-            in the program gets a row here automatically, and the row disappears
-            again the moment that D word leaves the code. You only ever fill in
-            the diameter.
-          </div>
+          <div class="pm-note"><span class="hx-t">How this table works</span><ul class="hx-l"><li>A <b>D</b> word is a tool-offset number in your program, such as <code>D01</code> on a G41 line.</li><li>Every D word in the program gets its own row automatically. Delete the D word and its row goes away.</li><li>Your only job is to type the diameter in the Dia column.</li></ul><span class="hx-tip"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i><span>Cutter compensation shifts the path by the cutter's radius, so the finished part comes out the right size.</span></span></div>
           <table class="tool-table" id="d-offset-table">
             <thead><tr><th>D #</th><th id="d-offset-dia-header">Dia (in)</th></tr></thead>
             <tbody id="d-offset-table-body"></tbody>
           </table>
-          <div id="d-offset-empty" class="pm-note">
-            Nothing to show — no D words in the program yet. Add
-            <code>D01</code> to a G41, G42, G12 or G13 line and a row turns up.
-          </div>
+          <div id="d-offset-empty" class="pm-note"><span class="hx-p">Nothing here yet. Add <code>D01</code> to a G41, G42, G12 or G13 line and a row appears.</span></div>
         </div>
       </div>
     </div>
@@ -19413,11 +19324,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
           border-radius: 5px; padding: 7px 9px;
           word-break: break-all;
         ">(initializing…)</div>
-        <div class="hint">
-          Updates every frame. If single-block reads the wrong line right
-          after a paste, watch <span style="color:var(--accent)">parsePending</span>:
-          true means the parser hasn't run yet.
-        </div>
+        <div class="hint"><span class="hx-p">Updates every frame. If single-block reads the wrong line right after a paste, check <span style="color:var(--accent)">parsePending</span>. <b>True</b> means the parser has not run yet.</span></div>
       </div>
     </div>
 
@@ -19660,7 +19567,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
                     on it for three seconds.</li>
               </ul>
 
-              <div class="hint">💡 Everything you do is saved on your own computer,
+              <div class="hint"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i> Everything you do is saved on your own computer,
                  so it's still here tomorrow. Settings ▸ Wipe all clears it if you
                  want a clean slate.</div>
             </div>
@@ -19757,7 +19664,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
                  there's no account. Settings ▸ <strong>Wipe all</strong> clears
                  the lot.</p>
 
-              <div class="hint">⚙ Editor colors and the hover style are yours to
+              <div class="hint"><i class="fa-solid fa-gear" aria-hidden="true"></i> Editor colors and the hover style are yours to
                  set in Settings ▸ Advanced.</div>
             </div>
           </div>
@@ -67161,8 +67068,7 @@ html body #play-bar{ container:pb / inline-size }
 @media (prefers-reduced-motion:reduce){ html body #right-sidebar#right-sidebar *,html body #right-sidebar#right-sidebar *::before,html body #right-sidebar#right-sidebar *::after{ transition-duration:.01s!important; animation-duration:.01s!important } }
 </style>
 <style id="sidebar-panels">
-/* ===================================================================================================
-   SIDEBAR PANELS: every group in the right sidebar has its own colour, and the Parallels, Camera angles
+/* ============================================================================================   SIDEBAR PANELS: every group in the right sidebar has its own colour, and the Parallels, Camera angles
    and camera read-out panels in the left sidebar are laid out as aligned rows.
    Group colours:  menu #b48cff · display #35d4c7 · isolate and section #ff6b6b · graphics #ffc24a
                    path types #ff8fd0 · coolant #5fcf8a · workholding #4cc2ff · camera #ff9a4d
@@ -67354,6 +67260,79 @@ html body #sidebar#sidebar #syntax-section .sec-name .sf-tag{ white-space:nowrap
 @media (prefers-reduced-motion:reduce){
   html body #right-sidebar#right-sidebar #vt-iso :is(#vt-iso-axes,#vt-iso-size){ animation:none!important }
 }
+=======
+</style>
+<style id="sb-lockup-v2">
+/* Left sidebar top: the same lockup as the Dial Caliper in Shop Tool Sim. */
+@font-face{font-family:"Bebas Neue";font-style:normal;font-weight:400;font-display:swap;src:url(data:font/woff2;base64,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) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+html body #sidebar#sidebar > #sidebar-header{ display:block!important; padding:14px 18px 6px!important; background:none!important; box-shadow:none!important; border-bottom:0!important; text-align:center }
+html body #sidebar#sidebar > #sidebar-header .hdr-rule{ display:block!important }
+html body #sidebar#sidebar #sidebar-header h1.brand{
+  font-family:"Bebas Neue","Inter",Impact,sans-serif!important; font-size:2.35rem!important; font-weight:400!important; letter-spacing:.055em!important; line-height:.9!important;
+  color:#e4e6ea!important; margin:0; display:flex; align-items:center; justify-content:center; gap:.28em;
+}
+html body #sidebar#sidebar #sidebar-header h1.brand .brand-top{ color:#e4e6ea!important; text-transform:none }
+html body #sidebar#sidebar #sidebar-header h1.brand .brand-bot{ font-style:italic; text-transform:uppercase; letter-spacing:.1em; text-indent:.1em; color:#6d737c }
+@supports (-webkit-text-stroke:1px black){ html body #sidebar#sidebar #sidebar-header h1.brand .brand-bot{ color:transparent!important; -webkit-text-stroke:1.4px #e4e6ea } }
+html body #sidebar#sidebar #sidebar-header h1.brand .brand-brk{ color:#e8c547!important; opacity:.85; font-size:1.55em; line-height:.78 }
+/* the badge is orange while the build is in alpha */
+html body #sidebar#sidebar #sidebar-header .stable-row{ margin:7px 0 0 }
+html body #sidebar#sidebar #sidebar-header .stable-tag{
+  color:#ff9f43!important; border:1px solid rgba(255,159,67,.5)!important; background:rgba(255,159,67,.09)!important;
+  font:800 11px/1 "Inter",system-ui,sans-serif!important; letter-spacing:.16em; text-transform:uppercase!important; padding:3px 9px 3px 8px;
+}
+html body #sidebar#sidebar #sidebar-header .shop-vrow{ margin:8px 0 2px }
+html body #sidebar#sidebar #sidebar-header .shop-vchip{
+  color:#ececee!important; background:rgba(255,255,255,.05)!important; border:1px solid #3d4147!important; border-radius:999px!important;
+  font:600 11px/1.3 "Inter",system-ui,sans-serif!important; letter-spacing:.03em; padding:3px 11px; min-height:24px;
+}
+html body #sidebar#sidebar #sidebar-header .shop-vchip:hover,html body #sidebar#sidebar #sidebar-header .shop-vchip:focus-visible{ border-color:#8a8f97!important; background:rgba(255,255,255,.08)!important }
+html body #sidebar#sidebar #sidebar-header .hdr-rule{ width:100%; max-width:210px; height:1.5px; margin:12px auto 8px; opacity:.35 }
+html body #sidebar#sidebar #sidebar-header .logo-foot{ display:flex; justify-content:center; padding:0 0 4px }
+html body #sidebar#sidebar #sidebar-header .logo-range{ color:#6d737c; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important; font-size:11px; font-weight:600; letter-spacing:.12em; text-transform:uppercase }
+html body #sidebar#sidebar #sidebar-header .logo-range .u-mm{ color:#5b93ea }
+
+/* How do I use it? — the same filled blue button as the Dial Caliper */
+html body #sidebar#sidebar > #mkp-launch{ padding:0 14px 18px!important; background:none!important; box-shadow:none!important; border-bottom:1px solid var(--sb-line)!important; display:flex!important; justify-content:center }
+html body #sidebar#sidebar #mkp-launch #btn-make-program{
+  display:inline-flex!important; align-items:center; justify-content:center; gap:10px; width:100%!important; max-width:250px!important; min-height:0!important; margin:8px auto 0!important; padding:12px 18px!important;
+  border-radius:12px!important; border:1px solid color-mix(in srgb,var(--accent) 70%,#fff)!important;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 80%,#fff),var(--accent))!important; color:#07111f!important;
+  font:700 15px/1.2 "Inter",system-ui,sans-serif!important; letter-spacing:.01em!important; cursor:pointer;
+  box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 38%,transparent),inset 0 1px 0 rgba(255,255,255,.4)!important;
+  transition:transform .15s ease,box-shadow .2s ease,filter .2s ease; will-change:transform;
+}
+html body #sidebar#sidebar #mkp-launch #btn-make-program:hover{ transform:translateY(-1px); filter:brightness(1.08); box-shadow:0 9px 24px color-mix(in srgb,var(--accent) 50%,transparent),inset 0 1px 0 rgba(255,255,255,.45)!important }
+html body #sidebar#sidebar #mkp-launch #btn-make-program:active{ transform:none; filter:brightness(.97) }
+html body #sidebar#sidebar #mkp-launch #btn-make-program:focus-visible{ outline:3px solid #fff; outline-offset:3px }
+html body #sidebar#sidebar #mkp-launch .mkp-q{ border:0!important; background:rgba(7,17,31,.2)!important; display:inline-grid; place-items:center; flex:none; width:24px; height:24px; border-radius:50%; background:rgba(7,17,31,.2); border:0!important; color:#07111f!important; font-size:15px; font-weight:800 }
+html body #sidebar#sidebar #mkp-launch #btn-make-program .mkp-t{ color:#07111f!important; font-size:15px; font-weight:700 }
+@media (prefers-reduced-motion:reduce){ html body #sidebar#sidebar #mkp-launch #btn-make-program{ transition:none } html body #sidebar#sidebar #mkp-launch #btn-make-program:hover{ transform:none } }
+
+/* Small headings inside the sidebar all share the MACHINE STATE look: Inter bold, upper case, wide tracking, tinted by the section */
+html body #sidebar#sidebar #machine-state-panel > .ms-sub,
+html body #sidebar#sidebar .sub-head,
+html body #sidebar#sidebar .stk-head,
+html body #sidebar#sidebar .sb-setup-label,
+html body #sidebar#sidebar #mkp-section .mkp-label{
+  font-family:"Inter",system-ui,sans-serif!important; font-style:normal!important; font-weight:700!important; text-transform:uppercase!important;
+  letter-spacing:.1em!important; line-height:1.2; color:color-mix(in srgb,var(--sc,#94a3b8) 55%,#fff)!important;
+}
+html body #sidebar#sidebar #machine-state-panel > .ms-sub{ font-size:var(--sb-fs)!important; margin:14px 0 8px }
+html body #sidebar#sidebar :is(.sub-head,.stk-head,.sb-setup-label,#mkp-section .mkp-label){ font-size:var(--sb-fs-s)!important }
+
+/* Friendlier help text: a short title, a few plain bullets, and an occasional tip. */
+html body #sidebar#sidebar .hx-t{ display:block; margin:0 0 6px; color:var(--sb-ink); font-weight:700; font-size:var(--sb-fs); letter-spacing:.01em; line-height:1.3 }
+html body #sidebar#sidebar .hx-p{ display:block }
+html body #sidebar#sidebar .hx-l{ margin:0; padding:0; list-style:none; display:grid; gap:6px }
+html body #sidebar#sidebar .hx-l li{ position:relative; padding-left:15px; color:var(--sb-soft) }
+html body #sidebar#sidebar .hx-l:not(.hx-n) li::before{ content:""; position:absolute; left:2px; top:.6em; width:5px; height:5px; border-radius:50%; background:var(--sc,#5b93ea); opacity:.85 }
+html body #sidebar#sidebar .hx-n{ counter-reset:hx }
+html body #sidebar#sidebar .hx-n li{ counter-increment:hx; padding-left:22px }
+html body #sidebar#sidebar .hx-n li::before{ content:counter(hx); position:absolute; left:0; top:.05em; width:16px; height:16px; display:grid; place-items:center; border:1px solid var(--sc,#5b93ea); border-radius:50%; color:var(--sc,#5b93ea); font-size:10px; font-weight:700; line-height:1 }
+html body #sidebar#sidebar .hx-l b,html body #sidebar#sidebar .hx-l strong,html body #sidebar#sidebar .hx-p b,html body #sidebar#sidebar .hx-p strong{ color:var(--sb-ink); font-weight:600 }
+html body #sidebar#sidebar .hx-tip{ display:flex; gap:8px; align-items:flex-start; margin-top:9px; padding:7px 10px; border:1px solid var(--sb-line); border-radius:8px; color:var(--sb-soft) }
+html body #sidebar#sidebar .hx-tip > i{ flex:none; margin-top:.2em; color:#e8c547; font-size:11px }
 </style>
 <script id="ux-stress">
 /* ux-stress.js: page-wide stress test and UX audit (dev tool).
