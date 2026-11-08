@@ -24,6 +24,10 @@ A single-file G-code simulator for a Haas-style mill. Open `index.html` in a bro
 - Tooltips are drawn on one page-level card that never overlaps its control or leaves the window.
 - One design language throughout (Inter, outlined controls, flat dark HUD cards).
 
+## Global search
+
+A search field sits at the top left of the page (an icon on a phone). Press `/` or `Ctrl+K` (`Cmd+K` on a Mac) to jump into it from anywhere. It looks through every panel on the page: both sidebars, every section, button and setting, the ready-made samples, the G and M code lookup, the Guide and the Settings dialog, and the help text under them. Results show what each one is and where it lives. Use the arrow keys to move, `Enter` to go, and `Esc` to close. Going to a result opens the dialog, category and section that hold it, scrolls it into view and rings it for a moment. Things that are hidden until something else is set up, such as the part editor before a model is imported, are left out until they can be reached.
+
 ## Sidebar steps, empty state and work zero
 
 - **Load a program** is its own group at the top of the left sidebar and is not numbered. The numbered steps are the job itself: **Step 1 Set up the job**, **Step 2 Look around**, **Step 3 Check your work**.
