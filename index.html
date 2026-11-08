@@ -18480,14 +18480,6 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
                 <button data-stockalign="right"  title="Jaws close on the width, billet registered on the fixed jaw and pushed to the right-hand end of the jaws">Right</button>
               </div>
             </div>
-
-            <div class="stk-group" id="pm-preview-label">
-              <div class="stk-head">Showcase</div>
-              <div class="stk-row stk-row-2 pm-bank-ba" id="pm-stock-preview">
-                <button data-stockpreview="before" title="The billet as it arrives — program rewound to the first line, grid, origin and WCS marks hidden">Before</button>
-                <button data-stockpreview="after"  title="The billet at the end of the program — every cut made, grid, origin and WCS marks hidden">After</button>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -19322,6 +19314,35 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </div>
     </div>
 
+    <div class="section" id="showcase-section">
+      <div class="sec-head" data-sec="showcase">
+        <span class="sec-name">Showcase</span>
+        <span class="sec-chev">&#9654;</span>
+      </div>
+      <div class="sec-body stk-body">
+        <div class="stk-group" id="pm-preview-label">
+          <div class="stk-head">The blank, before and after</div>
+          <div class="stk-row stk-row-2 pm-bank-ba" id="pm-stock-preview">
+            <button data-stockpreview="before" title="The billet as it arrives — program rewound to the first line, grid, origin and WCS marks hidden">Before</button>
+            <button data-stockpreview="after"  title="The billet at the end of the program — every cut made, grid, origin and WCS marks hidden">After</button>
+          </div>
+        </div>
+        <div class="stk-group" id="kit-group">
+          <div class="stk-head">Job kit</div>
+          <div class="stk-row stk-row-1">
+            <button id="kit-toggle" class="stk-btn" type="button" aria-pressed="false"
+                    title="Lay out the blank, the parallels, every tool with its holder and the setup sheet in the 3D view">
+              <i class="fa-solid fa-boxes-stacked" aria-hidden="true"></i>
+              <span id="kit-toggle-text">Show the job kit</span>
+            </button>
+          </div>
+          <div class="stk-note" id="kit-note">
+            Everything the operator needs, laid out in the 3D view: the blank, the parallels, each tool with its holder, and the setup sheet.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="section">
       <div class="sec-head" data-sec="setup-sheet">
         <span class="sec-name">Setup Sheet</span>
@@ -19329,7 +19350,11 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
         <span class="sec-chev">▶</span>
       </div>
       <div class="sec-body">
-        <div class="pm-note">WIP — coming to next update.</div>
+        <div class="pm-note">A printable sheet is coming in the next update. Until then you can read it in the job kit.</div>
+        <button id="kit-open-sheet" class="jk-side-btn" type="button">
+          <i class="fa-solid fa-clipboard-list" aria-hidden="true"></i>
+          <span>Read the sheet in the job kit</span>
+        </button>
       </div>
     </div>
 
@@ -57992,8 +58017,8 @@ html body #sidebar#sidebar #og-group .og-pt:focus-visible { outline: 2px solid #
       desc: "Choose what is on screen and where the camera stands.",
       secs: ["display", "grid", "cameras"] },
     { key: "check",   name: "Step 3 \u00B7 Check your work", color: "#ff6b6b", icon: "fa-magnifying-glass-chart",
-      desc: "Run times, mistakes in the code, a setup sheet, and a code lookup.",
-      secs: ["view-stats", "syntax", "setup-sheet", "codes"] },
+      desc: "A showcase of the job, run times, mistakes in the code, a setup sheet, and a code lookup.",
+      secs: ["showcase", "view-stats", "syntax", "setup-sheet", "codes"] },
     { key: "library", name: "Extras", color: "#b48cff", icon: "fa-toolbox",
       desc: "For when you are comfortable: your own 3D models and technical tools.",
       secs: ["part-models", "sim-debug", "stress", "dev"] },
@@ -58013,6 +58038,7 @@ html body #sidebar#sidebar #og-group .og-pt:focus-visible { outline: 2px solid #
     cameras: ["Camera angles", "Jump to a standard view, such as top or front."],
     "view-stats": ["Program stats", "How long the program runs and how far the tool travels."],
     syntax: ["Fix my G-code", "Looks for common typing mistakes in the program."],
+    showcase: ["Showcase", "See the blank before and after the cuts, or the whole job kit laid out in 3D."],
     "setup-sheet": ["Setup sheet", "A printable summary for whoever runs the machine."],
     codes: ["G and M code lookup", "Search for what a code means."],
     "part-models": ["Import 3D models", "Bring in your own vise, fixture or part."],
@@ -58024,7 +58050,7 @@ html body #sidebar#sidebar #og-group .og-pt:focus-visible { outline: 2px solid #
     program: "fa-file-code", subs: "fa-file-import", codes: "fa-book", stock: "fa-cube", fixture: "fa-wrench",
     tools: "fa-table-list", "d-offsets": "fa-sliders", "tool-models": "fa-gear",
     "part-models": "fa-shapes", display: "fa-eye", grid: "fa-border-all", cameras: "fa-camera-retro",
-    "view-stats": "fa-chart-simple", stress: "fa-gauge-high", syntax: "fa-spell-check", "sim-debug": "fa-bug", "setup-sheet": "fa-clipboard-list",
+    "view-stats": "fa-chart-simple", stress: "fa-gauge-high", syntax: "fa-spell-check", "sim-debug": "fa-bug", "setup-sheet": "fa-clipboard-list", showcase: "fa-boxes-stacked",
   };
 
   const headOf = key => sidebar.querySelector('.sec-head[data-sec="' + key + '"]');
@@ -69356,6 +69382,885 @@ html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{tran
   setInterval(sync, 300);
   window.addEventListener('resize', sync);
   sync();
+})();
+</script>
+<style id="job-kit-css">
+/* Job kit: the showcase laid out in the 3D view. Flat, dark, Inter only, outlined controls. */
+#jk-layer { position: absolute; inset: 0; z-index: 18; pointer-events: none; overflow: hidden; }
+#jk-layer[hidden] { display: none; }
+#jk-veil {
+  z-index: 5; position: absolute; inset: 0; background: #1a1a1a; opacity: 0; pointer-events: none;
+  transition: opacity .24s cubic-bezier(.2, .7, .2, 1); will-change: opacity;
+}
+#jk-veil.on { opacity: 1; }
+#jk-bar {
+  z-index: 4; position: absolute; top: 12px; left: 50%; transform: translate(-50%, -8px);
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 28px);
+  padding: 6px 6px 6px 12px; border: 1px solid rgba(255, 255, 255, .16); border-radius: 10px;
+  background: rgba(22, 22, 22, .92); color: #e8eaed; pointer-events: auto;
+  opacity: 0; transition: opacity .3s cubic-bezier(.2, .7, .2, 1), transform .3s cubic-bezier(.2, .7, .2, 1);
+}
+#jk-layer.shown #jk-bar { opacity: 1; transform: translate(-50%, 0); }
+#jk-bar .jk-title { display: flex; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; padding-right: 4px; }
+#jk-bar .jk-title i { font-size: 12px; opacity: .85; }
+#jk-bar .jk-count { font-size: 11px; color: #9aa0a6; white-space: nowrap; }
+#jk-bar button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, .22); border-radius: 8px; background: transparent; color: #e8eaed;
+  font-size: 12px; line-height: 1; cursor: pointer; white-space: nowrap;
+  transition: border-color .16s ease, color .16s ease, background-color .16s ease;
+}
+#jk-bar button:hover { border-color: #fff; background: rgba(255, 255, 255, .06); }
+#jk-bar button:active { background: rgba(255, 255, 255, .1); }
+#jk-bar button i { font-size: 12px; }
+.jk-label {
+  position: absolute; left: 0; top: 0; width: var(--jk-w, 156px); height: var(--jk-h, 86px); overflow: hidden; box-sizing: border-box; margin: 0;
+  padding: 7px 9px 8px; text-align: left; cursor: pointer; pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, .2); border-radius: 8px; background: rgba(22, 22, 22, .94); color: #e8eaed;
+  opacity: 0; will-change: transform, opacity;
+  transition: opacity .4s cubic-bezier(.2, .7, .2, 1), border-color .16s ease, background-color .16s ease;
+}
+#jk-layer.shown .jk-label { opacity: 1; }
+#jk-layer.shown .jk-label.dim { opacity: .32; }
+.jk-label:hover, .jk-label:focus-visible { border-color: #fff; background: rgba(32, 32, 32, .96); }
+.jk-label.on { border-color: #fff; }
+.jk-label .jk-k { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: #9aa0a6; letter-spacing: .02em; white-space: nowrap; min-width: 0; }
+.jk-label .jk-k span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.jk-label .jk-k i { flex: none; }
+.jk-label .jk-k i { font-size: 10px; }
+.jk-label .jk-t { display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.25; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#jk-layer:not([data-mode="full"]) .jk-label .jk-d { display: none; }
+#jk-layer[data-mode="mini"] .jk-label .jk-k i { display: none; }
+#jk-layer:not([data-mode="full"]) .jk-label { padding-top: 5px; padding-bottom: 5px; }
+#jk-layer[data-mode="mini"] .jk-label .jk-t { font-size: 11px; }
+.jk-label .jk-d { display: block; margin-top: 2px; font-size: 10.5px; line-height: 1.3; color: #b4bac2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sidebar .jk-side-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 36px; margin-top: 10px; padding: 0 10px;
+  border: 1px solid var(--sb-line, rgba(255, 255, 255, .16)); border-radius: 8px; background: transparent;
+  color: var(--sb-ink-soft, #e8eaed); font-size: 12px; line-height: 1.2; cursor: pointer;
+  transition: border-color .14s ease, color .14s ease, background-color .14s ease;
+}
+#sidebar .jk-side-btn:hover { border-color: var(--accent, #5b93ea); color: var(--accent, #5b93ea); background: rgba(91, 147, 234, .09); }
+@media (max-width: 640px) {
+  #sidebar .jk-side-btn { min-height: 44px; }
+  #jk-bar { top: auto; bottom: 8px; transform: translate(-50%, 8px); padding-left: 10px; }
+  #jk-bar .jk-count { display: none; }
+  #jk-bar button span { display: none; }
+  #jk-bar button { min-width: 44px; min-height: 44px; }
+  .jk-label { padding: 5px 7px 6px; }
+  .jk-label .jk-t { font-size: 11.5px; }
+  .jk-label .jk-d { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #jk-veil, #jk-bar, .jk-label { transition-duration: .01s; }
+}
+</style>
+<script id="job-kit">
+/* job-kit.js: the Check your work showcase.
+
+   One button in the sidebar lays out, in the 3D view, everything an operator needs for the job: the part blank, the
+   parallels, every tool standing next to its holder, and the setup sheet. Nothing in the real scene is touched. The kit
+   is its own group that is drawn instead of the scene while it is open (the render call is wrapped, nothing is hidden
+   for good), the camera is put back exactly where it was on close, and the program keeps running underneath.
+
+   Everything is built in millimeters and the kit group is scaled to the page's unit. Labels are page elements pinned to
+   points on the floor, so they stay crisp and are set in Inter. */
+(function () {
+  "use strict";
+  if (typeof THREE === "undefined" || typeof mainScene === "undefined" || typeof mainRenderer === "undefined") return;
+
+  const MM = 25.4;
+  const TAU = Math.PI * 2;
+  const KIT_THETA = Math.PI;                 /* looking from the front of the machine */
+  const KIT_PHI = 0.96;                      /* about 35 degrees above the floor */
+  const SHEET_W = 215.9, SHEET_H = 279.4;    /* letter, portrait */
+  const PLINTH = 3;
+
+  const kit = new THREE.Group();
+  kit.name = "jobKit";
+  kit.visible = false;
+  mainScene.add(kit);
+
+  let layer = null, veil = null, bar = null, countEl = null;
+  let active = false;        /* the kit is what the canvas draws */
+  let wanted = false;        /* the person asked for it */
+  let items = [];
+  let layout = null;         /* { target, frustum, box } in millimeters */
+  let focusKey = null;
+  let saved = null;
+  let sig = "", pollTimer = 0, resizeTimer = 0, introT0 = 0, introRaf = 0, busyHeld = false;
+  let transition = 0, scrolled = false;
+  let sheetCanvas = null, sheetTex = null;
+  const labelEls = new Map();
+
+  const el = id => document.getElementById(id);
+  const inchMode = () => !(typeof unitMode !== "undefined" && unitMode === "mm");
+  const K = () => (inchMode() ? 1 / MM : 1);
+  const viewportEl = () => (typeof viewport !== "undefined" && viewport) || el("viewport");
+
+  /* ---------- numbers, in the page's unit first and the other in parentheses ---------- */
+  function trimIn(mm) {
+    const s = (mm / MM).toFixed(4);
+    return s.endsWith("0") ? s.slice(0, -1) : s;
+  }
+  function trimMm(mm) {
+    const s = mm.toFixed(2);
+    return s.replace(/0$/, "").replace(/\.0$/, ".0");
+  }
+  function fixIn(mm, d) { return (mm / MM).toFixed(d == null ? 3 : d); }
+  function fixMm(mm, d) { return mm.toFixed(d == null ? 1 : d); }
+  /* one length: "0.375 in" and "(9.53 mm)" */
+  function lenPair(mm) {
+    const a = trimIn(mm) + " in", b = trimMm(mm) + " mm";
+    return inchMode() ? [a, "(" + b + ")"] : [b, "(" + a + ")"];
+  }
+  function sizePair(list, d3) {
+    const a = list.map(v => fixIn(v, d3 || 3)).join(" × ") + " in";
+    const b = list.map(v => fixMm(v, 1)).join(" × ") + " mm";
+    return inchMode() ? [a, "(" + b + ")"] : [b, "(" + a + ")"];
+  }
+  const one = p => p[0] + " " + p[1];
+  const cap = s => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+  function clock(sec) {
+    if (!(sec > 0)) return "Not run yet";
+    const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+    return m + ":" + String(s === 60 ? 59 : s).padStart(2, "0") + " min";
+  }
+
+  /* ---------- what the job is made of ---------- */
+  function readProgram() {
+    const text = (typeof gcodeInput !== "undefined" && gcodeInput) ? gcodeInput.value : "";
+    const info = { text, number: "", title: "", wcs: "", tools: {}, lines: text ? text.split(/\r?\n/).length : 0 };
+    let cur = null;
+    text.split(/\r?\n/).forEach(raw => {
+      const mo = raw.match(/^\s*(O\d+)\s*(?:\(([^)]*)\))?/i);
+      if (mo && !info.number) { info.number = mo[1].toUpperCase(); info.title = (mo[2] || "").trim(); }
+      const code = raw.replace(/\([^)]*\)/g, "").replace(/;.*$/, "");
+      const w = code.match(/\bG5[4-9]\b|\bG154\s*P\d+/i);
+      if (w && !info.wcs) info.wcs = w[0].toUpperCase().replace(/\s+/g, " ");
+      const t = code.match(/\bT(\d+)\b/i);
+      if (t && /\bM0?6\b/i.test(code)) {
+        cur = +t[1];
+        if (!info.tools[cur]) info.tools[cur] = { rpm: null };
+      }
+      const s = code.match(/\bS(\d+(?:\.\d+)?)/i);
+      if (s && cur != null && info.tools[cur] && info.tools[cur].rpm == null) info.tools[cur].rpm = Math.round(+s[1]);
+    });
+    return info;
+  }
+
+  function gather() {
+    const PM = window.PartModels;
+    const body = k => { try { return PM && PM.bodyOf ? PM.bodyOf(k) : null; } catch (e) { return null; } };
+    const S = body("stock"), P = body("pars"), V = body("vise");
+    const job = { prog: readProgram(), blank: null, pars: null, vise: V ? V.name : "", tools: [] };
+
+    if (S && S.stock) {
+      const st = S.stock;
+      const round = st.shape && st.shape !== "block" && st.dia > 0;
+      job.blank = {
+        round, sx: round ? st.len : st.sx, sy: round ? st.dia : st.sy, sz: round ? st.dia : st.sz,
+        metal: st.metal || "", zero: S.zeroNote || "",
+      };
+    }
+    if (P && P.geometry) {
+      const dims = g => {
+        g.computeBoundingBox();
+        const s = g.boundingBox.getSize(new THREE.Vector3());
+        return [s.x, s.y, s.z].sort((a, b) => a - b);
+      };
+      const d = dims(P.geometry);
+      let t = d[0];
+      /* the bars carry a small edge chamfer that widens the box a little; the fixture panel knows the true thickness */
+      try {
+        const fx = window.PartModels.fixture && window.PartModels.fixture.state();
+        if (fx && fx.parT > 0 && Math.abs(fx.parT - t) < 1.5) t = fx.parT;
+      } catch (e) { /* use the box */ }
+      job.pars = { t, h: d[1], len: d[2], count: 1 + (P.members || []).filter(m => m.geometry).length };
+    }
+
+    const tt = (typeof toolTable !== "undefined" && toolTable) ? Array.from(toolTable.entries()) : [];
+    tt.sort((a, b) => a[0] - b[0]).forEach(([n, d]) => {
+      const mm = inchMode() ? d * MM : d;
+      let rec = null;
+      try { rec = window.ToolModels && window.ToolModels.get ? window.ToolModels.get(n) : null; } catch (e) { rec = null; }
+      job.tools.push({ n, dia: (typeof unitMode !== "undefined" && unitMode === "inch") ? d * MM : d, rec });
+    });
+    return job;
+  }
+
+  function signature(job) {
+    const p = job.prog;
+    let h = 0;
+    for (let i = 0; i < p.text.length; i++) h = (h * 31 + p.text.charCodeAt(i)) | 0;
+    return [
+      inchMode() ? "i" : "m", h, p.text.length,
+      job.blank ? [job.blank.sx, job.blank.sy, job.blank.sz, job.blank.metal, job.blank.zero].join(",") : "-",
+      job.pars ? [job.pars.t, job.pars.h, job.pars.len, job.pars.count].join(",") : "-", job.vise,
+      job.tools.map(t => t.n + ":" + t.dia + ":" + (t.rec ? t.rec.code : "")).join("|"),
+      typeof simTotalTime === "number" ? Math.round(simTotalTime * 10) : 0,
+    ].join(";");
+  }
+
+  /* ---------- 3D objects ---------- */
+  const METAL = {
+    aluminum: { color: 0x2e333a, rough: 0.7, metal: 0.15 },
+    brass: { color: 0x5d4a1c, rough: 0.6, metal: 0.25 },
+    stainless: { color: 0x2a2f34, rough: 0.55, metal: 0.3 },
+  };
+  const matFlat = (hex, o) => new THREE.MeshStandardMaterial(Object.assign({ color: hex, roughness: 0.7, metalness: 0.1 }, o || {}));
+  function edgesOf(geo, opacity) {
+    const l = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30),
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: opacity == null ? 0.28 : opacity }));
+    return l;
+  }
+  function box(w, d, h, mat, x, y, z, edge) {
+    const g = new THREE.BoxGeometry(w, d, h);
+    const m = new THREE.Mesh(g, mat);
+    m.position.set(x || 0, y || 0, z || 0);
+    if (edge !== false) m.add(edgesOf(g));
+    return m;
+  }
+
+  function makeBlank(b) {
+    const g = new THREE.Group();
+    const look = METAL[b.metal] || METAL.aluminum;
+    const mat = new THREE.MeshStandardMaterial({ color: look.color, roughness: look.rough, metalness: look.metal });
+    if (b.round) {
+      const geo = new THREE.CylinderGeometry(b.sy / 2, b.sy / 2, b.sx, 64);
+      geo.rotateZ(Math.PI / 2);
+      const m = new THREE.Mesh(geo, mat); m.position.z = b.sy / 2; g.add(m);
+      return { group: g, w: b.sx, d: b.sy, h: b.sy };
+    }
+    g.add(box(b.sx, b.sy, b.sz, mat, 0, 0, b.sz / 2));
+    return { group: g, w: b.sx, d: b.sy, h: b.sz };
+  }
+
+  function makeParallels(p) {
+    const g = new THREE.Group();
+    const mat = matFlat(0x2a2f35, { roughness: 0.65, metalness: 0.2 });
+    const gap = Math.max(p.h * 0.5, 12);
+    const total = p.count * p.h + (p.count - 1) * gap;
+    for (let i = 0; i < p.count; i++) {
+      const y = -total / 2 + p.h / 2 + i * (p.h + gap);
+      g.add(box(p.len, p.h, p.t, mat, 0, y, p.t / 2));
+    }
+    return { group: g, w: p.len, d: total, h: p.t };
+  }
+
+  function toolMesh(t) {
+    const warn = !t.rec;
+    let params = t.rec && t.rec.params;
+    if (!params) params = { category: "endmill", dia: t.dia || 6, shankDia: t.dia || 6, holder: "er25", flutes: 3 };
+    const grp = ToolModel.mesh(params, { axis: "+Z" });
+    return { grp, params, generic: warn };
+  }
+
+  function makeTool(t) {
+    const g = new THREE.Group();
+    let built;
+    try { built = toolMesh(t); } catch (e) { console.warn("[JobKit] tool", t.n, e); return null; }
+    const bb = new THREE.Box3().setFromObject(built.grp);
+    const r = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y) / 2;
+    const tall = bb.max.z - bb.min.z;
+    const pl = new THREE.CylinderGeometry(r + 7, r + 9, PLINTH, 48);
+    pl.rotateX(Math.PI / 2);
+    const plm = new THREE.Mesh(pl, matFlat(0x2b2e33, { roughness: 0.85, metalness: 0 }));
+    plm.position.z = PLINTH / 2;
+    plm.add(edgesOf(pl, 0.22));
+    g.add(plm);
+    built.grp.position.set(-(bb.max.x + bb.min.x) / 2, -(bb.max.y + bb.min.y) / 2, PLINTH);
+    g.add(built.grp);
+    return { group: g, w: 2 * (r + 9), d: 2 * (r + 9), h: tall + PLINTH, params: built.params, generic: built.generic, tool: built.grp };
+  }
+
+  /* the paper itself: a canvas, drawn once per change */
+  function drawSheet(job) {
+    const W = 1100, H = Math.round(W * SHEET_H / SHEET_W);
+    const c = sheetCanvas || (sheetCanvas = document.createElement("canvas"));
+    c.width = W; c.height = H;
+    const x = c.getContext("2d");
+    const INK = "#12151a", DIM = "#5b626c", RULE = "#b9bec6", PAPER = "#e3e6ea";
+    const F = (px) => "700 " + px + "px Inter, 'Segoe UI', system-ui, sans-serif";
+    x.fillStyle = PAPER; x.fillRect(0, 0, W, H);
+    const M = 70;
+    let y = 0;
+    const text = (s, px, col, xx, yy, align) => { x.font = F(px); x.fillStyle = col; x.textAlign = align || "left"; x.textBaseline = "alphabetic"; x.fillText(s, xx, yy); };
+    const fit = (s, px, maxW) => { x.font = F(px); if (x.measureText(s).width <= maxW) return s; let t = s; while (t.length > 1 && x.measureText(t + "…").width > maxW) t = t.slice(0, -1); return t + "…"; };
+    const rule = (yy, col) => { x.fillStyle = col || RULE; x.fillRect(M, yy, W - 2 * M, 2); };
+
+    const p = job.prog;
+    text("Setup sheet", 30, DIM, M, 92);
+    const title = [p.number, p.title].filter(Boolean).join("  ·  ") || "No program loaded";
+    text(fit(title, 52, W - 2 * M), 52, INK, M, 160);
+    rule(190, INK);
+
+    /* the job */
+    y = 244;
+    const row = (label, value, yy, col2) => {
+      text(label, 25, DIM, M, yy);
+      text(fit(value, 28, W - 2 * M - 260), 28, INK, M + 260, yy);
+    };
+    text("The job", 26, DIM, M, y); y += 20;
+    const b = job.blank;
+    const rows = [];
+    rows.push(["Material", b && b.metal ? cap(b.metal) : "Not set up yet"]);
+    rows.push(["Blank size", b ? one(sizePair([b.sx, b.sy, b.sz], 3)) : "Not set up yet"]);
+    rows.push(["Work zero", [p.wcs, b && b.zero ? b.zero : ""].filter(Boolean).join(" · ") || "Not set"]);
+    rows.push(["Run time", clock(typeof simTotalTime === "number" ? simTotalTime : 0)]);
+    rows.push(["Program lines", String(p.lines || 0)]);
+    rows.forEach(r => { y += 46; row(r[0], r[1], y); });
+
+    /* workholding */
+    y += 66;
+    text("Workholding", 26, DIM, M, y); y += 20;
+    const hold = [];
+    hold.push(["Vise", job.vise || "Not set up yet"]);
+    hold.push(["Parallels", job.pars ? (job.pars.count === 2 ? "Matched pair" : "One bar") : "Not set up yet"]);
+    if (job.pars) hold.push(["Parallel size", one(sizePair([job.pars.t, job.pars.h, job.pars.len], 3))]);
+    hold.forEach(r => { y += 46; row(r[0], r[1], y); });
+
+    /* tools */
+    y += 66;
+    text("Tools", 26, DIM, M, y); y += 14;
+    const cols = [M, M + 78, M + 340, M + 622, M + 840];
+    const head = ["Tool", "Description", "Diameter", "Holder", "Speed"];
+    y += 34;
+    head.forEach((h, i) => text(h, 22, DIM, cols[i], y));
+    y += 12; rule(y); y += 6;
+    const foot = 250;
+    const maxRows = Math.max(1, Math.floor((H - foot - y) / 56));
+    const list = job.tools;
+    if (!list.length) { y += 46; text("No tools in the program yet", 26, DIM, M, y); }
+    list.slice(0, maxRows).forEach((t, i) => {
+      y += 48;
+      const rec = t.rec, par = rec && rec.params;
+      const name = rec ? (rec.name || ("Tool " + t.n)) : "Tool " + t.n;
+      const dia = par ? par.dia : t.dia;
+      const hold2 = par && par.holder && par.holder !== "none" && window.ToolModel && ToolModel.HOLDERS[par.holder] ? ToolModel.HOLDERS[par.holder].label : (par ? "No holder" : "Not chosen");
+      const rpm = (p.tools[t.n] && p.tools[t.n].rpm) ? p.tools[t.n].rpm + " rpm" : "—";
+      text("T" + t.n, 27, INK, cols[0], y);
+      text(fit(name, 25, 252), 25, INK, cols[1], y);
+      text(fit(one(lenPair(dia || 0)), 23, 272), 23, INK, cols[2], y);
+      text(fit(hold2, 21, 208), 21, INK, cols[3], y);
+      text(rpm, 23, INK, cols[4], y);
+    });
+    if (list.length > maxRows) { y += 44; text("+ " + (list.length - maxRows) + " more tools", 24, DIM, M, y); }
+
+    /* before you run */
+    let fy = H - foot + 40;
+    rule(fy - 38);
+    text("Before you run", 26, DIM, M, fy);
+    ["Parallels seated and the blank clamped", "Work zero set on the blank", "Every tool in its holder and touched off"].forEach((s, i) => {
+      const yy = fy + 48 + i * 44;
+      x.strokeStyle = INK; x.lineWidth = 3; x.strokeRect(M, yy - 24, 26, 26);
+      text(s, 25, INK, M + 46, yy);
+    });
+    return c;
+  }
+
+  function makeSheet(job) {
+    const g = new THREE.Group();
+    const cv = drawSheet(job);
+    if (sheetTex) sheetTex.dispose();
+    sheetTex = new THREE.CanvasTexture(cv);
+    sheetTex.anisotropy = Math.min(8, mainRenderer.capabilities.getMaxAnisotropy ? mainRenderer.capabilities.getMaxAnisotropy() : 1);
+    if (THREE.sRGBEncoding && "encoding" in sheetTex) sheetTex.encoding = THREE.sRGBEncoding;
+    if (THREE.SRGBColorSpace && "colorSpace" in sheetTex) sheetTex.colorSpace = THREE.SRGBColorSpace;
+
+    const lean = Math.PI / 2 - KIT_PHI;           /* faces the camera */
+    const tilt = new THREE.Group();
+    tilt.rotation.x = Math.PI / 2 - lean;
+    const paperGeo = new THREE.PlaneGeometry(SHEET_W, SHEET_H);
+    paperGeo.translate(0, SHEET_H / 2 + 6, 0);
+    const paper = new THREE.Mesh(paperGeo, new THREE.MeshBasicMaterial({ map: sheetTex, toneMapped: false }));
+    paper.position.z = 2.2;
+    tilt.add(paper);
+    const boardGeo = new THREE.BoxGeometry(SHEET_W + 22, SHEET_H + 22, 4);
+    boardGeo.translate(0, (SHEET_H + 22) / 2, 0);
+    const board = new THREE.Mesh(boardGeo, matFlat(0x2b2e33, { roughness: 0.8, metalness: 0 }));
+    board.add(edgesOf(boardGeo, 0.28));
+    tilt.add(board);
+    const clip = box(70, 22, 6, matFlat(0x8d96a0, { roughness: 0.4, metalness: 0.6 }), 0, SHEET_H + 12, 5, true);
+    tilt.add(clip);
+    g.add(tilt);
+
+    const depth = (SHEET_H + 22) * Math.sin(lean);
+    tilt.position.y = -depth / 2;
+    const stand = Math.max(depth, 40);
+    return { group: g, w: SHEET_W + 22, d: stand, h: (SHEET_H + 22) * Math.cos(lean) + 6 };
+  }
+
+  /* ---------- items: object, footprint, label text ---------- */
+  function buildItems(job) {
+    const out = [];
+    const add = (key, icon, o, label) => out.push(Object.assign({ key, icon, x: 0, y: 0, scale: 1 }, o, { label }));
+
+    if (job.blank) {
+      const b = job.blank, o = makeBlank(b);
+      const sz = sizePair([b.sx, b.sy, b.sz], 3);
+      add("blank", "fa-cube", o, { kicker: "Part blank", title: (b.metal ? cap(b.metal) + " " : "") + (b.round ? "round bar" : "block"), lines: [sz[0], sz[1]] });
+    }
+    if (job.pars) {
+      const o = makeParallels(job.pars), sz = sizePair([job.pars.t, job.pars.h, job.pars.len], 3);
+      add("pars", "fa-grip-lines", o, { kicker: "Parallels", title: job.pars.count === 2 ? "Matched pair" : "Single bar", lines: [sz[0], sz[1]] });
+    }
+    job.tools.forEach(t => {
+      const o = makeTool(t);
+      if (!o) return;
+      const par = o.params;
+      const dia = lenPair(par.dia || t.dia || 0);
+      const hold = par.holder && par.holder !== "none" && ToolModel.HOLDERS[par.holder] ? cap(ToolModel.HOLDERS[par.holder].label) : "No holder";
+      add("tool" + t.n, "fa-screwdriver-wrench", o, {
+        kicker: "Tool " + t.n,
+        title: t.rec ? (t.rec.name || ("Tool " + t.n)) : "Stand-in end mill",
+        lines: [dia[0] + " " + dia[1], t.rec ? hold : "No tool picture chosen yet"],
+      });
+    });
+    const sheet = makeSheet(job);
+    const pn = job.prog.number || "Program";
+    const ss = sizePair([SHEET_W, SHEET_H], 1);
+    add("sheet", "fa-clipboard-list", sheet, { kicker: "Setup sheet" + (job.prog.number ? " · " + job.prog.number : ""), title: job.prog.title || pn, lines: [ss[0], ss[1]] });
+    return out;
+  }
+
+  /* ---------- layout: rows of items, label strips, a view that fits ---------- */
+  /* a step along the floor moves the picture up by cos(phi); a step up moves it by sin(phi) */
+  const FY = () => Math.cos(KIT_PHI), FZ = () => Math.sin(KIT_PHI);
+  /* Three label sizes. The full card has the numbers; the smaller ones keep the name and drop the detail, so a small
+     window can still show the objects at a useful size. */
+  function labelModes() {
+    const vw = (viewportEl() || document.body).clientWidth;
+    return vw < 560
+      ? [{ mode: "full", w: 132, h: 76, bias: 1.35 }, { mode: "compact", w: 120, h: 46, bias: 1 }, { mode: "mini", w: 104, h: 42, bias: 0.85 }]
+      : [{ mode: "full", w: 160, h: 86, bias: 1.35 }, { mode: "compact", w: 136, h: 48, bias: 1 }, { mode: "mini", w: 112, h: 42, bias: 0.85 }];
+  }
+  const labelPx = () => (layout && layout.lp) || labelModes()[0];
+
+  function flow(list, W, pxMm, lp, y0) {
+    const labelW = lp.w / pxMm, labelH = lp.h / pxMm, gap = Math.max(14, 10 / pxMm);
+    const rows = [];
+    let row = { items: [], w: 0 };
+    list.forEach(it => {
+      const ew = Math.max(it.w, labelW * 0.96);
+      it.ew = ew;
+      if (row.items.length && row.w + gap + ew > W) { rows.push(row); row = { items: [], w: 0 }; }
+      row.w += (row.items.length ? gap : 0) + ew;
+      row.items.push(it);
+    });
+    if (row.items.length) rows.push(row);
+
+    let y = y0;
+    rows.forEach((r, ri) => {
+      let x = -r.w / 2;
+      const rowD = Math.max.apply(null, r.items.map(i => i.d));
+      const rowH = Math.max.apply(null, r.items.map(i => i.h));
+      r.items.forEach(it => {
+        it.x = x + it.ew / 2;
+        it.y = y + it.d / 2;
+        x += it.ew + gap;
+      });
+      r.y0 = y; r.d = rowD; r.h = rowH;
+      /* where the next row's front edge may sit, so its label strip clears this row */
+      const gapS = 12 / pxMm;
+      const byBack = y + rowD + (labelH + gapS) / FY();
+      const byTop = y + rowD / 2 + (rowH * FZ() + labelH + gapS) / FY();
+      y = Math.max(byBack, byTop);
+    });
+    return { rows, labelW, labelH, yEnd: y };
+  }
+
+  function measure(placed, pxMm, lp) {
+    /* extents in screen millimeters: x across, v up the screen */
+    let x0 = 1e9, x1 = -1e9, v0 = 1e9, v1 = -1e9;
+    placed.rows.forEach(r => r.items.forEach(it => {
+      const hw = Math.max(it.w, placed.labelW) / 2;
+      x0 = Math.min(x0, it.x - hw); x1 = Math.max(x1, it.x + hw);
+      const front = it.y - it.d / 2, back = it.y + it.d / 2;
+      v0 = Math.min(v0, front * FY() - placed.labelH);
+      v1 = Math.max(v1, back * FY() + it.h * FZ(), (it.y) * FY() + it.h * FZ());
+    }));
+    return { x0, x1, v0, v1 };
+  }
+
+  function fitMode(list, lp, useW, useH, floor) {
+    let last = null;
+    for (let sc = 2.0; sc > floor; sc *= 0.94) {
+      const placed = flow(list, useW / sc, sc, lp, 0);
+      const m = measure(placed, sc, lp);
+      last = { s: sc, placed, m, fits: false };
+      if ((m.x1 - m.x0) * sc <= useW + 0.5 && (m.v1 - m.v0) * sc <= useH + 0.5) { last.fits = true; break; }
+    }
+    return last;
+  }
+
+  function computeLayout(list, vw, vh) {
+    /* keep clear of the bar above, the move hints below, and the view cube and home buttons down the right edge */
+    const topPad = vw < 640 ? 100 : 64, botPad = vw < 640 ? 64 : 70;
+    const padL = vw < 640 ? 10 : 26, padR = vw < 640 ? 10 : (vw < 900 ? 136 : 190);
+    const useW = Math.max(120, vw - padL - padR), useH = Math.max(80, vh - topPad - botPad);
+    /* Try each label size: the largest scale at which everything, labels included, fits between the bars. */
+    let chosen = null;
+    labelModes().forEach(lp => {
+      const r = fitMode(list, lp, useW, useH, 0.04);
+      if (!r.fits) return;
+      const score = r.s * lp.bias;
+      if (!chosen || score > chosen.score) chosen = Object.assign(r, { lp, score });
+    });
+    if (!chosen) {
+      /* Nothing fits this window. Show the smallest cards at a scale that is still worth looking at and let the
+         person pan and zoom for the rest. */
+      const lp = labelModes()[2];
+      const r = fitMode(list, lp, useW, useH, 0.3);
+      chosen = Object.assign(r, { lp });
+    }
+    /* flow() writes positions onto the items, so settle them on the winner last */
+    chosen.placed = flow(list, useW / chosen.s, chosen.s, chosen.lp, 0);
+    chosen.m = measure(chosen.placed, chosen.s, chosen.lp);
+    const s = chosen.s, m = chosen.m;
+    const vc = (m.v0 + m.v1) / 2, xc = (m.x0 + m.x1) / 2;
+    /* the target sits where the viewport's middle is; the content sits in the space between the bars */
+    const shift = (topPad - botPad) / 2 / s;
+    const target = new THREE.Vector3(xc - (padL - padR) / 2 / s, (vc + shift) / FY(), 0);
+    return { target, frustum: vh / s, pxMm: s, placed: chosen.placed, extents: m, lp: chosen.lp };
+  }
+
+  /* ---------- labels ---------- */
+  function ensureDom() {
+    if (layer) return;
+    const vp = viewportEl();
+    layer = document.createElement("div");
+    layer.id = "jk-layer"; layer.hidden = true;
+    layer.innerHTML =
+      '<div id="jk-veil"></div>' +
+      '<div id="jk-bar" role="toolbar" aria-label="Job kit">' +
+      '<span class="jk-title"><i class="fa-solid fa-boxes-stacked" aria-hidden="true"></i>Job kit</span>' +
+      '<span class="jk-count" id="jk-count"></span>' +
+      '<button type="button" id="jk-all" title="Frame everything in the kit"><i class="fa-solid fa-expand" aria-hidden="true"></i><span>Show all</span></button>' +
+      '<button type="button" id="jk-close" title="Back to the machine (Esc)"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span>Close</span></button>' +
+      "</div>";
+    vp.appendChild(layer);
+    veil = el("jk-veil"); bar = el("jk-bar"); countEl = el("jk-count");
+    el("jk-all").addEventListener("click", () => { focusKey = null; paintFocus(); frame(560); });
+    el("jk-close").addEventListener("click", () => setOpen(false));
+  }
+
+  function rebuildLabels() {
+    labelEls.forEach(e => e.remove());
+    labelEls.clear();
+    const lp = labelPx();
+    layer.dataset.mode = lp.mode;
+    layer.style.setProperty("--jk-w", lp.w + "px");
+    layer.style.setProperty("--jk-h", lp.h + "px");
+    items.forEach(it => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "jk-label"; b.dataset.key = it.key;
+      b.title = "Click to look closer";
+      const k = document.createElement("span"); k.className = "jk-k";
+      const ic = document.createElement("i"); ic.className = "fa-solid " + it.icon; ic.setAttribute("aria-hidden", "true");
+      const kt = document.createElement("span"); kt.textContent = it.label.kicker;
+      k.appendChild(ic); k.appendChild(kt);
+      const t = document.createElement("span"); t.className = "jk-t"; t.textContent = it.label.title;
+      b.appendChild(k); b.appendChild(t);
+      it.label.lines.forEach(l => { const d = document.createElement("span"); d.className = "jk-d"; d.textContent = l; b.appendChild(d); });
+      b.addEventListener("click", () => { focusKey = (focusKey === it.key) ? null : it.key; paintFocus(); frame(560); });
+      layer.appendChild(b);
+      labelEls.set(it.key, b);
+    });
+  }
+
+  function paintFocus() {
+    labelEls.forEach((e, k) => {
+      e.classList.toggle("on", focusKey === k);
+      e.classList.toggle("dim", !!focusKey && focusKey !== k);
+    });
+  }
+
+  const _v = new THREE.Vector3();
+  function placeLabels() {
+    if (!layer || !labelEls.size) return;
+    const vp = viewportEl(), vw = vp.clientWidth, vh = vp.clientHeight;
+    kit.updateMatrixWorld(true);
+    items.forEach(it => {
+      const e = labelEls.get(it.key); if (!e) return;
+      _v.set(it.x, it.y - it.d / 2, 0);
+      kit.localToWorld(_v);
+      _v.project(mainCam);
+      const w = e.offsetWidth || 150;
+      const px = (_v.x * 0.5 + 0.5) * vw - w / 2;
+      const py = (-_v.y * 0.5 + 0.5) * vh + 6;
+      /* a label whose object has left the view goes with it */
+      const gone = (px + w < 0 || px > vw || py > vh || py < -90);
+      const tx = "translate3d(" + px.toFixed(1) + "px," + py.toFixed(1) + "px,0)";
+      if (e._tx !== tx) { e.style.transform = tx; e._tx = tx; }
+      if (e._gone !== gone) { e._gone = gone; e.style.visibility = gone ? "hidden" : ""; }
+    });
+  }
+
+  /* ---------- camera ---------- */
+  function viewFor(key) {
+    const k = K();
+    if (!key) return { target: layout.target.clone().multiplyScalar(k), theta: KIT_THETA, phi: KIT_PHI, frustum: layout.frustum * k };
+    const it = items.find(i => i.key === key);
+    if (!it) return viewFor(null);
+    const vp = viewportEl();
+    const aspect = vp.clientWidth / Math.max(1, vp.clientHeight);
+    /* leave room for the top bar and the strip under the object */
+    const wmm = Math.max(it.w, 60), hmm = it.h * FZ() + it.d * FY();
+    const needH = Math.max(hmm * 1.35 + 150, (wmm * 1.3) / aspect);
+    const t = new THREE.Vector3(it.x, it.y, it.h * 0.4).multiplyScalar(k);
+    return { target: t, theta: KIT_THETA, phi: KIT_PHI, frustum: needH * k };
+  }
+  function frame(ms) {
+    if (!layout || typeof CamView === "undefined") return;
+    CamView.to(viewFor(focusKey), ms == null ? 0 : ms);
+    bumpBusy(ms == null ? 200 : ms + 150);
+  }
+  function bumpBusy(ms) {
+    if (!window.VPBusy) return;
+    window.VPBusy.hold("jobkit");
+    clearTimeout(bumpBusy.t);
+    bumpBusy.t = setTimeout(() => { if (window.VPBusy) window.VPBusy.release("jobkit"); }, ms);
+  }
+
+  /* ---------- building and tearing down ---------- */
+  function disposeKit() {
+    for (let i = kit.children.length - 1; i >= 0; i--) {
+      const c = kit.children[i];
+      kit.remove(c);
+      c.traverse(n => {
+        if (n.geometry && n.geometry.dispose) n.geometry.dispose();
+        const m = n.material;
+        if (m) (Array.isArray(m) ? m : [m]).forEach(mm => { if (mm.map && mm.map !== sheetTex && mm.map.dispose) mm.map.dispose(); if (mm.dispose) mm.dispose(); });
+      });
+    }
+    if (sheetTex) { sheetTex.dispose(); sheetTex = null; }
+  }
+
+  function makeFloor(ex) {
+    const padX = 90, padY = 70;
+    const x0 = ex.x0 - padX, x1 = ex.x1 + padX;
+    const y0 = ex.floorY0 - padY, y1 = ex.floorY1 + padY;
+    const geo = new THREE.PlaneGeometry(x1 - x0, y1 - y0);
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x202226, toneMapped: false }));
+    m.position.set((x0 + x1) / 2, (y0 + y1) / 2, -0.6);
+    const ring = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x0, y0, -0.5), new THREE.Vector3(x1, y0, -0.5), new THREE.Vector3(x1, y1, -0.5), new THREE.Vector3(x0, y1, -0.5)]),
+      new THREE.LineBasicMaterial({ color: 0x4a4f57 }));
+    const g = new THREE.Group(); g.add(m); g.add(ring);
+    g.userData.floor = true;
+    return g;
+  }
+
+  function build() {
+    const job = gather();
+    sig = signature(job);
+    disposeKit();
+    items = buildItems(job);
+    const vp = viewportEl();
+    layout = computeLayout(items, vp.clientWidth, vp.clientHeight);
+    applyPlacement();
+    kit.scale.setScalar(K());
+    rebuildLabels();
+    paintFocus();
+    if (countEl) {
+      const n = items.filter(i => /^tool/.test(i.key)).length;
+      countEl.textContent = n + (n === 1 ? " tool" : " tools");
+    }
+  }
+
+  function applyPlacement() {
+    /* put each object where the layout says, and a floor under all of it */
+    let fx0 = 1e9, fx1 = -1e9, fy0 = 1e9, fy1 = -1e9;
+    items.forEach(it => {
+      it.group.position.set(it.x, it.y, 0);
+      if (it.group.parent !== kit) kit.add(it.group);
+      fx0 = Math.min(fx0, it.x - Math.max(it.w, layout.placed.labelW) / 2); fx1 = Math.max(fx1, it.x + Math.max(it.w, layout.placed.labelW) / 2);
+      fy0 = Math.min(fy0, it.y - it.d / 2 - layout.placed.labelH / Math.max(FY(), 0.5)); fy1 = Math.max(fy1, it.y + it.d / 2);
+    });
+    kit.children.filter(c => c.userData.floor).forEach(c => { kit.remove(c); c.traverse(n => { if (n.geometry) n.geometry.dispose(); if (n.material) n.material.dispose(); }); });
+    kit.add(makeFloor({ x0: fx0, x1: fx1, floorY0: fy0, floorY1: fy1 }));
+  }
+
+  function relayout() {
+    if (!active) return;
+    const vp = viewportEl();
+    layout = computeLayout(items, vp.clientWidth, vp.clientHeight);
+    applyPlacement();
+    rebuildLabels();
+    paintFocus();
+    frame(focusKey ? 300 : 0);
+    placeLabels();
+  }
+
+  /* ---------- the render hook: the kit is drawn instead of the scene ---------- */
+  const baseRender = mainRenderer.render.bind(mainRenderer);
+  mainRenderer.render = function () {
+    if (!active) return baseRender.apply(null, arguments);
+    const off = [];
+    mainScene.children.forEach(c => {
+      if (c === kit || c.isLight || c.name === "studioLights" || !c.visible) return;
+      off.push(c); c.visible = false;
+    });
+    kit.visible = true;
+    let r;
+    try { r = baseRender.apply(null, arguments); } finally {
+      kit.visible = false;
+      off.forEach(c => { c.visible = true; });
+    }
+    placeLabels();
+    return r;
+  };
+
+  /* homing and fitting go to the kit while it is open */
+  function wrapGlobal(name, make) {
+    try {
+      const orig = window[name];
+      if (typeof orig !== "function") return;
+      window[name] = make(orig);
+    } catch (e) { console.warn("[JobKit] could not wrap", name, e); }
+  }
+  wrapGlobal("homeView", orig => function () { return (active && layout) ? viewFor(null) : orig.apply(this, arguments); });
+  wrapGlobal("viewOriginWorld", orig => function () { return (active && layout) ? layout.target.clone().multiplyScalar(K()) : orig.apply(this, arguments); });
+  wrapGlobal("fitSceneToView", orig => function (ms) { if (active && layout) { focusKey = null; paintFocus(); frame(ms); return true; } return orig.apply(this, arguments); });
+  wrapGlobal("fitToView", orig => function (segs, ms) { if (active && layout) { focusKey = null; paintFocus(); frame(ms); return; } return orig.apply(this, arguments); });
+
+  /* ---------- open and close ---------- */
+  function isoOff() {
+    const I = window.Isolation;
+    if (!I || !I.state) return null;
+    const was = { iso: !!I.state.iso, sec: !!I.state.sec };
+    if (was.iso) I.set("iso", false);
+    if (was.sec) I.set("sec", false);
+    return was;
+  }
+  function isoBack(was) {
+    const I = window.Isolation;
+    if (!was || !I) return;
+    if (was.iso) I.set("iso", true);
+    if (was.sec) I.set("sec", true);
+  }
+
+  function paintButton() {
+    const b = el("kit-toggle"), t = el("kit-toggle-text");
+    if (b) { b.classList.toggle("on", wanted); b.setAttribute("aria-pressed", wanted ? "true" : "false"); }
+    if (t) t.textContent = wanted ? "Hide the job kit" : "Show the job kit";
+  }
+
+  let pendingFocus = null;
+  function setOpen(want) {
+    if (want === wanted) return;
+    wanted = want;
+    paintButton();
+    ensureDom();
+    const token = ++transition;
+    bumpBusy(1500);
+    if (want) {
+      /* On a phone the sidebar sits under the 3D view in one long page: bring the view up so the kit is seen. */
+      const vr = viewportEl().getBoundingClientRect();
+      scrolled = vr.bottom < window.innerHeight * 0.4 || vr.top > window.innerHeight * 0.6;
+      if (scrolled) { try { viewportEl().scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) { viewportEl().scrollIntoView(); } }
+      layer.hidden = false;
+      veil.classList.add("on");
+      setTimeout(() => {
+        if (token !== transition) return;
+        saved = { cam: CamView.state(), iso: isoOff() };
+        focusKey = pendingFocus; pendingFocus = null;
+        build();
+        active = true;
+        kit.visible = true;
+        const end = viewFor(focusKey);
+        /* start a little closer and turned, then swing out to the full layout */
+        CamView.to({ target: end.target, theta: KIT_THETA - 0.55, phi: KIT_PHI - 0.12, frustum: end.frustum * 0.78 }, 0);
+        placeLabels();
+        veil.classList.remove("on");
+        layer.classList.add("shown");
+        CamView.to(end, 760);
+        bumpBusy(1100);
+        clearInterval(pollTimer);
+        pollTimer = setInterval(poll, 450);
+      }, 250);
+    } else {
+      clearInterval(pollTimer);
+      layer.classList.remove("shown");
+      veil.classList.add("on");
+      setTimeout(() => {
+        if (token !== transition) return;
+        active = false;
+        kit.visible = false;
+        disposeKit();
+        labelEls.forEach(e => e.remove()); labelEls.clear();
+        items = []; layout = null; focusKey = null;
+        if (saved) {
+          CamView.to(saved.cam, 0);
+          isoBack(saved.iso);
+          saved = null;
+        }
+        veil.classList.remove("on");
+        if (scrolled) {
+          scrolled = false;
+          const tb = el("kit-toggle");
+          try { if (tb) tb.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) { /* stays where it is */ }
+        }
+        setTimeout(() => { if (token === transition && !wanted) layer.hidden = true; }, 300);
+        bumpBusy(500);
+      }, 260);
+    }
+  }
+
+  function openAt(key) {
+    if (wanted && active) { focusKey = key; paintFocus(); frame(560); return; }
+    pendingFocus = key;
+    setOpen(true);
+  }
+
+  function poll() {
+    if (!active) return;
+    let job;
+    try { job = gather(); } catch (e) { return; }
+    const s = signature(job);
+    if (s === sig) return;
+    focusKey = null;
+    build();
+    frame(420);
+    placeLabels();
+  }
+
+  /* resize: refit, once things settle */
+  function onResize() {
+    if (!active) return;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(relayout, 140);
+  }
+  window.addEventListener("resize", onResize);
+  if (window.ResizeObserver && viewportEl()) { try { new ResizeObserver(onResize).observe(viewportEl()); } catch (e) { /* fine without it */ } }
+
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Escape" || !wanted) return;
+    const t = e.target;
+    if (t && t.nodeType === 1 && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+    setOpen(false);
+  });
+
+  function bind() {
+    const b = el("kit-toggle");
+    if (b && !b._kit) { b._kit = true; b.addEventListener("click", () => setOpen(!wanted)); }
+    const sb = el("kit-open-sheet");
+    if (sb && !sb._kit) { sb._kit = true; sb.addEventListener("click", () => openAt("sheet")); }
+    paintButton();
+    /* Inter may arrive after the first draw: redraw the paper once it is in */
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load("700 24px Inter").then(() => { if (active) { sig = ""; poll(); } }).catch(() => {});
+    }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind); else bind();
+
+  window.JobKit = {
+    open: () => setOpen(true), openAt, close: () => setOpen(false), toggle: () => setOpen(!wanted),
+    focus: key => { focusKey = key || null; paintFocus(); frame(560); },
+    get isOpen() { return active; },
+    get items() { return items.map(i => i.key); },
+  };
 })();
 </script>
 </body>
