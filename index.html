@@ -4467,6 +4467,14 @@ body.cc-on.hud-folded #cube-wrap { opacity: 1 !important; visibility: visible !i
 }
 
 .sf-lead { margin: 0 0 10px; color: var(--sf-dim); }
+.sf-soon {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px;
+  border: 1px dashed var(--sf-line); border-radius: 8px; color: var(--sf-dim);
+  cursor: default; user-select: none;
+}
+.sf-soon > i { flex: 0 0 auto; margin-top: 2px; font-size: 14px; color: var(--sf-text); }
+.sf-soon b { display: block; font-size: 12.5px; font-weight: 600; color: var(--sf-text); }
+.sf-soon p { margin: 4px 0 0; font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .sf-foot { margin: 10px 0 0; color: var(--sf-dim); font-size: 10.5px; }
 
 /* outlined buttons, never filled */
@@ -18597,19 +18605,28 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
             <input type="checkbox" id="fx-par-auto" checked>
             Height to suit the blank
           </label>
-          <div class="pm-grid" style="margin-top:8px;">
-            <label>Height</label><input id="fx-par-h" type="number" step="0.05" min="0.1">
-            <label>Thick</label><input id="fx-par-t" type="number" step="0.01" min="0.03">
+          <div class="fx-fields">
+            <label class="fx-field" for="fx-par-h">
+              <span class="fx-lbl">Height</span>
+              <span class="fx-in"><input id="fx-par-h" type="number" step="0.05" min="0.1" inputmode="decimal"><em class="mkp-unit">in</em></span>
+            </label>
+            <label class="fx-field" for="fx-par-t">
+              <span class="fx-lbl">Thickness</span>
+              <span class="fx-in"><input id="fx-par-t" type="number" step="0.01" min="0.03" inputmode="decimal"><em class="mkp-unit">in</em></span>
+            </label>
           </div>
-          <button id="fx-par-align" class="pm-wide">Auto align parallels</button>
-          <button id="gz-bank" class="pm-wide" title="Find the vise, its fixed jaw and its movable jaw, and bank both bars against them">
-            Bank the bars on the jaws
-          </button>
-          <div class="pm-note">
-            <b>Auto align</b> re-cuts the pair to the jaws as they stand, sets them
-            flush on both sides and banks one against each jaw face.
-            <b>Bank</b> leaves the bars the size they are and just pushes them home.
+          <div class="fx-actions">
+            <button id="fx-par-align" class="pm-wide">Auto align parallels</button>
+            <button id="gz-bank" class="pm-wide" title="Find the vise, its fixed jaw and its movable jaw, and bank both bars against them">
+              Bank the bars on the jaws
+            </button>
           </div>
+          <dl class="fx-help">
+            <dt>Auto align</dt>
+            <dd>Re-cuts the pair to the jaws as they stand, sets them flush on both sides and banks one against each jaw face.</dd>
+            <dt>Bank</dt>
+            <dd>Leaves the bars the size they are and just pushes them home.</dd>
+          </dl>
         </div>
 
         <!-- How much metal is standing above the jaws. The same panel the
@@ -19001,7 +19018,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
 
     <div class="section" id="syntax-section">
       <div class="sec-head" data-sec="syntax">
-        <span class="sec-name">Syntax Fix <span class="sf-tag">Beta</span></span>
+        <span class="sec-name">Syntax Fix <span class="sf-tag">Coming soon</span></span>
         <span class="sec-chev">&#9654;</span>
       </div>
       <div class="sec-body">
@@ -19411,17 +19428,13 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       </div>
       <div class="sec-body">
         <!-- No switch: opening the section is the switch. -->
-        <div id="view-stats-content" style="
-          font-family: var(--font-mono); font-size: 9px; line-height: 1.55;
-          color: var(--text-dim);
-          background: rgba(0,0,0,0.3); border: 1px solid var(--border);
-          border-radius: 5px; padding: 7px 9px;
-          word-break: break-all;
-        "></div>
-        <div class="hint">
-          Reads camera orbit (θ/φ), distance, zoom, pan target, and cursor
-          world XYZ. Updates while you orbit, pan, zoom, or move the mouse
-          over the viewport.
+        <div id="view-stats-content" class="vs-grid"></div>
+        <div class="hint vs-hint">
+          Live numbers for the 3D view: where the camera sits as it orbits
+          the part, how far it is zoomed, the point it is looking at, and the
+          point under your mouse. They update as you orbit, pan, zoom or move
+          the mouse over the view. Distances are in inches, with millimeters
+          (mm) in parentheses.
         </div>
       </div>
     </div>
@@ -28466,6 +28479,7 @@ ModalSystem.init();
   if (!target) return;
 
   window.__viewStatsEnabled = true;
+  let lastHtml = '';
 
   let hudX = document.getElementById('hud-x');
   let hudY = document.getElementById('hud-y');
@@ -28473,10 +28487,24 @@ ModalSystem.init();
 
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  function row(label, value, color) {
-    const c = color || 'var(--text)';
-    return `<div><span style="color:var(--text-dim)">${esc(label)}:</span> `
-         + `<span style="color:${c}">${value}</span></div>`;
+  /* one label and one value on a line; the grid in the stylesheet lines them up */
+  function row(label, value, color, raw) {
+    const c = color ? ' style="color:' + color + '"' : '';
+    return '<div class="vs-row"><span class="vs-k">' + esc(label) + '</span><span class="vs-v"' + c + '>' + value + '</span></div>';
+  }
+  function group(title, rows) {
+    return '<div class="vs-group"><div class="vs-title">' + esc(title) + '</div>' + rows.join('') + '</div>';
+  }
+  /* a length in inches with its millimeters beside it (or the other way round when the page is in mm) */
+  function len(n, d) {
+    if (typeof n !== 'number' || !isFinite(n)) return '—';
+    const mm = (typeof unitMode !== 'undefined' && unitMode === 'mm');
+    const a = n.toFixed(d), b = (mm ? n / 25.4 : n * 25.4).toFixed(mm ? 3 : 2);
+    return a + ' ' + (mm ? 'mm' : 'in') + ' <small>(' + b + ' ' + (mm ? 'in' : 'mm') + ')</small>';
+  }
+  function lenText(txt, d) {
+    const n = parseFloat(txt);
+    return isFinite(n) ? len(n, d) : '—';
   }
 
   function fmtNum(n, d) {
@@ -28497,41 +28525,47 @@ ModalSystem.init();
   }
 
   function renderEnabled() {
-    const lines = [];
+    const out = [];
 
+    const orbit = [];
     if (typeof camSphere !== 'undefined' && camSphere) {
-      lines.push(row('orbit θ (theta)', fmtDeg(camSphere.theta), 'var(--accent)'));
-      lines.push(row('orbit φ (phi)',   fmtPhi(camSphere.phi),   'var(--accent)'));
-      lines.push(row('distance (r)',    fmtNum(camSphere.r, 2)));
+      orbit.push(row('Turn (θ)', fmtDeg(camSphere.theta), 'var(--accent)'));
+      orbit.push(row('Tilt (φ)', fmtPhi(camSphere.phi), 'var(--accent)'));
+      orbit.push(row('Distance (r)', len(camSphere.r, 2)));
     } else {
-      lines.push(row('camSphere', '(unavailable)'));
+      orbit.push(row('Camera', 'not ready'));
     }
+    out.push(group('Orbit', orbit));
 
+    const zoom = [];
     if (typeof baseZoom !== 'undefined' && typeof frustumSize !== 'undefined' && frustumSize > 0) {
-      const zoomMul = baseZoom / frustumSize;
-      lines.push(row('zoom',         fmtNum(zoomMul, 2) + '×'));
-      lines.push(row('frustum size', fmtNum(frustumSize, 2)));
+      zoom.push(row('Zoom', fmtNum(baseZoom / frustumSize, 2) + '×'));
+      zoom.push(row('View size', len(frustumSize, 2)));
     } else {
-      lines.push(row('zoom', '(unavailable)'));
+      zoom.push(row('Zoom', 'not ready'));
     }
+    out.push(group('Zoom', zoom));
 
+    const look = [];
     if (typeof camTarget !== 'undefined' && camTarget) {
-      lines.push(row('target X', fmtNum(camTarget.x, 3)));
-      lines.push(row('target Y', fmtNum(camTarget.y, 3)));
-      lines.push(row('target Z', fmtNum(camTarget.z, 3)));
+      look.push(row('X', len(camTarget.x, 3)));
+      look.push(row('Y', len(camTarget.y, 3)));
+      look.push(row('Z', len(camTarget.z, 3)));
     } else {
-      lines.push(row('camTarget', '(unavailable)'));
+      look.push(row('Target', 'not ready'));
     }
+    out.push(group('Looking at', look));
 
-    const cx = hudX ? hudX.textContent : null;
-    const cy = hudY ? hudY.textContent : null;
-    const cz = hudZ ? hudZ.textContent : null;
-    lines.push(row('cursor X', cx || '—'));
-    lines.push(row('cursor Y', cy || '—'));
-    lines.push(row('cursor Z', cz || '—'));
+    out.push(group('Mouse cursor', [
+      row('X', lenText(hudX ? hudX.textContent : '', 3)),
+      row('Y', lenText(hudY ? hudY.textContent : '', 3)),
+      row('Z', lenText(hudZ ? hudZ.textContent : '', 3)),
+    ]));
 
-    target.innerHTML = lines.join('');
+    const html = out.join('');
+    if (html !== lastHtml) { lastHtml = html; target.innerHTML = html; }
   }
+
 
   /* offsetParent is null for anything inside a collapsed section, which is
      the cheapest way to ask "is this on screen at all". */
@@ -58818,18 +58852,28 @@ window.HAAS_LATHE_CODES = {
   function buildPanel() {
     if (!root) return;
     root.innerHTML =
-      '<div class="mc-lay" id="mc-lay">' + layoutButtons() + "</div>" +
-      '<p class="mc-note" id="mc-lay-name"></p>' +
-      '<div class="mc-sub">Tool cam</div>' +
-      '<p class="mc-note">A wide-angle camera fixed to the top of the cutter. It rides along with the tool.</p>' +
-      '<label class="mc-chk"><input type="checkbox" id="mc-follow"' + (st.gopro.follow ? " checked" : "") + '> Turn with the toolpath <em>(sits behind the direction of travel)</em></label>' +
-      '<label class="mc-chk"><input type="checkbox" id="mc-spin"' + (st.gopro.spin ? " checked" : "") + '> Spin with the tool <em>(turns with the spindle)</em></label>' +
-      slider("mc-h", "Height", 30, 400, st.gopro.height, "%") +
-      slider("mc-o", "Out from axis", 0, 200, st.gopro.offset, "%") +
-      slider("mc-f", "Field of view", 30, 130, st.gopro.fov, "°") +
-      '<label class="mc-chk"><input type="checkbox" id="mc-lab"' + (st.labels ? " checked" : "") + '> Show camera names on the views</label>' +
-      '<div class="mc-foot">Heights are a share of the tool’s length. Each view in a grid has its own camera picker; the <i class="fa-solid fa-expand"></i> button makes one fill the screen. ' +
-      "Dragging and zooming steer the Orbit camera; the square-on views follow it.</div>";
+      '<section class="mc-group mc-g-layout">' +
+        '<h4 class="mc-sub"><i class="fa-solid fa-table-cells-large"></i>Views</h4>' +
+        '<div class="mc-lay" id="mc-lay">' + layoutButtons() + "</div>" +
+        '<p class="mc-note" id="mc-lay-name"></p>' +
+      "</section>" +
+      '<section class="mc-group mc-g-tool">' +
+        '<h4 class="mc-sub"><i class="fa-solid fa-video"></i>Tool cam</h4>' +
+        '<p class="mc-note">A wide-angle camera fixed to the top of the cutter. It rides along with the tool.</p>' +
+        '<label class="mc-chk"><input type="checkbox" id="mc-follow"' + (st.gopro.follow ? " checked" : "") + '><span><b>Turn with the toolpath</b><em>Sits behind the direction of travel</em></span></label>' +
+        '<label class="mc-chk"><input type="checkbox" id="mc-spin"' + (st.gopro.spin ? " checked" : "") + '><span><b>Spin with the tool</b><em>Turns with the spindle</em></span></label>' +
+        '<div class="mc-sliders">' +
+          slider("mc-h", "Height", 30, 400, st.gopro.height, "%") +
+          slider("mc-o", "Out from axis", 0, 200, st.gopro.offset, "%") +
+          slider("mc-f", "Field of view", 30, 130, st.gopro.fov, "°") +
+        "</div>" +
+      "</section>" +
+      '<section class="mc-group mc-g-labels">' +
+        '<h4 class="mc-sub"><i class="fa-solid fa-tag"></i>Labels</h4>' +
+        '<label class="mc-chk"><input type="checkbox" id="mc-lab"' + (st.labels ? " checked" : "") + '><span><b>Show camera names on the views</b></span></label>' +
+      "</section>" +
+      '<p class="mc-foot">Heights are a share of the tool’s length. Each view in a grid has its own camera picker; the <i class="fa-solid fa-expand"></i> button makes one fill the screen. ' +
+      "Dragging and zooming steer the Orbit camera; the square-on views follow it.</p>";
     root.querySelectorAll("[data-layout]").forEach(b => b.addEventListener("click", () => setLayout(b.dataset.layout)));
     const spin = root.querySelector("#mc-spin"), lab = root.querySelector("#mc-lab");
     spin.addEventListener("change", () => { st.gopro.spin = spin.checked; save(); redraw(); });
@@ -60169,6 +60213,43 @@ window.HAAS_LATHE_CODES = {
     editor.setSelectionRange(pos, end);
     var lh = parseFloat(getComputedStyle(editor).lineHeight);
     if (lh > 0) editor.scrollTop = Math.max(0, (it.line - 1) * lh - editor.clientHeight / 2);
+  }
+
+  /* Fix my G-code is switched off for now. The checker, the fixer and the beta
+     warning above are all still here. To bring it back, set COMING_SOON to
+     false: the panel then builds and wires up exactly as it did before. */
+  var COMING_SOON = true;
+
+  function buildComingSoon() {
+    host.textContent = "";
+    var box = document.createElement("div");
+    box.className = "sf-soon";
+    box.setAttribute("role", "status");
+    box.appendChild(icon("fa-hourglass-half"));
+    var t = document.createElement("div");
+    var h = document.createElement("b");
+    h.textContent = "Coming soon";
+    var p = document.createElement("p");
+    p.textContent = "Fix my G-code is not available yet. When it arrives it will look for common typing mistakes in your program and offer to fix them.";
+    t.appendChild(h);
+    t.appendChild(p);
+    box.appendChild(t);
+    host.appendChild(box);
+  }
+
+  if (COMING_SOON) {
+    buildComingSoon();
+    root.SyntaxFix = {
+      analyze: analyze,
+      applyFixes: applyFixes,
+      version: VERSION,
+      comingSoon: true,
+      enable: function () {},             /* does nothing while it is coming soon */
+      disable: function () {},
+      isEnabled: function () { return false; },
+      issues: function () { return []; }
+    };
+    return;
   }
 
   build();
@@ -67077,6 +67158,201 @@ html body #play-bar{ container:pb / inline-size }
 }
 
 @media (prefers-reduced-motion:reduce){ html body #right-sidebar#right-sidebar *,html body #right-sidebar#right-sidebar *::before,html body #right-sidebar#right-sidebar *::after{ transition-duration:.01s!important; animation-duration:.01s!important } }
+</style>
+<style id="sidebar-panels">
+/* ===================================================================================================
+   SIDEBAR PANELS: every group in the right sidebar has its own colour, and the Parallels, Camera angles
+   and camera read-out panels in the left sidebar are laid out as aligned rows.
+   Group colours:  menu #b48cff · display #35d4c7 · isolate and section #ff6b6b · graphics #ffc24a
+                   path types #ff8fd0 · coolant #5fcf8a · workholding #4cc2ff · camera #ff9a4d
+                   layout #b48cff · show #35d4c7
+   Flat, outlined, Inter. Only colour, border and opacity animate, so it stays at 60 fps.
+   =================================================================================================== */
+
+/* ---------- right sidebar: each group is a flat band in its own colour ---------- */
+html body #right-sidebar#right-sidebar :is(#viewport-toolbar,#vp-dock){
+  gap:0!important; padding-left:0!important; padding-right:0!important; padding-bottom:0!important;
+  background:none!important; box-shadow:none!important;
+}
+html body #right-sidebar#right-sidebar :is(#viewport-toolbar,#vp-dock)::before{
+  left:var(--rs-pad)!important; right:var(--rs-pad)!important; color:var(--rs-ink)!important; border-bottom-color:var(--rs-line);
+}
+html body #right-sidebar#right-sidebar :is(#viewport-toolbar,#vp-dock){ padding-top:46px!important }
+
+html body #right-sidebar#right-sidebar :is(
+  #viewport-toolbar .vt-row:has(#btn-guide),
+  #viewport-toolbar .vt-grid:has(#btn-view-grid),
+  #viewport-toolbar #vt-tool-op-wrap,
+  #viewport-toolbar #vt-iso,
+  #viewport-toolbar #vt-quality,
+  #viewport-toolbar #path-chips,
+  #vp-dock #vp-coolant, #vp-dock #vp-setup, #vp-dock #vp-cam, #vp-dock #vp-views, #vp-dock #vp-show
+){
+  position:relative!important; width:100%!important; max-width:none!important; margin:0!important;
+  padding:12px var(--rs-pad) 14px calc(var(--rs-pad) + 3px)!important;
+  border:0!important; border-top:1px solid var(--rs-line)!important; border-radius:0!important;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--sc) 14%,transparent) 0%,color-mix(in srgb,var(--sc) 5%,transparent) 55%,transparent 100%)!important;
+  box-shadow:inset 3px 0 0 color-mix(in srgb,var(--sc) 80%,transparent)!important;
+}
+/* the display group is two siblings (the buttons and the cutter slider): they read as one band */
+html body #right-sidebar#right-sidebar #viewport-toolbar .vt-grid:has(#btn-view-grid){ padding-bottom:6px!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-tool-op-wrap{ border-top:0!important; padding-top:6px!important }
+
+html body #right-sidebar#right-sidebar #viewport-toolbar .vt-row:has(#btn-guide){ --sc:#b48cff; border-top:0!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar :is(.vt-grid:has(#btn-view-grid),#vt-tool-op-wrap){ --sc:#35d4c7 }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-iso{ --sc:#ff6b6b }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-quality{ --sc:#ffc24a }
+html body #right-sidebar#right-sidebar #viewport-toolbar #path-chips{ --sc:#ff8fd0 }
+html body #right-sidebar#right-sidebar #vp-dock #vp-coolant{ --sc:#5fcf8a }
+html body #right-sidebar#right-sidebar #vp-dock #vp-setup{ --sc:#4cc2ff }
+html body #right-sidebar#right-sidebar #vp-dock #vp-cam{ --sc:#ff9a4d }
+html body #right-sidebar#right-sidebar #vp-dock #vp-views{ --sc:#b48cff }
+html body #right-sidebar#right-sidebar #vp-dock #vp-show{ --sc:#35d4c7 }
+html body #right-sidebar#right-sidebar #vp-dock #vp-coolant{ border-top:0!important; padding-top:12px!important }
+
+/* group names: the Menu and Display groups had none, so they get one */
+html body #right-sidebar#right-sidebar #viewport-toolbar :is(.vt-row:has(#btn-guide),.vt-grid:has(#btn-view-grid))::before{
+  grid-column:1/-1; display:block; margin:0 0 2px; padding:0;
+  font:600 10.5px/1.2 'Inter',system-ui,sans-serif; letter-spacing:.14em; text-transform:uppercase; color:var(--sc);
+}
+html body #right-sidebar#right-sidebar #viewport-toolbar .vt-row:has(#btn-guide)::before{ content:"Menu" }
+html body #right-sidebar#right-sidebar #viewport-toolbar .vt-grid:has(#btn-view-grid)::before{ content:"Display" }
+html body #right-sidebar#right-sidebar #viewport-toolbar :is(#vt-quality,#path-chips)>:is(.vt-slider-label,.pt-title){ color:var(--sc)!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-tool-op-wrap .vt-slider-label{ color:var(--rs-mute)!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-quality{ row-gap:8px!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-iso{ gap:8px!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #path-chips{ gap:6px!important }
+/* every control lights up in its own group's colour (the group sets --sc) */
+html body #right-sidebar#right-sidebar :is(#viewport-toolbar,#vp-dock) :is(.vt-slider,input[type=range],#vt-iso){ accent-color:var(--sc) }
+html body #right-sidebar#right-sidebar :is(#viewport-toolbar,#vp-dock) :is(#vt-quality,#path-chips,#vt-iso,.vt-grid,.vt-row,#vt-tool-op-wrap) input[type=range]{ --sc:inherit }
+html body #right-sidebar#right-sidebar #vt-tool-op-wrap input[type=range]{ --sc:#35d4c7 }
+html body #right-sidebar#right-sidebar #vt-iso input[type=range]{ --sc:#ff6b6b }
+
+/* Slice (X Y Z) and Around cut only show while Isolate and/or Section is on */
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-iso:not(.iso):not(.sec) :is(#vt-iso-axes,#vt-iso-size){ display:none!important }
+html body #right-sidebar#right-sidebar #viewport-toolbar #vt-iso:is(.iso,.sec) :is(#vt-iso-axes,#vt-iso-size){ animation:rs-reveal .26s cubic-bezier(.22,.8,.25,1) both }
+@keyframes rs-reveal{ from{ opacity:0; transform:translateY(-4px) } to{ opacity:1; transform:none } }
+
+/* stacked layout (under 1100 px): the two cards sit side by side or one over the other; keep the bands full width */
+@media (max-width:1100px){
+  html body #right-sidebar#right-sidebar :is(#viewport-toolbar,#vp-dock){ padding-bottom:0!important }
+}
+
+/* ---------- left sidebar: Parallels ---------- */
+html body #sidebar#sidebar #fixture-section .fx-fields{ display:flex; flex-direction:column; gap:8px; margin:12px 0 0 }
+html body #sidebar#sidebar #fixture-section .fx-field{
+  display:grid; grid-template-columns:minmax(78px,36%) minmax(0,1fr); align-items:center; gap:10px; margin:0; cursor:pointer; min-width:0;
+}
+html body #sidebar#sidebar #fixture-section .fx-lbl{
+  font:600 11px/1.3 'Inter',system-ui,sans-serif; letter-spacing:.1em; text-transform:uppercase; color:var(--sb-mute); text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+html body #sidebar#sidebar #fixture-section .fx-in{
+  display:flex; align-items:center; gap:8px; min-width:0; height:38px; padding:0 12px;
+  background:var(--sb-well); border:1px solid var(--sb-btn-line); border-radius:8px;
+  transition:border-color .2s var(--sb-ease),background-color .2s var(--sb-ease);
+}
+html body #sidebar#sidebar #fixture-section .fx-field:hover .fx-in{ border-color:color-mix(in srgb,var(--sc) 55%,#8a8f97) }
+html body #sidebar#sidebar #fixture-section .fx-in:focus-within{ border-color:var(--sc) }
+html body #sidebar#sidebar #fixture-section .fx-in input{
+  flex:1 1 auto; min-width:0; width:100%; height:100%; padding:0; margin:0; background:transparent!important; border:0!important; outline:0; box-shadow:none!important;
+  font:600 13px/1 'Inter',system-ui,sans-serif; color:var(--sb-ink); text-align:left; font-variant-numeric:tabular-nums;
+}
+html body #sidebar#sidebar #fixture-section .fx-in input:disabled{ opacity:.5 }
+html body #sidebar#sidebar #fixture-section .fx-in em{ flex:0 0 auto; font:500 11px/1 'Inter',system-ui,sans-serif; font-style:normal; color:var(--sb-mute) }
+html body #sidebar#sidebar #fixture-section .fx-actions{ display:flex; flex-direction:column; gap:8px; margin:14px 0 0 }
+html body #sidebar#sidebar #fixture-section .fx-actions .pm-wide{ width:100%; margin:0 }
+html body #sidebar#sidebar #fixture-section .fx-help{
+  display:grid; grid-template-columns:minmax(0,1fr); gap:2px; margin:14px 0 0; padding:10px 12px;
+  border-left:2px solid color-mix(in srgb,var(--sc) 55%,transparent); background:color-mix(in srgb,var(--sc) 6%,transparent); border-radius:0 8px 8px 0;
+  font-size:var(--sb-fs-s); line-height:1.5; color:var(--sb-soft); overflow-wrap:anywhere;
+}
+html body #sidebar#sidebar #fixture-section .fx-help dt{ margin:6px 0 0; font-weight:700; color:var(--sb-ink) }
+html body #sidebar#sidebar #fixture-section .fx-help dt:first-child{ margin-top:0 }
+html body #sidebar#sidebar #fixture-section .fx-help dd{ margin:0; color:var(--sb-soft) }
+
+/* ---------- left sidebar: Camera angles ---------- */
+html body #sidebar#sidebar #mc-root{ display:flex; flex-direction:column; gap:0; font-size:var(--sb-fs-s); min-width:0 }
+html body #sidebar#sidebar #mc-root .mc-group{
+  --gc:#35d4c7; display:flex; flex-direction:column; gap:10px; min-width:0; margin:0; padding:14px 0 14px 12px;
+  border-top:1px solid var(--sb-line); border-left:3px solid color-mix(in srgb,var(--gc) 75%,transparent);
+  margin-left:0; padding-left:12px;
+}
+html body #sidebar#sidebar #mc-root .mc-group:first-child{ border-top:0; padding-top:4px }
+html body #sidebar#sidebar #mc-root .mc-g-layout{ --gc:#35d4c7 }
+html body #sidebar#sidebar #mc-root .mc-g-tool{ --gc:#ff9a4d }
+html body #sidebar#sidebar #mc-root .mc-g-labels{ --gc:#b48cff }
+html body #sidebar#sidebar #mc-root .mc-sub{
+  display:flex; align-items:center; gap:8px; margin:0; font:700 11px/1.2 'Inter',system-ui,sans-serif; font-style:normal; letter-spacing:.14em; text-transform:uppercase; color:var(--gc);
+}
+html body #sidebar#sidebar #mc-root .mc-sub i{ width:14px; text-align:center; flex:none }
+html body #sidebar#sidebar #mc-root .mc-lay{ display:grid; grid-template-columns:repeat(auto-fit,minmax(48px,1fr)); gap:6px }
+html body #sidebar#sidebar #mc-root .mc-lay button{
+  height:38px; min-width:0; padding:0; border-radius:8px; border:1px solid var(--sb-btn-line); background:transparent; color:var(--sb-soft); font-size:14px; cursor:pointer;
+  transition:border-color .2s var(--sb-ease),background-color .2s var(--sb-ease),color .2s var(--sb-ease),transform .16s var(--sb-ease);
+}
+html body #sidebar#sidebar #mc-root .mc-lay button:hover{ color:#fff; border-color:color-mix(in srgb,var(--gc) 70%,#8a8f97); background:color-mix(in srgb,var(--gc) 8%,transparent) }
+html body #sidebar#sidebar #mc-root .mc-lay button.on{ color:var(--gc); border-color:var(--gc); background:color-mix(in srgb,var(--gc) 13%,transparent) }
+html body #sidebar#sidebar #mc-root .mc-lay button:active{ transform:scale(.96) }
+html body #sidebar#sidebar #mc-root .mc-note{ margin:0; color:var(--sb-soft); line-height:1.5; overflow-wrap:anywhere }
+html body #sidebar#sidebar #mc-root .mc-chk{
+  display:grid; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:10px; margin:0; cursor:pointer; color:var(--sb-ink); min-width:0;
+}
+html body #sidebar#sidebar #mc-root .mc-chk>input{ margin:2px 0 0; accent-color:var(--gc) }
+html body #sidebar#sidebar #mc-root .mc-chk>span{ display:flex; flex-direction:column; gap:2px; min-width:0 }
+html body #sidebar#sidebar #mc-root .mc-chk b{ font-weight:600; line-height:1.35; overflow-wrap:anywhere }
+html body #sidebar#sidebar #mc-root .mc-chk em{ font-style:normal; font-size:var(--sb-fs-s); line-height:1.4; color:var(--sb-mute) }
+html body #sidebar#sidebar #mc-root .mc-sliders{ display:flex; flex-direction:column; gap:4px; margin-top:2px }
+html body #sidebar#sidebar #mc-root .mc-row{
+  display:grid; grid-template-columns:minmax(76px,32%) minmax(0,1fr) 3.4em; align-items:center; gap:10px; min-height:30px; color:var(--sb-soft);
+}
+html body #sidebar#sidebar #mc-root .mc-row>span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+html body #sidebar#sidebar #mc-root .mc-row b{ text-align:right; color:var(--sb-ink); font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap }
+html body #sidebar#sidebar #mc-root .mc-row input[type=range]{ width:100%; min-width:0; margin:0; accent-color:var(--gc) }
+html body #sidebar#sidebar #mc-root .mc-row input[type=range]{ -webkit-appearance:none; appearance:none; height:24px; background:transparent!important; border:0!important; padding:0!important; cursor:pointer }
+html body #sidebar#sidebar #mc-root .mc-row input[type=range]::-webkit-slider-runnable-track{ height:4px; border-radius:2px; background:#2c2f34 }
+html body #sidebar#sidebar #mc-root .mc-row input[type=range]::-moz-range-track{ height:4px; border-radius:2px; background:#2c2f34 }
+html body #sidebar#sidebar #mc-root .mc-row input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; background:#131416; border:2px solid var(--gc); box-sizing:border-box }
+html body #sidebar#sidebar #mc-root .mc-row input[type=range]::-moz-range-thumb{ width:14px; height:14px; border-radius:50%; background:#131416; border:2px solid var(--gc); box-sizing:border-box }
+html body #sidebar#sidebar #mc-root .mc-foot{
+  margin:0; padding:12px 0 0 12px; border-top:1px solid var(--sb-line); color:var(--sb-mute); font-size:var(--sb-fs-s); line-height:1.5; overflow-wrap:anywhere;
+}
+
+/* ---------- left sidebar: camera read-out ---------- */
+html body #sidebar#sidebar #view-stats-content.vs-grid{
+  display:grid; grid-template-columns:minmax(0,1fr); gap:10px; padding:0!important; background:none!important; border:0!important; border-radius:0!important;
+  font-family:'Inter',system-ui,sans-serif!important; font-size:var(--sb-fs-s)!important; line-height:1.4!important; word-break:normal!important; color:var(--sb-ink)!important;
+}
+html body #sidebar#sidebar .vs-group{
+  --gc:#4cc2ff; min-width:0; padding:10px 12px; background:var(--sb-well); border:1px solid var(--sb-line); border-left:3px solid color-mix(in srgb,var(--gc) 75%,transparent); border-radius:8px;
+}
+html body #sidebar#sidebar .vs-group:nth-child(1){ --gc:#4cc2ff }
+html body #sidebar#sidebar .vs-group:nth-child(2){ --gc:#ffc24a }
+html body #sidebar#sidebar .vs-group:nth-child(3){ --gc:#5fcf8a }
+html body #sidebar#sidebar .vs-group:nth-child(4){ --gc:#ff8fd0 }
+html body #sidebar#sidebar .vs-title{ margin:0 0 6px; font:700 11px/1.2 'Inter',system-ui,sans-serif; letter-spacing:.14em; text-transform:uppercase; color:var(--gc) }
+html body #sidebar#sidebar .vs-row{
+  display:grid; grid-template-columns:minmax(64px,34%) minmax(0,1fr); align-items:baseline; gap:10px; padding:4px 0; border-top:1px solid color-mix(in srgb,var(--sb-line) 70%,transparent);
+}
+html body #sidebar#sidebar .vs-title+.vs-row{ border-top:0 }
+html body #sidebar#sidebar .vs-k{ color:var(--sb-mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+html body #sidebar#sidebar .vs-v{ text-align:right; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; color:var(--sb-ink) }
+html body #sidebar#sidebar .vs-v small{ font-size:inherit; font-weight:400; color:var(--sb-mute) }
+html body #sidebar#sidebar .vs-hint{ margin-top:12px }
+@media (min-width:380px) and (max-width:1100px){
+  html body #sidebar#sidebar #view-stats-content.vs-grid{ grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)) }
+}
+
+/* ---------- left sidebar: Fix my G-code is coming soon ---------- */
+html body #sidebar#sidebar #syntax-section .sf-soon{
+  border:1px dashed var(--sb-btn-line); border-radius:8px; background:transparent; color:var(--sb-soft);
+}
+html body #sidebar#sidebar #syntax-section .sf-soon>i{ color:var(--sc) }
+html body #sidebar#sidebar #syntax-section .sf-soon b{ color:var(--sb-ink) }
+html body #sidebar#sidebar #syntax-section .sec-name .sf-tag{ white-space:nowrap }
+
+@media (prefers-reduced-motion:reduce){
+  html body #right-sidebar#right-sidebar #vt-iso :is(#vt-iso-axes,#vt-iso-size){ animation:none!important }
+}
 </style>
 <script id="ux-stress">
 /* ux-stress.js: page-wide stress test and UX audit (dev tool).
