@@ -26631,7 +26631,9 @@ mainCanvas.addEventListener('mousedown', e=>{
      otherwise the tween keeps writing over the drag. */
   if (typeof CamView !== 'undefined') CamView.stop();
   drag.active=true; drag.button=e.button; drag.lastX=e.clientX; drag.lastY=e.clientY;
-  drag.pivotOnCursor = (e.button===2||e.button===1) && e.shiftKey;
+  /* What this button does comes from the mouse settings (the cog by the hints). */
+  drag.action = window.MouseBinds ? window.MouseBinds.action(e.button) : (e.button===0 ? 'pan' : 'rotate');
+  drag.pivotOnCursor = drag.action==='rotate' && e.button!==0 && e.shiftKey;
   if (drag.pivotOnCursor) OrbitPivot.begin(e.clientX, e.clientY);
   else OrbitPivot.end();
   e.preventDefault();
@@ -26649,7 +26651,7 @@ window.addEventListener('mousemove', e=>{
   const dx=e.clientX-drag.lastX, dy=e.clientY-drag.lastY;
   drag.lastX=e.clientX; drag.lastY=e.clientY;
 
-  if(drag.button===2||drag.button===1){
+  if(drag.action==='rotate'){
 
     if (!isoRotateWithPath) {
       camSphere.theta += dx*ORBIT_SPEED;
@@ -26661,7 +26663,7 @@ window.addEventListener('mousemove', e=>{
 
       ArrowVisibility.handleOrbit();
     }
-  } else if(drag.button===0){
+  } else if(drag.action==='pan'){
 
     if (!isoFollowEnabled) {
       const s=frustumSize*PAN_SPEED;
@@ -26700,7 +26702,7 @@ mainCanvas.addEventListener('wheel',e=>{
   if (typeof CamView !== 'undefined') CamView.stop();
   if (!zoomAnim || zoomTarget == null) zoomTarget = frustumSize;
   const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
-  const f = Math.exp(Math.max(-240, Math.min(240, px)) * 0.0011);
+  const f = Math.exp(Math.max(-240, Math.min(240, px)) * 0.0011 * (window.MouseBinds && window.MouseBinds.reverseScroll() ? -1 : 1));
   zoomTarget = Math.max(1, Math.min(10000, zoomTarget * f));
   if (!zoomAnim) {
     if (window.VPBusy) window.VPBusy.hold('wheelZoom');
@@ -35645,12 +35647,17 @@ const History = (() => {
     const u = document.getElementById("pm-undo"), r = document.getElementById("pm-redo");
     if (u) u.addEventListener("click", undo);
     if (r) r.addEventListener("click", redo);
+    /* Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y redo, whatever mode the
+       page is in. While you type in the G-code editor or any field, the key
+       is left alone so that field's own undo works. */
     window.addEventListener("keydown", e => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.repeat) return;
+      const k = (e.key || "").toLowerCase();
+      if (k !== "z" && k !== "y") return;
       const t = e.target;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
       e.preventDefault();
-      (e.shiftKey ? redo : undo)();
+      ((k === "y" || e.shiftKey) ? redo : undo)();
     });
     paintHistory();
   }
@@ -44589,10 +44596,12 @@ window.JawClear = (function () {
       const box = document.createElement("div");
       box.id = "vp-history";
       box.innerHTML =
-        '<button type="button" data-hist="undo" data-tip="Undo — put the last move, rotation or origin change back">' +
-          '<i class="fa-solid fa-rotate-left"></i><span>Undo</span></button>' +
-        '<button type="button" data-hist="redo" data-tip="Redo — do that change again">' +
-          '<i class="fa-solid fa-rotate-right"></i><span>Redo</span></button>';
+        '<button type="button" data-hist="undo" aria-label="Undo" title="Undo (Ctrl+Z)">' +
+          '<i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i></button>' +
+        '<button type="button" data-hist="redo" aria-label="Redo" title="Redo (Ctrl+Y)">' +
+          '<i class="fa-solid fa-arrow-rotate-right" aria-hidden="true"></i></button>';
+      box.setAttribute("role", "toolbar");
+      box.setAttribute("aria-label", "Undo and redo");
       vp.appendChild(box);
       box.addEventListener("click", e => {
         const b = e.target.closest("[data-hist]");
@@ -44607,9 +44616,7 @@ window.JawClear = (function () {
     paint() {
       const box = this.build();
       if (!box) return;
-      const model = (typeof ViewMode !== "undefined") ? ViewMode.isModel() : false;
-      box.hidden = !model;
-      if (!model) return;
+      box.hidden = false;           /* top right of the 3D panel in every mode */
       [["undo", "pm-undo"], ["redo", "pm-redo"]].forEach(([k, id]) => {
         const src = document.getElementById(id);
         const b = box.querySelector('[data-hist="' + k + '"]');
@@ -58915,7 +58922,7 @@ html body #sidebar#sidebar #og-group .og-pt:focus-visible { outline: 2px solid #
     const k = st.layout + ":" + hit.i;
     const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
     const base = zoomGoal[k] != null ? zoomGoal[k] : (cellZoom[k] || 1);
-    zoomGoal[k] = clamp(base * Math.exp(-Math.max(-240, Math.min(240, px)) * 0.0011), 0.15, 60);
+    zoomGoal[k] = clamp(base * Math.exp(-Math.max(-240, Math.min(240, px)) * 0.0011 * (window.MouseBinds && window.MouseBinds.reverseScroll() ? -1 : 1)), 0.15, 60);
     easeCells();
   }, { capture: true, passive: false });
 
@@ -58941,7 +58948,9 @@ html body #sidebar#sidebar #og-group .og-pt:focus-visible { outline: 2px solid #
     const dx = e.clientX - cellDrag.x, dy = e.clientY - cellDrag.y;
     cellDrag.x = e.clientX; cellDrag.y = e.clientY;
     const v = viewOf(cellDrag.k);
-    if (cellDrag.button === 2 || cellDrag.button === 1 || cellDrag.shift) {
+    const act = window.MouseBinds ? window.MouseBinds.action(cellDrag.button) : (cellDrag.button === 0 ? "pan" : "rotate");
+    if (act === "none") return;
+    if (act === "rotate" || cellDrag.shift) {
       v.az -= dx * 0.008;
       v.el = clamp(v.el + dy * 0.008, -1.45, 1.45);
     } else {
@@ -60793,9 +60802,9 @@ html body #sidebar#sidebar #og-group .og-pt:focus-visible { outline: 2px solid #
     const bar = document.createElement("div");
     bar.className = "vc-bar";
     bar.innerHTML =
-      '<button type="button" data-vc="left" title="Turn the view 90° left"><i class="fa-solid fa-rotate-left"></i></button>' +
-      '<button type="button" data-vc="home" title="Home — isometric view"><i class="fa-solid fa-house"></i></button>' +
-      '<button type="button" data-vc="right" title="Turn the view 90° right"><i class="fa-solid fa-rotate-right"></i></button>';
+      '<button type="button" data-vc="left" title="Turn the view 90° left" aria-label="Turn the view 90 degrees left"><i class="fa-solid fa-chevron-left"></i></button>' +
+      '<button type="button" data-vc="home" title="Home — isometric view" aria-label="Home, isometric view"><i class="fa-solid fa-house"></i></button>' +
+      '<button type="button" data-vc="right" title="Turn the view 90° right" aria-label="Turn the view 90 degrees right"><i class="fa-solid fa-chevron-right"></i></button>';
     wrap.appendChild(bar);
     bar.addEventListener("click", e => {
       const b = e.target.closest("button");
@@ -60893,10 +60902,12 @@ html body #sidebar#sidebar #og-group .og-pt:focus-visible { outline: 2px solid #
     cells.forEach((c, k) => {
       /* big enough to steer by: 40% of the view's short side, but never taller than the view has room for
          (the corner offset above it, and the Home / turn buttons under the clickable one) */
-      const room = c.h * sy - 34 - (k === realCell ? 40 : 10);
+      /* the cell in the top right corner of the view also holds the undo / redo bar, so its cube starts below that */
+      const lift = (c.y + c.h >= H - 1 && c.x + c.w >= W - 1) ? 58 : 0;
+      const room = c.h * sy - 34 - lift - (k === realCell ? 40 : 10);
       const size = Math.round(Math.max(44, Math.min(clamp(Math.min(c.w * sx, c.h * sy) * 0.40, 84, 200), room)));
       const left = ox + (c.x + c.w) * sx - size - 8;                 /* in the viewport's own pixels */
-      const top = oy + (H - c.y - c.h) * sy + 34;                    /* clear of the camera tag along the top */
+      const top = oy + (H - c.y - c.h) * sy + 34 + lift;             /* clear of the camera tag along the top */
       if (k === realCell) {
         setRealCube(true, left, top, size, vr.width - (left + size));
         return;
@@ -64512,7 +64523,12 @@ html body #td-wrap{flex:0 1 auto;min-width:0;overflow:hidden}
       });
     });
     /* the single view's cube shrinks to leave room for its three buttons under it, so they are never cut off a short view */
-    vp.style.setProperty('--cube-fit', Math.max(.3, Math.min(1.25, (v.height - 14 - 8 - 54 - 8) / 208)).toFixed(3));
+    /* the undo / redo bar sits above the cube; in a short view it moves to the cube's left instead so the cube keeps its size */
+    const short = v.height < 330 && window.innerWidth > 800;
+    vp.classList.toggle('vp-short', short);
+    const fit = Math.max(.3, Math.min(1.25, (v.height - (short ? 14 : 72) - 8 - 54 - 8) / 208));
+    vp.style.setProperty('--cube-fit', fit.toFixed(3));
+    vp.style.setProperty('--cube-w', Math.round(208 * Math.min(window.innerWidth <= 800 ? .62 : 1.25, fit)) + 'px');
     if (bot) vp.style.setProperty('--cube-bot', Math.round(bot - v.top + 8) + 'px');
   };
   const queue = () => { if (!raf) raf = requestAnimationFrame(set); };
@@ -69119,6 +69135,225 @@ ${f.replay ? '<code>Replay: ' + esc(f.replay) + '</code>' : ''}${f.html ? '<code
   btn.addEventListener("blur", reset);
   btn.addEventListener("click", function (e) { e.preventDefault(); });
   btn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+<style id="vp-topright-css">
+/* ===== 3D panel, top right: undo / redo, then the view cube. Everything solid, flat and outlined. ===== */
+:root{--hb:36px}
+@media (pointer:coarse){:root{--hb:44px}}
+html body #vp-history#vp-history{position:absolute;top:14px;right:14px;left:auto;bottom:auto!important;transform:none;display:flex;gap:4px;padding:4px;
+  border-radius:10px;border:1px solid #2a2e34;background:#0e0f11;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;z-index:95}
+html body #vp-history#vp-history[hidden]{display:none}
+html body #vp-history#vp-history button{width:var(--hb);height:var(--hb);padding:0;justify-content:center;gap:0;font-size:14px;border-radius:7px;
+  border:1px solid #3a3f46;background:transparent;color:#e6e8eb;
+  transition:border-color .18s ease,color .18s ease,opacity .18s ease,transform .12s ease}
+html body #vp-history#vp-history button:hover:not(:disabled){border-color:#fff;color:#fff;background:transparent}
+html body #vp-history#vp-history button:active:not(:disabled){transform:scale(.94)}
+html body #vp-history#vp-history button:focus-visible{outline:2px solid var(--accent,#5b93ea);outline-offset:2px}
+html body #vp-history#vp-history button:disabled{opacity:.35;cursor:default}
+html body:not(.cc-on) #cube-wrap#cube-wrap{top:calc(var(--hb) + 28px)!important}
+html body:not(.cc-on) #viewport.vp-short #cube-wrap#cube-wrap{top:14px!important}
+html body:not(.cc-on) #viewport.vp-short #vp-history#vp-history{right:calc(14px + var(--cube-w,130px) + 4px)}
+@media (max-height:600px){html body:not(.cc-on) #viewport.vp-short #vp-history#vp-history{right:calc(14px + var(--cube-w,130px) + 4px + 54px)}}
+@media (max-height:600px) and (pointer:coarse){html body:not(.cc-on) #viewport.vp-short #vp-history#vp-history{right:calc(14px + var(--cube-w,130px) + 4px + 64px)}}
+/* the cube's own buttons: solid, no blur */
+html body #cube-wrap#cube-wrap .vc-bar{background:#0e0f11;backdrop-filter:none;-webkit-backdrop-filter:none;border-color:#2a2e34}
+
+/* ===== mouse hints: settings cog on the left, then the Pan / Rotate / Zoom card ===== */
+html body #mouse-hints#mouse-hints{display:flex!important;gap:8px;align-items:stretch;background:none!important;border:0!important;box-shadow:none!important;border-radius:0!important;overflow:visible!important}
+html body #mouse-hints .mh-card{display:flex;align-items:stretch;background:#0b0c0e;border:1px solid #2a2e34;border-radius:10px;overflow:hidden}
+html body #mouse-hints #mh-cog{pointer-events:auto;flex:0 0 auto;width:42px;padding:0;display:grid;place-items:center;font-size:15px;cursor:pointer;
+  background:#0b0c0e;color:#e4e6ea;border:1px solid #2a2e34;border-radius:10px;transition:border-color .18s ease,color .18s ease,transform .12s ease}
+html body #mouse-hints #mh-cog i{transition:transform .35s cubic-bezier(.22,.61,.36,1)}
+html body #mouse-hints #mh-cog:hover,html body #mouse-hints #mh-cog[aria-expanded="true"]{border-color:#fff;color:#fff}
+html body #mouse-hints #mh-cog[aria-expanded="true"] i{transform:rotate(60deg)}
+html body #mouse-hints #mh-cog:active{transform:scale(.94)}
+html body #mouse-hints #mh-cog:focus-visible{outline:2px solid var(--accent,#5b93ea);outline-offset:2px}
+html body #mouse-hints .mh-ico .mh-wheel{transition:fill .2s ease}
+html body #mouse-hints .mh-ico .mh-bl,html body #mouse-hints .mh-ico .mh-br{transition:opacity .2s ease}
+@media (pointer:coarse){html body #mouse-hints #mh-cog{width:44px}}
+
+#mh-pop{position:fixed;z-index:2000;left:8px;top:8px;width:304px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;box-sizing:border-box;
+  background:#0e0f11;border:1px solid #2a2e34;border-radius:12px;padding:14px;color:#e4e6ea;font-family:'Inter',system-ui,sans-serif;
+  opacity:0;visibility:hidden;transform:translateY(6px);transition:opacity .18s ease,transform .18s ease,visibility 0s linear .18s}
+#mh-pop.open{opacity:1;visibility:visible;transform:none;transition:opacity .18s ease,transform .18s ease}
+#mh-pop .mhp-head{display:flex;align-items:center;justify-content:space-between;margin:0 0 12px;font:600 12px/1 'Inter',system-ui,sans-serif;letter-spacing:.06em}
+#mh-pop button{font-family:'Inter',system-ui,sans-serif;cursor:pointer;background:transparent!important;color:#8a9099!important;border:1px solid #30343a!important;border-radius:7px;box-shadow:none!important;
+  transition:border-color .18s ease,color .18s ease,transform .12s ease}
+#mh-pop button:hover{border-color:#fff!important;color:#fff!important}
+#mh-pop button:active{transform:scale(.96)}
+#mh-pop button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+#mh-pop .mhp-x{width:28px;height:28px;padding:0;display:grid;place-items:center;font-size:12px}
+#mh-pop .mhp-row{display:grid;grid-template-columns:82px minmax(0,1fr);gap:10px;align-items:center;margin:0 0 10px}
+#mh-pop .mhp-lab{font:500 11px/1.25 'Inter',system-ui,sans-serif;color:#8a9099}
+#mh-pop .mhp-seg{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px}
+#mh-pop .mhp-seg button{height:30px;padding:0 4px;font-size:11px;font-weight:500;white-space:nowrap}
+#mh-pop .mhp-seg button[aria-pressed="true"]{border-color:#fff!important;color:#fff!important}
+#mh-pop .mhp-note{margin:2px 0 12px;font:400 10.5px/1.45 'Inter',system-ui,sans-serif;color:#8a9099}
+#mh-pop .mhp-reset{height:30px;padding:0 12px;font-size:11px;font-weight:500}
+@media (pointer:coarse){#mh-pop .mhp-seg button,#mh-pop .mhp-reset{height:44px}#mh-pop .mhp-x{width:44px;height:44px}}
+@media (prefers-reduced-motion:reduce){#mh-pop,#mh-pop.open{transition-duration:.01ms}}
+</style>
+<script id="vp-mouse-settings">
+/* Mouse controls for the 3D view: which button pans, which one rotates, which way the wheel zooms.
+   Kept in this browser. The hint card by the cog follows the choices live. */
+(function () {
+  'use strict';
+  var KEY = 'cnc.mouse.v1', BTN = ['left', 'middle', 'right'], ACTS = ['pan', 'rotate', 'none'];
+  var DEF = { left: 'pan', middle: 'rotate', right: 'rotate', reverse: false };
+  var st = { left: DEF.left, middle: DEF.middle, right: DEF.right, reverse: DEF.reverse };
+  try {
+    var raw = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (raw && typeof raw === 'object') {
+      BTN.forEach(function (b) { if (ACTS.indexOf(raw[b]) >= 0) st[b] = raw[b]; });
+      st.reverse = raw.reverse === true;
+    }
+  } catch (e) { /* private window: the defaults stand */ }
+
+  var subs = [];
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* kept for this visit */ } }
+  function emit() { subs.forEach(function (f) { f(); }); }
+  window.MouseBinds = {
+    action: function (button) { return st[BTN[button]] || 'none'; },
+    reverseScroll: function () { return st.reverse; },
+    get: function () { return { left: st.left, middle: st.middle, right: st.right, reverse: st.reverse }; },
+    set: function (p) { Object.keys(p || {}).forEach(function (k) { if (k in st) st[k] = p[k]; }); save(); emit(); },
+    reset: function () { st.left = DEF.left; st.middle = DEF.middle; st.right = DEF.right; st.reverse = DEF.reverse; save(); emit(); },
+    onChange: function (f) { subs.push(f); }
+  };
+
+  var hints = document.getElementById('mouse-hints');
+  if (!hints) return;
+
+  /* wrap the three hints in a card so the cog can sit beside it */
+  var card = document.createElement('div');
+  card.className = 'mh-card';
+  card.setAttribute('aria-hidden', 'true');
+  while (hints.firstChild) card.appendChild(hints.firstChild);
+  hints.removeAttribute('aria-hidden');
+
+  var cog = document.createElement('button');
+  cog.type = 'button'; cog.id = 'mh-cog';
+  cog.setAttribute('aria-label', 'Mouse settings');
+  cog.setAttribute('aria-haspopup', 'dialog');
+  cog.setAttribute('aria-expanded', 'false');
+  cog.setAttribute('aria-controls', 'mh-pop');
+  cog.title = 'Mouse settings';
+  cog.innerHTML = '<i class="fa-solid fa-gear" aria-hidden="true"></i>';
+  hints.appendChild(cog);
+  hints.appendChild(card);
+
+  var items = card.querySelectorAll('.mh-item');
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  var L = 'M8 1A7 7 0 0 0 1 8V10H8Z', R = 'M8 1A7 7 0 0 1 15 8V10H8Z';
+  [items[0], items[1]].forEach(function (it) {
+    var svg = it.querySelector('svg'), old = svg.querySelector('.mh-on');
+    if (old) old.remove();
+    [['mh-bl', L], ['mh-br', R]].forEach(function (a) {
+      var p = document.createElementNS(SVGNS, 'path');
+      p.setAttribute('class', 'mh-on ' + a[0]); p.setAttribute('d', a[1]);
+      svg.insertBefore(p, svg.firstChild);
+    });
+  });
+
+  var NAME = { left: 'Left', middle: 'Middle', right: 'Right' };
+  function keyText(act) {
+    var names = ['left', 'right', 'middle'].filter(function (b) { return st[b] === act; });
+    if (names.length > 1 && names.indexOf('middle') >= 0) names.splice(names.indexOf('middle'), 1);
+    return names.length ? names.map(function (b) { return NAME[b]; }).join(' or ') + ' drag' : 'Not set';
+  }
+  function paintHints() {
+    [['pan', items[0]], ['rotate', items[1]]].forEach(function (a) {
+      var it = a[1], act = a[0];
+      it.querySelector('.mh-key').textContent = keyText(act);
+      it.querySelector('.mh-bl').style.opacity = st.left === act ? 1 : 0;
+      it.querySelector('.mh-br').style.opacity = st.right === act ? 1 : 0;
+      it.querySelector('.mh-wheel').style.fill = st.middle === act ? 'currentColor' : '';
+    });
+    items[2].querySelector('.mh-key').textContent = st.reverse ? 'Scroll, reversed' : 'Scroll';
+  }
+
+  /* ---- the popover ---- */
+  var pop = document.createElement('div');
+  pop.id = 'mh-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'Mouse settings');
+  var rows = [
+    ['left', 'Left drag', ACTS], ['middle', 'Middle drag', ACTS], ['right', 'Right drag', ACTS]
+  ];
+  var LAB = { pan: 'Pan', rotate: 'Rotate', none: 'None' };
+  var html = '<div class="mhp-head"><span>MOUSE SETTINGS</span><button type="button" class="mhp-x" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>';
+  rows.forEach(function (r) {
+    html += '<div class="mhp-row" role="group" aria-label="' + r[1] + '"><span class="mhp-lab">' + r[1] + '</span><span class="mhp-seg">' +
+      r[2].map(function (a) { return '<button type="button" data-btn="' + r[0] + '" data-act="' + a + '" aria-pressed="false">' + LAB[a] + '</button>'; }).join('') + '</span></div>';
+  });
+  html += '<div class="mhp-row" role="group" aria-label="Scroll up"><span class="mhp-lab">Scroll up</span><span class="mhp-seg">' +
+    '<button type="button" data-rev="0" aria-pressed="false">Zooms in</button><button type="button" data-rev="1" aria-pressed="false">Zooms out</button></span></div>' +
+    '<p class="mhp-note">Pick what each mouse button does while you drag in the 3D view. Shift while rotating with a side button turns the view around the point under the cursor.</p>' +
+    '<button type="button" class="mhp-reset">Reset to defaults</button>';
+  pop.innerHTML = html;
+  document.body.appendChild(pop);
+
+  function paintPop() {
+    pop.querySelectorAll('[data-btn]').forEach(function (b) { b.setAttribute('aria-pressed', st[b.dataset.btn] === b.dataset.act ? 'true' : 'false'); });
+    pop.querySelectorAll('[data-rev]').forEach(function (b) { b.setAttribute('aria-pressed', (b.dataset.rev === '1') === st.reverse ? 'true' : 'false'); });
+  }
+  pop.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.classList.contains('mhp-x')) { close(true); return; }
+    if (b.classList.contains('mhp-reset')) { window.MouseBinds.reset(); return; }
+    if (b.dataset.btn) { var p = {}; p[b.dataset.btn] = b.dataset.act; window.MouseBinds.set(p); return; }
+    if (b.dataset.rev) window.MouseBinds.set({ reverse: b.dataset.rev === '1' });
+  });
+  window.MouseBinds.onChange(function () { paintHints(); paintPop(); });
+
+  function place() {
+    var r = cog.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    var top = r.top - 8 - h;
+    if (top < 8) top = Math.max(8, Math.min(r.bottom + 8, window.innerHeight - h - 8));
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+  }
+  function isOpen() { return pop.classList.contains('open'); }
+  function open() {
+    paintPop(); place();
+    pop.classList.add('open'); cog.setAttribute('aria-expanded', 'true');
+  }
+  function close(refocus) {
+    pop.classList.remove('open'); cog.setAttribute('aria-expanded', 'false');
+    if (refocus) cog.focus({ preventScroll: true });
+  }
+  cog.addEventListener('click', function () { isOpen() ? close(false) : open(); });
+  document.addEventListener('pointerdown', function (e) {
+    if (isOpen() && !pop.contains(e.target) && !cog.contains(e.target)) close(false);
+  }, true);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && isOpen()) { e.stopPropagation(); close(true); } }, true);
+  window.addEventListener('resize', function () {
+    if (!isOpen()) return;
+    if (getComputedStyle(hints).display === 'none') close(false); else place();
+  });
+  paintHints(); paintPop();
+})();
+</script>
+<script id="vp-cube-sharp">
+/* The view cube is drawn at the exact pixel size it shows at, so it is never stretched or squeezed (no soft edges),
+   and every part of it is a solid, non-transparent surface. */
+(function () {
+  'use strict';
+  if (typeof cubeRenderer === 'undefined' || typeof cubeScene === 'undefined') return;
+  var wrap = document.getElementById('cube-wrap'), last = 0;
+  cubeScene.traverse(function (o) {
+    if (o.isMesh && o.material && !o.material.map) { o.material.transparent = false; o.material.opacity = 1; }
+  });
+  function sync() {
+    if (!wrap || !wrap.offsetWidth) return;
+    var scale = wrap.getBoundingClientRect().width / wrap.offsetWidth;
+    if (!(scale > 0)) return;
+    var pr = Math.max(1, Math.min(4, (window.devicePixelRatio || 1) * scale));
+    if (Math.abs(pr - last) < 0.03) return;
+    last = pr;
+    cubeRenderer.setPixelRatio(pr);
+    try { cubeRenderer.render(cubeScene, cubeCam); } catch (e) { /* next frame will */ }
+  }
+  setInterval(sync, 300);
+  window.addEventListener('resize', sync);
+  sync();
 })();
 </script>
 </body>
