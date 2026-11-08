@@ -9578,7 +9578,7 @@ void main(){ if (vW.z > uClip) discard; gl_FragColor = uColor; }`;
       const up = Math.ceil(shIn * 16 - 1e-6), inchAlt = !inchy && up / 16 * 25.4 - mm < 0.5 ? fracIn(up) + ' collet' : null;
       if (inchAlt) rows.push('<b>' + er.first + ' collet chuck</b> with a <b>' + inchAlt + '</b> <span class="fn-tag">inch collet</span>');
     }
-    if (!rows.length) rows.push('<span class="warn">Nothing in this set holds a ' + mm.toFixed(2) + ' mm shank.</span>');
+    if (!rows.length) rows.push('<span class="warn">Nothing in this set holds a ' + shIn.toFixed(4) + ' in (' + mm.toFixed(2) + ' mm) shank.</span>');
     return rows;
   }
   let fitNoteTimer = 0, fitNoteState = null;
@@ -9593,12 +9593,12 @@ void main(){ if (vW.z > uClip) discard; gl_FragColor = uColor; }`;
     if (!s || !doc || !(doc.geometry && doc.geometry.shankDiameter > 0) || Date.now() > s.until || M.hasTool === false || M.family === 'wrench') { box.hidden = true; return; }
     const sh = doc.geometry.shankDiameter / 25.4, rows = holderOptions(sh, M);
     const head = s.how === 'tool' ? 'Tool resized to the holder' : s.how === 'switch' ? 'Now on the ' + M_label(M) : 'Holder opened to the tool';
-    box.querySelector('.fn-h').innerHTML = head + ' — <span class="fn-mm">Ø' + (sh * 25.4).toFixed(3) + ' mm</span>';
+    box.querySelector('.fn-h').innerHTML = head + ' — <span class="fn-mm">Ø' + sh.toFixed(4) + ' in (' + (sh * 25.4).toFixed(3) + ' mm)</span>';
     box.querySelector('.fn-sub').textContent = s.said || '';
     const shown = Math.min(rows.length, s.shown || 3);
     box.querySelector('.fn-l').innerHTML = '<div class="fn-need">Holders that take it (' + rows.length + ')</div>'
       + rows.slice(0, shown).map((l, i) => '<div class="fn-row"><span class="fn-n">' + (i + 1) + '</span><span>' + l + '</span></div>').join('')
-      + (rows.length > shown ? '<button type="button" class="fn-more">Show more (' + Math.min(3, rows.length - shown) + ' more)</button>' : '');
+      + (rows.length > shown ? '<button type="button" class="fn-more">Show ' + Math.min(3, rows.length - shown) + ' more</button>' : '');
     box.hidden = false;
   }
   setInterval(() => { if (!fitNoteState) return; if (fitNoteState.key !== curKey) { fitNoteState.key = curKey; fitNoteState.until = Date.now() + 20000; fitNoteState.shown = 3; fitNoteState.how = 'switch'; fitNoteState.said = adaptNote || ''; } renderFitNote(); }, 500);   // follows you when you switch to another holder
@@ -10177,7 +10177,7 @@ void main(){ if (vW.z > uClip) discard; gl_FragColor = uColor; }`;
         const bad = notForCollet({ params: bp });
         if (bad) { text = doc ? 'Swap anyway (won’t fit)' : 'Put in anyway (won’t fit)'; tip = bad; }
         else if (same && !opt.tool) { text = 'Show tool in holder'; tip = 'The tool is in this holder but hidden. Turn the Tool view on to see it'; putMode = 'show'; }
-        else if (same) { text = 'Tool is in holder ✓'; off = true; tip = 'The tool on the left is already in this holder. Change it to put it in again'; }
+        else if (same) { text = 'Tool is in holder'; off = true; tip = 'The tool on the left is already in this holder. Change it to put it in again.'; }
         else if (doc) {
           text = doc.number === bp.toolNumber || (doc.name && bp.toolName && doc.name === bp.toolName) ? 'Update tool in holder' : 'Swap tool in holder';
           tip = 'Replace T' + doc.number + ' in this holder with the tool on the left';
@@ -10198,8 +10198,8 @@ void main(){ if (vW.z > uClip) discard; gl_FragColor = uColor; }`;
       let matched = false, tip = 'Put a tool in the holder first';
       if (ok) {
         const sh = doc.geometry.shankDiameter / 25.4, bore = M.params[bid]; matched = Math.abs(sh - bore) <= 0.00002;
-        tip = matched ? 'The tool and the holder are already the same size (' + (sh * 25.4).toFixed(3) + ' mm)'
-          : 'Tool shank ' + (sh * 25.4).toFixed(3) + ' mm, holder bore ' + (bore * 25.4).toFixed(3) + ' mm';
+        tip = matched ? 'The tool and the holder are already the same size (' + sh.toFixed(4) + ' in, ' + (sh * 25.4).toFixed(3) + ' mm)'
+          : 'Tool shank ' + sh.toFixed(4) + ' in (' + (sh * 25.4).toFixed(3) + ' mm), holder bore ' + bore.toFixed(4) + ' in (' + (bore * 25.4).toFixed(3) + ' mm)';
       }
       fh.disabled = ft.disabled = !ok || matched;
       fh.setAttribute('data-tip', ok && !matched ? tip + '. Sets the holder bore to the tool shank.' : tip);
@@ -10213,17 +10213,17 @@ void main(){ if (vW.z > uClip) discard; gl_FragColor = uColor; }`;
       adaptNote = note || ''; saveAsg(); needFull = true; flushRebuild(); refreshAsg(); dirty = true;
       showFitNote(how, adaptNote);
       const b = how === 'holder' ? fh : ft, l = b.querySelector('.label'), was = l.textContent;
-      l.textContent = /does not fit|only opens/.test(adaptNote) ? 'Holder can’t open that far' : (how === 'holder' ? 'Holder fitted ✓' : 'Tool fitted ✓');
+      l.textContent = /does not fit|only opens/.test(adaptNote) ? 'Holder can’t open that far' : (how === 'holder' ? 'Holder fitted' : 'Tool fitted');
       setTimeout(() => { l.textContent = was; updateFit(); }, 1500);
     }
     if (fh) { fh.onclick = () => fit('holder'); ft.onclick = () => fit('tool'); setInterval(updateFit, 400); }
     btn.onclick = () => {
       if (putMode === 'show' && cur) { $('b-tool').click(); updatePut(); return; }   // already in the holder, just hidden
-      if (!cur || typeof window.__tbPut !== 'function') { btn.disabled = true; say('Builder is still loading', 1200); return; }
+      if (!cur || typeof window.__tbPut !== 'function') { btn.disabled = true; say('Builder is still loading.', 1200); return; }
       const M = cur.M;
-      if (M.hasTool === false || M.family === 'wrench') { btn.disabled = true; say('This holder takes no tool', 1800); return; }
+      if (M.hasTool === false || M.family === 'wrench') { btn.disabled = true; say('This holder takes no tool.', 1800); return; }
       let id = null; try { id = window.__tbPut(); } catch (e) { console.error(e); }
-      if (id == null) { btn.disabled = true; say('Could not save the tool', 1800); return; }
+      if (id == null) { btn.disabled = true; say('Could not save the tool.', 1800); return; }
       flushRebuild();
       asg[M.key] = String(id); delete stk[M.key]; delete shOv[M.key]; M.stickSet = false; adaptNote = '';
       const fm = fitMode; fitMode = 'holder';   // here the holder always takes the tool's exact diameter
@@ -10231,7 +10231,7 @@ void main(){ if (vW.z > uClip) discard; gl_FragColor = uColor; }`;
       saveAsg(); needFull = true; flushRebuild();
       if (!opt.tool) $('b-tool').click();
       refreshAsg(); dirty = true;
-      btn.disabled = true; say('Tool in holder ✓', 1400);
+      btn.disabled = true; say('Tool in holder', 1400);
     };
   })();
 
@@ -15100,7 +15100,7 @@ const Library = (() => {
         { number: t.number, name: t.name, units: codeUnits() })).join("\n");
     try {
       await navigator.clipboard.writeText(text);
-      say(`${tools.length} code(s) copied — paste the lot into the visualizer at once.`, "ok");
+      say(`${tools.length} code${tools.length === 1 ? "" : "s"} copied — paste ${tools.length === 1 ? "it" : "them all"} into the visualizer at once.`, "ok");
     } catch (e) {
       const field = $("#tb-codein");
       $("#tb-codebox").hidden = false;
@@ -15373,7 +15373,7 @@ const Library = (() => {
     editing = null;
     UI.reload();
     render();
-    say(`Loaded ${e.n}. Edit it however you like — the code below keeps up.`, "ok");
+    say(`Loaded ${e.n}. Edit it however you like, and the code below keeps up.`, "ok");
   }
 
   /* Every tool in the chosen group, straight into the library. Setting up
@@ -19905,7 +19905,7 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
       <div id="editor-header">
         <div id="editor-header-left">
           <span id="editor-title">GCode Editor</span>
-          <span id="editor-status">ready</span>
+          <span id="editor-status">Ready</span>
           <button type="button" id="editor-find-btn" title="Find and replace (Ctrl/Cmd+F, Ctrl/Cmd+H)" aria-label="Find and replace"><i class="fa-solid fa-magnifying-glass"></i></button>
         </div>
         <span id="editor-hint">Drop a file anywhere on the page — .nc .gcode .tap .step .stp .txt</span>
@@ -20403,15 +20403,15 @@ const Pocket = (function () {
 
     const radii = planRadii(I, K, Q);
     if (radii.length === 0) {
-      warn.warn('G12/G13: no cut radii planned (check I/K/Q)', ins.lineIndex);
+      warn.warn('G12/G13: No cut radii were planned. Check I, K and Q.', ins.lineIndex);
       return { lines: [], endX: cx, endY: cy, endZ: curZ };
     }
 
     for (const r of radii) {
       if (r <= toolR) {
         warn.err(
-          `G12/G13 gouge: cut radius (${r.toFixed(4)}) ≤ tool radius `
-          + `(${toolR.toFixed(4)}) — pocket smaller than tool`,
+          `G12/G13 gouge: The cut radius (${r.toFixed(4)}) is not larger than the tool radius `
+          + `(${toolR.toFixed(4)}), so the pocket is smaller than the tool.`,
           ins.lineIndex
         );
         return { lines: [], endX: cx, endY: cy, endZ: curZ };
@@ -20420,8 +20420,8 @@ const Pocket = (function () {
 
     if (radii.length > 1) {
       warn.info(
-        `G12/G13: expanded into ${radii.length} pass${radii.length>1?'es':''} `
-        + `(I=${I.toFixed(4)} → K=${K.toFixed(4)}, Q=${Q.toFixed(4)})`,
+        `G12/G13: Expanded into ${radii.length} passes `
+        + `(I=${I.toFixed(4)} to K=${K.toFixed(4)}, Q=${Q.toFixed(4)}).`,
         ins.lineIndex
       );
     }
@@ -20429,8 +20429,8 @@ const Pocket = (function () {
     if (L > 1) {
       warn.info(
         incr
-          ? `G12/G13: L=${L} loops under G91 — each loop goes another Z deeper`
-          : `G12/G13: L=${L} loop count — repeating the cycle ${L} times at the same Z`,
+          ? `G12/G13: L=${L} loops under G91. Each loop goes another Z deeper.`
+          : `G12/G13: L=${L} loop count. The cycle repeats ${L} times at the same Z.`,
         ins.lineIndex
       );
     }
@@ -20519,12 +20519,12 @@ const Comp = (function () {
           if (Math.abs(endR - vert.arcRadius) > 1e-3) {
             warn.warn(
               `Arc has inconsistent radii (start=${vert.arcRadius.toFixed(4)}, `
-              + `end=${endR.toFixed(4)}) — geometry may be wrong`,
+              + `end=${endR.toFixed(4)}), so the geometry may be wrong.`,
               idx
             );
           }
         } else {
-          warn.err('Arc center could not be resolved (missing I/J/R or impossible R)', idx);
+          warn.err('The arc center could not be resolved because I, J or R is missing, or R is impossible.', idx);
           vert.arcRadius = 0;
         }
       }
@@ -20547,8 +20547,8 @@ const Comp = (function () {
         const newSide = (ins.comp === 'on41') ? 1 : -1;
         if (side !== 0) {
           warn.warn(
-            `${ins.comp === 'on41' ? 'G41' : 'G42'} commanded while compensation is already active — `
-            + `closing previous window and starting a new one`,
+            `${ins.comp === 'on41' ? 'G41' : 'G42'} was commanded while compensation is already active. `
+            + `The previous window was closed and a new one started.`,
             idx
           );
           if (cur) {
@@ -20578,7 +20578,7 @@ const Comp = (function () {
 
       if (ins.comp === 'off') {
         if (side === 0) {
-          warn.warn('G40 issued without active G41/G42 — ignored', idx);
+          warn.warn('G40 was issued without an active G41 or G42, so it was ignored.', idx);
         } else if (cur) {
           cur.endIndex = idx;
 
@@ -20605,7 +20605,7 @@ const Comp = (function () {
     }
 
     if (cur) {
-      warn.warn('Compensation window opened with G41/G42 but never closed with G40', cur.startIndex);
+      warn.warn('A compensation window was opened with G41 or G42 but never closed with G40.', cur.startIndex);
       cur.endIndex = instrs.length;
       cur.uncompEndX = cx;
       cur.uncompEndY = cy;
@@ -20627,8 +20627,8 @@ const Comp = (function () {
 
         if (s.offRadius <= 1e-9) {
           warn.err(
-            `Arc gouge: tool radius (${toolRadius.toFixed(4)}) ≥ arc radius `
-            + `(${v.arcRadius.toFixed(4)}) on inside curve — geometry will collapse`,
+            `Arc gouge: The tool radius (${toolRadius.toFixed(4)}) is not smaller than the arc radius `
+            + `(${v.arcRadius.toFixed(4)}) on an inside curve, so the geometry will collapse.`,
             v.lineIndex
           );
 
@@ -20655,7 +20655,7 @@ const Comp = (function () {
         s.length  = L;
 
         if (L < 1e-9) {
-          warn.info(`Zero-length cutting move skipped`, v.lineIndex);
+          warn.info(`A zero-length cutting move was skipped.`, v.lineIndex);
         }
       }
 
@@ -20723,7 +20723,7 @@ const Comp = (function () {
     const n   = segs.length;
 
     if (n === 0) {
-      warn.warn('Compensation window has no cutting moves — nothing to compensate', win.startIndex);
+      warn.warn('The compensation window has no cutting moves, so there is nothing to compensate.', win.startIndex);
       return { lines: out, origLines };
     }
 
@@ -20794,8 +20794,8 @@ const Comp = (function () {
       const inLen = Geom.dist(uncompStart, { x: segs[0].v.x, y: segs[0].v.y });
       if (inLen < toolRadius - 1e-6) {
         warn.warn(
-          `Entry move length (${inLen.toFixed(4)}) is shorter than tool radius `
-          + `(${toolRadius.toFixed(4)}) — Haas best practice is entry ≥ tool radius`,
+          `The entry move length (${inLen.toFixed(4)}) is shorter than the tool radius `
+          + `(${toolRadius.toFixed(4)}). Haas best practice is an entry at least as long as the tool radius.`,
           segs[0].v.lineIndex
         );
       }
@@ -20807,13 +20807,13 @@ const Comp = (function () {
       );
       if (outLen < toolRadius - 1e-6) {
         warn.warn(
-          `Exit move length (${outLen.toFixed(4)}) is shorter than tool radius `
-          + `(${toolRadius.toFixed(4)}) — risk of tool mark on exit`,
+          `The exit move length (${outLen.toFixed(4)}) is shorter than the tool radius `
+          + `(${toolRadius.toFixed(4)}), which risks a tool mark on exit.`,
           segs[n - 1].v.lineIndex
         );
       }
     } else {
-      warn.info('No motion on G40 line — exiting at current offset position', win.endIndex);
+      warn.info('There is no motion on the G40 line, so the cutter exits at the current offset position.', win.endIndex);
     }
 
     return { lines: out, origLines };
@@ -20835,11 +20835,11 @@ const Comp = (function () {
 
   function compensateWindow(win, toolRadius, warn) {
     if (win.verts.length === 0) {
-      warn.warn('Compensation window contains no cutting moves', win.startIndex);
+      warn.warn('The compensation window contains no cutting moves.', win.startIndex);
       return { lines: [], origLines: [] };
     }
     const closed = isClosedContour(win);
-    if (!closed) warn.info('Open contour: G41/G42 entry start ≠ G40 exit end', win.startIndex);
+    if (!closed) warn.info('Open contour: The G41 or G42 entry start is not the same as the G40 exit end.', win.startIndex);
 
     const segs   = buildSegments(win.verts, toolRadius, warn);
 
@@ -20860,8 +20860,8 @@ const Comp = (function () {
       if (Math.abs(origA) > 1e-6 && Math.abs(offsetA) > 1e-9
           && Math.sign(origA) !== Math.sign(offsetA)) {
         warn.err(
-          'Tool-too-large gouge: offset contour winds opposite to programmed contour. '
-          + 'The tool radius exceeds the feature size — entire offset path is inverted.',
+          'Tool-too-large gouge: The offset contour winds opposite to the programmed contour. '
+          + 'The tool radius exceeds the feature size, so the entire offset path is inverted.',
           win.startIndex
         );
       }
@@ -20908,14 +20908,14 @@ const Comp = (function () {
         if (resolved.source === 'd-table') {
           const dStr = String(resolved.dNumber).padStart(2, '0');
           warn.info(
-            `G12/G13: tool radius ${pocketRadius.toFixed(4)} from D${dStr} (D-table)`,
+            `G12/G13: The tool radius is ${pocketRadius.toFixed(4)}, taken from D${dStr} (D-table).`,
             ins.lineIndex
           );
         } else if (resolved.source === 'default-fallback') {
           const dStr = String(resolved.dNumber).padStart(2, '0');
           warn.warn(
-            `G12/G13: D${dStr} has no D-table entry — using default tool `
-            + `radius ${pocketRadius.toFixed(4)} from Ø input`,
+            `G12/G13: D${dStr} has no D-table entry, so the default tool `
+            + `radius ${pocketRadius.toFixed(4)} from the Ø input is used.`,
             ins.lineIndex
           );
         }
@@ -21010,7 +21010,7 @@ const Comp = (function () {
     }
 
     if (typeof gcode !== 'string' || gcode.length === 0) {
-      warn.err('Empty G-code input');
+      warn.err('The G-code input is empty.');
       const g = gcode || '';
       return {
         gcode: g, warnings: warn.list,
@@ -21019,7 +21019,7 @@ const Comp = (function () {
       };
     }
     if (!isFinite(toolRadius) || toolRadius <= 0) {
-      warn.err(`Tool radius (${toolRadius}) is invalid — compensation skipped`);
+      warn.err(`The tool radius (${toolRadius}) is invalid, so compensation was skipped.`);
       return {
         gcode: gcode, warnings: warn.list,
         hadCompensation: false, windowCount: 0, pocketCount: 0,
@@ -21037,7 +21037,7 @@ const Comp = (function () {
 
         if (has(41) || has(42)) compActive = true;
         if (compActive && has(40) && has(0)) {
-          warn.err('G40 detected in a G00 move', ins.lineIndex);
+          warn.err('G40 was found in a G00 move.', ins.lineIndex);
           return {
             gcode: '', warnings: warn.list,
             hadCompensation: false, windowCount: 0, pocketCount: 0,
@@ -21053,7 +21053,7 @@ const Comp = (function () {
     const pockets = collectPockets(instrs, toolRadius, resolveRadius, warn);
 
     if (windows.length === 0 && pockets.length === 0) {
-      warn.info('No G41/G42 or G12/G13 in program — output is identical to input');
+      warn.info('There is no G41, G42, G12 or G13 in the program, so the output is identical to the input.');
       return {
         gcode: gcode, warnings: warn.list,
         hadCompensation: false, windowCount: 0, pocketCount: 0,
@@ -21071,8 +21071,8 @@ const Comp = (function () {
 
       if (winRadius === 0) {
         warn.info(
-          `G41/G42 window using D${String(win.dNumber).padStart(2,'0')} → radius 0 `
-          + `(no compensation applied)`,
+          `The G41 or G42 window uses D${String(win.dNumber).padStart(2,'0')}, which gives radius 0, `
+          + `so no compensation is applied.`,
           win.startIndex
         );
 
@@ -21535,7 +21535,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bar.querySelectorAll("[data-quality]").forEach(x =>
       x.classList.toggle("on", x.dataset.quality === Quality.mode));
     if (typeof showToast === "function") {
-      showToast("Graphics set to " + Quality.mode,
+      showToast("Graphics set to " + Quality.mode + " detail",
         Quality.mode === "auto"
           ? "The picture sharpens and softens on its own to hold a steady frame rate."
           : Quality.mode === "low"
@@ -24718,7 +24718,7 @@ function simSeekToTime(t) {
   const wasStop = stopHud.dataset.on === '1';
   if (stopType) {
     stopHud.className = stopType === 'm00' ? 'stop-m00' : 'stop-m01';
-    stopHud.textContent = stopType === 'm00' ? '⏹ PROGRAM STOP — M00' : '⏸ OPTIONAL STOP — M01';
+    stopHud.textContent = stopType === 'm00' ? 'Program stop (M00)' : 'Optional stop (M01)';
     clearTimeout(stopHud._leave);
     stopHud.style.display = 'flex';
     stopHud.dataset.on = '1';
@@ -25956,7 +25956,7 @@ function paintTravelStats(segsIn) {
 }
 
 function setStatus(moves, err) {
-  editorStatus.textContent = err ? 'error' : moves+' moves';
+  editorStatus.textContent = err ? 'Error' : moves + (moves === 1 ? ' move' : ' moves');
   editorStatus.className   = err ? 'err' : 'ok';
   syncEmptyState(!err && !moves);
 }
@@ -26003,7 +26003,7 @@ function loadGCode(text) {
   else simSeekToTime(0);
 
   if (allSegments.length) showToast('Program loaded',
-    allSegments.length.toLocaleString() + ' moves read, rewound to the first line and ready to run.');
+    allSegments.length.toLocaleString() + (allSegments.length === 1 ? ' move was' : ' moves were') + ' read. The program is rewound to the first line and ready to run.');
 }
 
 const DRILL_DEMO_GCODE = `%
@@ -26561,7 +26561,7 @@ document.getElementById('btn-load-probe').addEventListener('click', () => {
   });
   rewindSimToStart();
   showToast('Probe touch-off demo loaded',
-    'Five G31 skip moves find a 3 × 3 × 1 block — four sides for X and Y centre, one down the middle for Z. T20 is a Ø6 mm ruby probe, and nothing is cut.');
+    'Five G31 skip moves find a 3 × 3 × 1 in block: four sides for the X and Y center and one down the middle for Z. T20 is a Ø0.236 in (6 mm) ruby probe, and nothing is cut.');
 });
 
 document.getElementById('btn-load-pocket-g12').addEventListener('click', () => {
@@ -26580,7 +26580,7 @@ document.getElementById('btn-load-combo').addEventListener('click', () => {
   loadComboTools();
   rewindSimToStart();
   showToast('Full part loaded',
-    'Face, outside contour, slot, pocket, spot, drill and tap on a 5 × 4 × 1 aluminum block, with six tools in holders.');
+    'Face, outside contour, slot, pocket, spot, drill and tap on a 5 × 4 × 1 in aluminum block, with six tools in holders.');
 });
 
 </script>
@@ -27228,10 +27228,10 @@ function stepNextOp() {
   const st = stops[at];
   simSeekToTime(st.tEnd);
   simPlaying = true;                 /* Next op carries on running from the stop */
-  const what = st.tool && st.up ? 'rapid up + tool change' : st.tool ? 'tool change' : 'rapid up';
+  const what = st.tool && st.up ? 'rapid up and tool change' : st.tool ? 'tool change' : 'rapid up';
   const tool = st.tool ? (st.from != null ? ' \u00B7 T' + st.from + ' \u2192 T' + st.to : (st.to != null ? ' \u00B7 T' + st.to : '')) : '';
   showToast('Next op ' + (at + 1) + ' of ' + stops.length,
-    what + tool + ' \u00B7 line ' + (st.line + 1));
+    what.charAt(0).toUpperCase() + what.slice(1) + tool.replace(' \u00B7 T', ', T') + ', at line ' + (st.line + 1) + '.');
   if (typeof PlaybackUI !== 'undefined' && PlaybackUI.refresh) PlaybackUI.refresh();
 }
 
@@ -27318,8 +27318,8 @@ btnSingleBlock.addEventListener('click', () => {
   showToast(singleBlockMode ? 'Single block on' : 'Single block off',
     singleBlockMode
       ? (singleBlockTravels()
-          ? 'One press, one line — every line, including the ones that move nothing. A line with a move in it runs at its programmed feed and stops at the end of it.'
-          : 'One press, one line — every line, including the ones that move nothing. A line with a move in it lands the cutter on the end of it.')
+          ? 'One press runs one line, including the ones that move nothing. A line with a move in it runs at its programmed feed and stops at the end of it.'
+          : 'One press runs one line, including the ones that move nothing. A line with a move in it lands the cutter on the end of it.')
       : 'Play runs the program straight through again.');
 });
 
@@ -27676,8 +27676,8 @@ document.getElementById('btn-rotate-path').addEventListener('click', () => {
   document.getElementById('iso-rotate-track').classList.toggle('on', isoRotateWithPath);
   document.getElementById('btn-rotate-path').classList.toggle('active', isoRotateWithPath);
   showToast(isoRotateWithPath
-    ? 'Rotate with path ON — The camera swings with the cut.'
-    : 'Rotate with path OFF — The camera keeps its bearing.');
+    ? 'Rotate with path on — The camera swings with the cut.'
+    : 'Rotate with path off — The camera keeps its bearing.');
 });
 
 /* showToast now lives in js/toast.js, which loads before anything calls it. */
@@ -32500,7 +32500,7 @@ function bindPanel() {
     if (res.tools.length) {
       say("Reading " + res.tools.map(t => "T" + t.number).join(", ") + (res.plain ? " from your words." : "."), "ok");
     } else if (res.failed.length) say(res.failed[0], "warn");
-    else say("Keep typing — e.g. T1, 1/2 endmill 4 flute, or TOOL 1, endmill flat, dia 0.5", "");
+    else say("Keep typing, for example: T1, 1/2 endmill 4 flute, or TOOL 1, endmill flat, dia 0.5.", "");
   };
   field.addEventListener("input", debounce(live, 350));
   field.addEventListener("paste", () => setTimeout(live, 30));
@@ -32624,7 +32624,7 @@ document.addEventListener("toollib:loaded", e => {
       ok++;
     } catch (err) {   }
   });
-  if (ok) { renderList(); say(`Built ${ok} tool model(s) from the dropped file.`, "ok"); refresh(); }
+  if (ok) { renderList(); say(`Built ${ok} tool model${ok === 1 ? "" : "s"} from the dropped file.`, "ok"); refresh(); }
 });
 
 /* The samples shelf: one click builds the cutter against the T number the
@@ -35829,7 +35829,7 @@ const Snap = (() => {
       Panel.refresh();
       if (typeof MakeProgram !== "undefined" && MakeProgram.paintOrigin) MakeProgram.paintOrigin();
       showToast("Work zero set",
-        "Zero is on the " + hit.note + ". Nothing moved — the program came to it.");
+        "Zero is on the " + hit.note + ". Nothing moved, because the program came to it.");
       return true;
     }
 
@@ -35959,7 +35959,7 @@ const Panel = (() => {
           if (!built) return;
           const p = Store.add(built, s.name);
           say(`${s.name} added — ${p.tris.toLocaleString()} triangles`
-            + (p.members.length ? `, ${p.members.length} moving part` : ""), "ok");
+            + (p.members.length ? `, ${p.members.length} moving part${p.members.length === 1 ? "" : "s"}` : "") + ".", "ok");
           refresh(); fit();
         },
       },
@@ -35980,7 +35980,7 @@ const Panel = (() => {
           if (!p) return;
           const s = Samples.get(key);
           say(`${s.name} added — ${p.tris.toLocaleString()} triangles`
-            + (p.members.length ? `, ${p.members.length} moving part` : ""), "ok");
+            + (p.members.length ? `, ${p.members.length} moving part${p.members.length === 1 ? "" : "s"}` : "") + ".", "ok");
           refresh(); fit();
         },
       },
@@ -37117,7 +37117,7 @@ M30
 
     StockSim.reset(false);
     simSeekToTime(0);
-    say(`${j.name} loaded — Stock, vise, tools and program. Press play.`, "ok");
+    say(`${j.name} loaded — The stock, vise, tools and program are in. Press play.`, "ok");
     refresh(); home();
   }
 
@@ -37147,12 +37147,12 @@ M30
     if (target !== "base" && zeroOnPick()) Store.sendZeroToMachineZero(p);
     refresh();
     toast((target === "base" ? "Base point" : target === "zero" ? "Work zero" : "Base and zero")
-      + " set — " + map[3]);
+      + " set — " + map[3] + (/[.!?]$/.test(map[3]) ? "" : "."));
   }
 
   async function intake(files) {
     const wanted = files.filter(f => Loaders.ACCEPTS.test(f.name));
-    if (!wanted.length) { say("Nothing there I can read — STEP, STL, OBJ, IGES or BREP.", "warn"); return; }
+    if (!wanted.length) { say("Nothing there could be read — Use a STEP, STL, OBJ, IGES or BREP file.", "warn"); return; }
     for (const f of wanted) {
       say(`Reading ${f.name}…`);
       try {
@@ -38268,7 +38268,7 @@ const Gizmo = (() => {
 
     if (!quiet) {
       setGroup([par], par);
-      toast(`Parallels banked on ${v.name} — ${fmtNum(toDisp(jaw.value))} ${uLabel()} apart.`);
+      showToast("Parallels banked", `They follow ${v.name}, and the jaws are ${fmtNum(toDisp(jaw.value))} ${uLabel()} apart.`);
     }
     return true;
   }
@@ -38318,7 +38318,7 @@ const Gizmo = (() => {
 
   function alignStockInVise(where, quiet) {
     const s = findStock(), v = findVise(), par = findPars();
-    if (!s) { if (!quiet) toast("Add a billet first."); return false; }
+    if (!s) { if (!quiet) toast("Add a blank first."); return false; }
     if (!v && !par) { if (!quiet) toast("Add a vise or a pair of parallels first."); return false; }
     const jaw = v && jawOf(v);
 
@@ -38328,9 +38328,9 @@ const Gizmo = (() => {
     if (jaw && jaw.fixedFace != null) {
       const want = boxInFrame(s, v).size.x;
       if (want > jaw.max + 1e-6) {
-        showToast("That billet is too wide for the vise",
+        showToast("That blank is too wide for the vise",
         `It measures ${fmtNum(toDisp(want))} ${uLabel()} across, and ${v.name} only opens to ` +
-        `${fmtNum(toDisp(jaw.max))}.`);
+        `${fmtNum(toDisp(jaw.max))} ${uLabel()}.`);
         return false;
       }
 
@@ -38380,8 +38380,9 @@ const Gizmo = (() => {
     setGroup([s], s);
     if (quiet) return true;
     const over = b.size.y - span;
-    showToast(`${s.name} set ${where === "center" ? "centered" : "hard " + where}`,
-      `It is on ${onBars ? "the parallels" : v.name}` +
+    showToast((() => { const nm = String(s.name || "Blank").replace(/^Stock\s*[\u00B7\-\u2013\u2014]\s*/, ""); return nm.charAt(0).toUpperCase() + nm.slice(1); })()
+      + ` set ${where === "center" ? "centered" : "hard " + where}`,
+      `It sits on ${onBars ? "the parallels" : v.name}` +
       (jaw ? `, with the jaws ${fmtNum(toDisp(jaw.value))} ${uLabel()} apart` : "") +
       (banked ? ", and the parallels followed it" : "") +
       (over > 1e-6 ? `. It overhangs by ${fmtNum(toDisp(over))} ${uLabel()}` : "") + ".");
@@ -38396,7 +38397,7 @@ const Gizmo = (() => {
     align = { stage: 1, anchor: null };
     Snap.arm(true);
     paint();
-    toast("Align — Pick the point ON THE SELECTION to move from.");
+    toast("Align — Pick the point on the selection to move from.");
   }
   function alignCancel() {
     if (!align) return;
@@ -38408,7 +38409,7 @@ const Gizmo = (() => {
     if (!align) return false;
     if (align.stage === 1) {
       if (!inGroup(hit.part)) {
-        toast("That is not part of the selection — Pick the anchor on what you are moving.");
+        toast("That is not part of the selection — Pick the anchor on the part you are moving.");
         return "keep";
       }
       align.anchor = hit.world.clone();
@@ -38814,7 +38815,7 @@ const MakeProgram = (() => {
     Panel.home();
 
     if (typeof ViewMode !== "undefined") ViewMode.set("sim");
-    toast(`${s.name} — ${s.note}. Sim mode, press play.`);
+    toast(`${s.name} — ${String(s.note).replace(/[.!?]+$/, "")}. Switched to sim mode, so press play to run it.`);
   }
 
   function wipe() {
@@ -39037,9 +39038,9 @@ const MakeProgram = (() => {
     paint();
     if (!quiet) {
       toast(ok
-        ? `Parallels aligned — ${fmt(toDisp(cfg.parT))} × ${fmt(toDisp(cfg.parH))} ${uLabel()}, `
+        ? `Parallels aligned — They are ${fmt(toDisp(cfg.parT))} × ${fmt(toDisp(cfg.parH))} ${uLabel()}, `
           + `flush end to end and banked on both jaw faces.`
-        : "Parallels re-cut — This vise does not say where its jaw faces are.");
+        : "Parallels re-cut — This vise does not say where its jaw faces are, so they were not aligned.");
     }
     return ok;
   }
@@ -39143,7 +39144,7 @@ const MakeProgram = (() => {
 
   function useCode(text, name) {
     if (typeof loadGCode !== "function") return;
-    if (!String(text || "").trim()) { say("Nothing to load — That is empty.", "mkp-scene-out"); return; }
+    if (!String(text || "").trim()) { say("Nothing to load — The program is empty.", "mkp-scene-out"); return; }
     loadGCode(text);
     applyTooling();
     if (typeof rewindSimToStart === "function") rewindSimToStart();
@@ -39408,7 +39409,7 @@ const MakeProgram = (() => {
       const paste = id("mkp-paste");
       if (paste) paste.value = "";
       wipe(); build(); paint();
-      toast("Started over — Empty machine, recommended setup.");
+      toast("Started over — The machine is empty and the recommended setup is back.");
     });
 
     const drop = id("mkp-drop"), file = id("mkp-file");
@@ -39486,7 +39487,7 @@ const MakeProgram = (() => {
       cfg.vise = b.dataset.mkpvise;
       buildFixture(); reseat(); paint();
       toast((Samples.get(cfg.vise) || {}).name +
-      " — Jaws closed on the blank, parallels banked.");
+      " — The jaws closed on the blank and the parallels followed.");
     });
     const pa = id("mkp-par-auto");
     if (pa) pa.addEventListener("change", () => {
@@ -39534,8 +39535,8 @@ const MakeProgram = (() => {
       if (rec) cfg.stock = REC_STOCK();
       buildStock(true); buildFixture(); reseat(); paint();
       toast(rec
-        ? "Recommended blank — 5 × 4 × 1 in 6061, back in the vise."
-        : "Custom blank — Shape, material and size land on it as you set them.");
+        ? "Recommended blank — The 5 × 4 × 1 in (127 × 101.6 × 25.4 mm) 6061 blank is back in the vise."
+        : "Custom blank — Shape, material and size change as you set them.");
     });
     const shape = id("mkp-stock-shape");
     if (shape) shape.addEventListener("click", e => {
@@ -39586,7 +39587,7 @@ const MakeProgram = (() => {
     if (sb) sb.addEventListener("click", () => {
 
       buildStock(true); buildFixture(); reseat(); paint();
-      toast("Fresh blank cut, jaws closed on it, parallels re-cut to suit.");
+      toast("Fresh blank — A new blank was cut, the jaws closed on it and the parallels were re-cut to suit.");
     });
 
     const pal = id("mkp-par-align");
@@ -39666,7 +39667,7 @@ const MakeProgram = (() => {
     cfg.useTable = !!(window.PartModels && window.PartModels.bodyOf("table"));
     buildFixture(); reseat(); paint();
     toast((Samples.get(cfg.vise) || {}).name +
-      " — Jaws closed on the blank, parallels banked.");
+      " — The jaws closed on the blank and the parallels followed.");
     return true;
   }
 
@@ -40121,7 +40122,7 @@ window.JawClear = (function () {
       field.value = fmt(disp(v));
       field.dispatchEvent(new Event("change", { bubbles: true }));
       if (!quiet && typeof showToast === "function") {
-        showToast("Blank re-cut", "Now " + fmt(disp(v)) + " " + uLab() + " tall, stood back down on the parallels.");
+        showToast("Blank re-cut", "It is now " + fmt(disp(v)) + " " + uLab() + " tall and stands back down on the parallels.");
       }
       return true;
     }
@@ -40135,7 +40136,7 @@ window.JawClear = (function () {
       }
     } catch (e) { console.warn("[JawClear] blank:", e); return false; }
     if (!quiet && typeof showToast === "function") {
-      showToast("Blank re-cut", "Now " + fmt(disp(v)) + " " + uLab() + " tall, stood back down on the parallels.");
+      showToast("Blank re-cut", "It is now " + fmt(disp(v)) + " " + uLab() + " tall and stands back down on the parallels.");
     }
     return true;
   }
@@ -40151,7 +40152,7 @@ window.JawClear = (function () {
     f.setParallels({ h: Math.max(mm, 2) });
     if (typeof FixturePanel !== "undefined" && FixturePanel.paint) FixturePanel.paint();
     if (!quiet && typeof showToast === "function") {
-      showToast("Parallels re-cut", fmt(disp(mm)) + " " + uLab() + " tall — the blank came up with them.");
+      showToast("Parallels re-cut", "They are now " + fmt(disp(mm)) + " " + uLab() + " tall, and the blank came up with them.");
     }
     return true;
   }
@@ -40267,7 +40268,7 @@ window.JawClear = (function () {
       inst.dirty = false;
       paint(true);
       if (typeof showToast === "function") {
-        showToast("Put back", "The parallels and the blank are the sizes they were when you opened this.");
+        showToast("Put back", "The parallels and the blank are the sizes they were when you opened this panel.");
       }
       if (inst.onChange) inst.onChange(false);
     }
@@ -41637,7 +41638,7 @@ window.JawClear = (function () {
     mark("origin");
     if (typeof showToast === "function") {
       showToast("Work zero set",
-        "Zero is now on the " + featureNote(f) + ". Nothing moved — the program came to it.");
+        "Zero is now on the " + featureNote(f) + ". Nothing moved, because the program came to it.");
     }
   }
 
@@ -44074,12 +44075,12 @@ window.JawClear = (function () {
 
   const COPY = {
     model: {
-      main: "You are in <span class=\"vms-mode\">model mode</span> and can select, move, rotate, scale and delete things",
-      sub: "Change to sim mode to run and edit the program",
+      main: "You are in <span class=\"vms-mode\">model mode</span> and can select, move, rotate, scale and delete things.",
+      sub: "Change to sim mode to run and edit the program.",
     },
     sim: {
-      main: "You are in <span class=\"vms-mode\">sim mode</span> and can only run/edit programs",
-      sub: "Change to model mode to move things around",
+      main: "You are in <span class=\"vms-mode\">sim mode</span> and can only run and edit programs.",
+      sub: "Change to model mode to move things around.",
     },
   };
 
@@ -58902,7 +58903,7 @@ window.HAAS_LATHE_CODES = {
     st.layout = k;
     save(); crossfade(refresh);
     if (typeof showToast === "function") {
-      showToast(LAYOUTS[k].name + " layout", camsFor(k).map(c => CAMS[c].name).join(" · "));
+      showToast(LAYOUTS[k].name + " layout", "Cameras: " + camsFor(k).map(c => CAMS[c].name).join(", ") + ".");
     }
   }
 
@@ -64917,7 +64918,7 @@ const HaasSamples = (function () {
     loadSampleStock('fullPart');
     sm.tools.forEach(t => setSampleTool(t[0], t[1], t[2], t[3]));
     rewindSimToStart();
-    showToast(sm.name, sm.desc + '. Haas program, 5 \u00D7 4 \u00D7 1 aluminum, zero at the top near-left corner.');
+    showToast(sm.name, String(sm.desc).replace(/[.!?]+$/, '') + '. It is a Haas program for a 5 \u00D7 4 \u00D7 1 in aluminum block, with zero at the top near-left corner.');
   }
   window.loadHaasSample = id => { const sm = L.find(x => x.id === id); if (sm) loadHaas(sm); return !!sm; };
 })();
