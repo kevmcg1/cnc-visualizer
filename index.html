@@ -18167,6 +18167,10 @@ window.__builderURL=function(role){var t=document.getElementById("builder-src").
 
 <div id="site-header" class="title-strip">
   <a href="https://kevmcg1.github.io" target="_blank" rel="noopener" aria-label="kevmcg1.github.io"><span>KEVMCG1.GITHUB.IO</span></a>
+  <button type="button" id="wipe-data" aria-label="Wipe data: hold for 3 seconds to erase everything saved on this computer" title="Hold for 3 seconds to erase all saved data (program, tools, setup, settings). Space or Enter held works too.">
+    <span class="wd-fill" aria-hidden="true"></span>
+    <i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="wd-label">Wipe data</span>
+  </button>
 </div>
 <div id="app">
 
@@ -38847,10 +38851,11 @@ const MakeProgram = (() => {
     Snap.arm(false);
     paint();
     if (skipSave) {
-      toast("Left build mode — The page will open empty next time.");
+      toast("Left build mode — Your previously saved setup is untouched.");
       return;
     }
-    toast("Left build mode — The setup you built stays in the scene. The page always opens empty.");
+    save();
+    toast("Left build mode — This setup is saved on this computer and comes back next time.");
   }
 
   const STORE_KEY = "gcodeviz.defaultSetup.v1";
@@ -38888,9 +38893,9 @@ const MakeProgram = (() => {
     } catch (e) { return null; }
   }
 
-  function forget() {
-    try { localStorage.removeItem(STORE_KEY); } catch (e) {   }
-  }
+  /* Saved work is only ever erased by the Wipe data button (hold 3 s) or by the
+     browser clearing site data. Nothing else in the app may remove it. */
+  function forget() {}
 
   function restore(doc) {
     if (!doc) return false;
@@ -39644,7 +39649,12 @@ const MakeProgram = (() => {
   }
 
   /* The page opens empty. A setup saved by an older version is cleared, never restored. */
-  function bootDefault() { forget(); return false; }
+  function bootDefault() {
+    const doc = stored();
+    if (!doc) return false;
+    try { return restore(doc); }
+    catch (e) { console.warn("[MakeProgram] saved setup would not load; it is kept untouched:", e); return false; }
+  }
 
   /* Used by the Fixture sidebar category, which works whether or not build
      mode is on. Swapping the vise re-cuts the whole fixture; everything else
@@ -40613,7 +40623,7 @@ window.JawClear = (function () {
 
   const KEY = "gcodeviz.session.v1";
   const SAVE_AFTER = 700;
-  let timer = null, restoring = false;
+  let timer = null, restoring = false, wiping = false;
 
   function snapshot() {
     const doc = { v: 1, at: Date.now() };
@@ -40643,7 +40653,11 @@ window.JawClear = (function () {
 
   /* Nothing is kept between visits: the page always opens empty, so there is
      nothing to save and nothing to restore. */
-  function save() {}
+  function save() {
+    if (restoring || wiping) return;
+    try { localStorage.setItem(KEY, JSON.stringify(snapshot())); }
+    catch (e) { console.warn("[Session] could not save:", e.message); }
+  }
 
   const nudge = () => { clearTimeout(timer); timer = setTimeout(save, SAVE_AFTER); };
   window.SessionSave = nudge;
@@ -40713,12 +40727,14 @@ window.JawClear = (function () {
     return true;
   }
 
+  /* The one way the app erases user data: everything this site keeps in the browser. */
   function wipe() {
+    wiping = true;
+    clearTimeout(timer);
+    try { localStorage.clear(); } catch (e) {   }
+    try { sessionStorage.clear(); } catch (e) {   }
     try {
-      localStorage.removeItem(KEY);
-      localStorage.removeItem("gcodeviz.tokenColors.v1");
-      localStorage.removeItem("gcodeviz.defaultSetup.v1");
-      localStorage.removeItem("gcodeviz.prefs.v1");
+      if (indexedDB && indexedDB.databases) indexedDB.databases().then(l => l.forEach(d => { try { indexedDB.deleteDatabase(d.name); } catch (e) {} }));
     } catch (e) {   }
   }
 
@@ -40737,9 +40753,10 @@ window.JawClear = (function () {
     window.addEventListener("beforeunload", save);
 
     /* Restore after everything has had a chance to register itself. */
-    /* Drop anything an older version left behind. */
-    try { localStorage.removeItem(KEY); localStorage.removeItem("gcodeviz.defaultSetup.v1"); } catch (e) {   }
     requestAnimationFrame(() => requestAnimationFrame(() => {
+      /* First visit: nothing stored, so the page stays empty. */
+      try { if (window.PartModels && window.PartModels.bootDefault) window.PartModels.bootDefault(); } catch (e) { console.warn("[Session] setup:", e); }
+      restore();
 
       /* Start-up is a race between a dozen modules, and whichever of them
          registers last — a tool model, a tool shape, a stock rebuild — does
@@ -42824,8 +42841,8 @@ window.JawClear = (function () {
         </button>
         <button type="button" class="gd-wipe" id="gd-wipe">
           <span class="gd-wipe-fill" aria-hidden="true"></span>
-          <span class="gd-b-t gd-wipe-label">Hold to throw it all away</span>
-          <span class="gd-b-d">Everything here is deleted, and the page goes back to empty.</span>
+          <span class="gd-b-t gd-wipe-label">Hold to clear the screen</span>
+          <span class="gd-b-d">Clears the screen. Your saved setup on this computer is untouched.</span>
         </button>
       </div>`;
 
@@ -43506,8 +43523,9 @@ window.JawClear = (function () {
         The program, the tool diameters, the offsets, the tool models and these
         settings are kept on this computer so they're still here next time. They
         never leave your machine — there's no account and nothing is uploaded.
-      </div>
-      <button type="button" class="set-reset set-danger" id="set-wipe">Wipe all</button>`;
+        They are only lost if you clear your browser's site data, or hold the
+        <b>Wipe data</b> button at the top right for 3 seconds.
+      </div>`;
   }
 
   function colorsHtml() {
@@ -43583,21 +43601,6 @@ window.JawClear = (function () {
         applyColors();
         paint();
         return;
-      }
-
-      if (e.target.closest("#set-wipe") && window.ConfirmBox) {
-        window.ConfirmBox.ask({
-          title: "Wipe everything?",
-          body: "This clears the program, the tool table, the offsets, the tool " +
-                "models, the saved setup and these settings from this computer. " +
-                "It cannot be undone.",
-          yes: "Wipe all",
-          no: "Keep my work",
-          onYes: () => {
-            if (window.Session) window.Session.wipe();
-            location.reload();
-          },
-        });
       }
     });
 
@@ -68521,6 +68524,69 @@ ${f.replay ? '<code>Replay: ' + esc(f.replay) + '</code>' : ''}${f.html ? '<code
     const t = e.target; if (t && t.nodeType === 1 && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
     e.preventDefault(); e.stopPropagation(); ui.toggle();
   }, true);
+})();
+</script>
+<style id="wipe-data-css">
+#site-header #wipe-data{position:absolute;top:6px;right:12px;z-index:5;display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;font:600 11px/1 Inter,system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#d8d8dc;background:transparent;border:1px solid #44444b;border-radius:4px;cursor:pointer;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent;transition:color .25s ease,border-color .25s ease,box-shadow .25s ease}
+#site-header #wipe-data:hover,#site-header #wipe-data:focus-visible{color:#fff;border-color:#e5484d;outline:none}
+#site-header #wipe-data:focus-visible{box-shadow:0 0 0 2px rgba(229,72,77,.35)}
+#site-header #wipe-data .wd-fill{position:absolute;left:0;top:0;bottom:0;width:100%;background:rgba(229,72,77,.38);transform:scaleX(0);transform-origin:left;will-change:transform;pointer-events:none}
+#site-header #wipe-data.is-holding{color:#fff;border-color:#e5484d}
+#site-header #wipe-data i,#site-header #wipe-data .wd-label{position:relative;pointer-events:none}
+@media (max-width:640px){#site-header #wipe-data{right:8px;padding:0 9px}#site-header #wipe-data .wd-label{display:none}#site-header #wipe-data.is-holding .wd-label{display:inline}}
+@media (prefers-reduced-motion:reduce){#site-header #wipe-data{transition:none}}
+</style>
+<script>
+/* Wipe data: the only in-app way to erase saved work. Hold 3 s (pointer, or
+   Space/Enter on the keyboard); letting go early cancels with no change. */
+(function () {
+  "use strict";
+  var btn = document.getElementById("wipe-data");
+  if (!btn) return;
+  var fill = btn.querySelector(".wd-fill"), label = btn.querySelector(".wd-label");
+  var HOLD = 3000, idle = label.textContent, t0 = 0, raf = 0, done = false;
+  function reset() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0; t0 = 0;
+    btn.classList.remove("is-holding");
+    fill.style.transform = "scaleX(0)";
+    label.textContent = idle;
+  }
+  function step(now) {
+    var k = Math.min((now - t0) / HOLD, 1);
+    fill.style.transform = "scaleX(" + k.toFixed(4) + ")";
+    label.textContent = "Hold " + Math.max(1, Math.ceil((HOLD / 1000) * (1 - k))) + "s";
+    if (k < 1) { raf = requestAnimationFrame(step); return; }
+    finish();
+  }
+  function start() {
+    if (done || t0) return;
+    t0 = performance.now();
+    btn.classList.add("is-holding");
+    raf = requestAnimationFrame(step);
+  }
+  function finish() {
+    if (done) return;
+    done = true; reset();
+    if (window.Session && window.Session.wipe) window.Session.wipe();
+    else { try { localStorage.clear(); sessionStorage.clear(); } catch (e) {} }
+    setTimeout(function () { location.reload(); }, 150);
+  }
+  btn.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch (err) {}
+    start();
+  });
+  ["pointerup", "pointercancel", "pointerleave", "lostpointercapture"].forEach(function (t) { btn.addEventListener(t, reset); });
+  window.addEventListener("blur", reset);
+  btn.addEventListener("keydown", function (e) {
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (!e.repeat) start(); }
+  });
+  btn.addEventListener("keyup", function (e) { if (e.key === " " || e.key === "Enter") reset(); });
+  btn.addEventListener("blur", reset);
+  btn.addEventListener("click", function (e) { e.preventDefault(); });
+  btn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
 })();
 </script>
 </body>
